@@ -18,12 +18,10 @@
 <rect x="12" y="70" width="76" height="4" rx="2" fill="#478c4b"/>
 <path d="M12 108H88V112C88 116.4 84.4 120 80 120H20C15.6 120 12 116.4 12 112Z" fill="#1b5e20"/>
 <rect x="22" y="82" width="30" height="18" rx="3" fill="#1b5e20"/>
-<circle cx="29" cy="91" r="3" fill="#f5f1e6"/><path d="M29 91V88.5" stroke="#3a3a3a" stroke-width="1"/>
-<circle cx="38" cy="91" r="3" fill="#f5f1e6"/><path d="M38 91L40 89.5" stroke="#3a3a3a" stroke-width="1"/>
+<circle cx="29" cy="91" r="3" fill="#f5f1e6"/><path d="M29 91V88.5" stroke="#1b5e20" stroke-width="1"/>
+<circle cx="38" cy="91" r="3" fill="#f5f1e6"/><path d="M38 91L40 89.5" stroke="#1b5e20" stroke-width="1"/>
 <circle cx="45" cy="86.5" r="1.2" fill="#8fcf8a"/><circle cx="45" cy="91" r="1.2" fill="#f2dd4b"/><circle cx="45" cy="95.5" r="1.2" fill="#e0533f"/>
 <circle cx="66" cy="96" r="7" fill="#1b5e20"/><path d="M62 96H70M66 92V100" stroke="#2e7d32" stroke-width="1.2"/>
 <circle cx="24" cy="124" r="9" fill="#3a3a3a"/><circle cx="24" cy="124" r="3" fill="#8a8f96"/>
 <circle cx="76" cy="124" r="9" fill="#3a3a3a"/><circle cx="76" cy="124" r="3" fill="#8a8f96"/>
-<path d="M82 31L74 39M86 34L79 41M80 27L73 33" stroke="#ffffff" stroke-width="1.5" stroke-linecap="round" stroke-opacity="0.8"/>
-<circle cx="90" cy="22" r="5" fill="#f2dd4b"/><circle cx="88.5" cy="20.5" r="0.5" fill="#c9b52e"/><circle cx="91.5" cy="21" r="0.5" fill="#c9b52e"/><circle cx="90" cy="24.5" r="0.5" fill="#c9b52e"/>
 </svg>

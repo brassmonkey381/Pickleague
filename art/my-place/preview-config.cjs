@@ -149,7 +149,10 @@ const avatar =
   '<rect x="24" y="34" width="32" height="34" rx="10" fill="#2e7d32"/>' +
   '<circle cx="40" cy="20" r="13" fill="#e8b98f"/><path d="M27 18a13 13 0 0 1 26 0z" fill="#1b5e20"/>' +
   '<rect x="54" y="38" width="7" height="22" rx="3.5" fill="#e8b98f"/>' +
-  '<rect x="55" y="56" width="5" height="10" rx="2" fill="#8a6f55"/><ellipse cx="57.5" cy="74" rx="9" ry="11" fill="#e0533f"/></svg>';
+  // A pickleball paddle, not a round table-tennis bat: a long flat face (1.35 : 1) on a short handle.
+  '<rect x="55.5" y="56" width="4" height="7" rx="1.5" fill="#1b5e20"/>' +
+  '<rect x="51.5" y="62" width="12" height="16.2" rx="3.6" fill="#e0533f" stroke="#a83b2c" stroke-width="1"/>' +
+  '<rect x="52" y="64.4" width="11" height="1.6" fill="#ffffff"/></svg>';
 
 module.exports = {
   slots: [...(BOXES ? [] : tileSlots), ...slotDefs(cat)],

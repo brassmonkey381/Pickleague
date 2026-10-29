@@ -47,7 +47,7 @@
       "Furniture and corner (accent) art stands on the BOTTOM edge (y = H): feet or base touch y = H exactly.",
       "Wall and ceiling art hangs from the TOP edge: a hook, cord or the frame top touches y = 0.",
       "Pickleballs: a ball_yellow #f2dd4b circle with 3 to 7 holes as small circles in #c9b52e (ball_yellow darkened 18%), hole radius about 9% of the ball radius, holes spread evenly, never a smiley pattern.",
-      "Paddles: rounded rectangle face (width : height about 0.8 : 1, rx 30% of width) + a handle as long as 45% of the face height, grip in #3a3a3a or deep_green with 2 to 3 white 1-unit wrap lines, a 1.5 edge guard in the face colour darkened 25%.",
+      "Paddles: a long, flat rounded-rectangle face, taller than wide (height about 1.35 x width, rx 30% of width), and a short handle about 25% of the whole length (a third of the face height), fully inside the viewBox; tilt at most 15 degrees. Grip in deep_green #1b5e20 with 2 white 1-unit wrap lines, a 1.2 to 2 edge guard in the face colour darkened 25%, and a plain white edge-guard band across the face near its top (as in art_signed_paddle). Never a round or squarish face: that reads as a table-tennis bat, a die or a sign.",
       "Court lines are white #ffffff on court_green or court_blue."
     ],
     "do_not": [
@@ -64,7 +64,7 @@
     "how_they_render": "wallpaper and floor are backdrop slots: no box, the app's renderBackdrop paints them. A wallpaper item is a SEAMLESS square tile (aspect 1, viewBox 0 0 100 100) repeated across the wall band (y 0 to 0.62 of the scene) at about a quarter of the scene width per tile. A floor item is a SEAMLESS tile (aspect 2, viewBox 0 0 100 50) repeated across the floor band (0.62 to 1). Over both the app draws the kit's baseboard seam, floor shadow and vignette (art.ts buildBackdrop), so tiles stay flat. Seamless means: anything that leaves the right edge re-enters at the left at the same y, and the same for top / bottom; check by placing two tiles side by side and two stacked in preview.mjs --art.",
     "fallback": "Each backdrop item also carries backdrop_opts (the kit's RoomBackdropOptions fields) so phase 4 can draw it with buildBackdrop alone if tiling is not ready."
   },
-  "pricing_note": "Prices in pickles, from the live economy (supabase/migration_pickle_economy_guards.sql, migration_shop_reprice.sql, migration_add_login_streaks.sql). Earning: play pays 25 per game for up to 5 games a match (at most 125 a match), the play streak up to 200, new courts / badges 150 each, all under a 500 a day play cap; the daily login pays 10 plus streak milestones; a new account gets 1,000 welcome pickles. A regular player who plays one or two matches a day earns about 250 to 350 a day, a heavy player hits the 500 cap. The Shop's floor is 900 since the 2026-10-28 reprice (avatars 900 to 1,500, name colours 1,000 to 3,000, frames 2,000 to 4,000). So: COMMON 900 to 1,500 = about 3 to 5 days of regular play, the same band as the Shop's cheapest avatars, and the welcome bonus alone buys one. RARE 2,000 to 3,500 = 1 to 2 weeks, level with the Shop's mid frames. LEGENDARY 5,000 to 8,000 = 3 to 4 weeks for a regular player (10 to 16 days at the cap), above the priciest Shop frame (4,000) so they read as a goal, not an impulse buy. Starters are free (cost 0) and given once by claim_my_place_starter. Totals: 13 commons 14,400, 8 rares 21,500, 4 legendaries 26,500; the whole room is 62,400, about 6 to 7 months of regular play, so there is always a next thing to save for.",
+  "pricing_note": "Prices in pickles, from the live economy (supabase/migration_pickle_economy_guards.sql, migration_shop_reprice.sql, migration_add_login_streaks.sql). Earning: play pays 25 per game for up to 5 games a match (at most 125 a match), the play streak up to 200, new courts / badges 150 each, all under a 500 a day play cap; the daily login pays 10 plus streak milestones; a new account gets 1,000 welcome pickles. A regular player who plays one or two matches a day earns about 250 to 350 a day, a heavy player hits the 500 cap. The Shop's floor is 900 since the 2026-10-28 reprice (avatars 900 to 1,500, name colours 1,000 to 3,000, frames 2,000 to 4,000). So: COMMON 900 to 1,500 = about 3 to 5 days of regular play, the same band as the Shop's cheapest avatars, and the welcome bonus alone buys one. RARE 2,000 to 3,500 = 1 to 2 weeks, level with the Shop's mid frames. LEGENDARY 5,000 to 8,000 = 3 to 4 weeks for a regular player (10 to 16 days at the cap), above the priciest Shop frame (4,000) so they read as a goal, not an impulse buy. Starters are free (cost 0) and given once by claim_my_place_starter. Totals: 13 commons 14,400, 8 rares 21,500, 4 legendaries 24,000; the whole room is 59,900, about 6 to 7 months of regular play, so there is always a next thing to save for.",
   "slots": {
     "wallpaper": {
       "kind": "backdrop",
@@ -262,7 +262,7 @@
         "wallTop": "#e8f5e9",
         "wallBottom": "#d7ecd8"
       },
-      "brief": "Seamless 100x100 tile. Base fill #e8f5e9 (Pickleague primaryLight). A diamond net mesh: diagonal lines both ways every 20 units (lines from (0,0) to (100,100) and parallels offset by 20, plus the mirror set), stroke #8fcf8a width 1.5, so the mesh meets itself across all edges. Every 3rd crossing in a scattered but tile-safe set (4 per tile: (20,20) (60,40) (40,80) (80,60)) gets a tiny pickleball: circle r 3.2 #f2dd4b with 3 holes r 0.6 #c9b52e. Light and airy: lines at opacity 1, no other shading."
+      "brief": "Seamless 100x100 tile. Base fill #e8f5e9 (Pickleague primaryLight). A light diamond net mesh: diagonal lines both ways every 50 units (y = x and its parallels offset by 50, plus the mirror set x + y = 50, 100, 150), stroke #cfe8cc width 1, so the mesh meets itself across all edges and stays quiet behind wall items. One tiny pickleball per tile at the crossing (75,25): circle r 3.2 #f2dd4b with 3 holes r 0.6 #c9b52e. No other shading."
     },
     {
       "id": "wall_night_court",
@@ -279,7 +279,7 @@
         "wallTop": "#24334f",
         "wallBottom": "#2f4266"
       },
-      "brief": "Seamless 100x100 tile. Base fill #24334f (night navy). Under-the-lights evening mood: 7 stars as 4-point sparkles (two crossed thin rhombi, about 4 units across) in #f5f1e6 at opacity 0.85, plus 6 dot stars (r 0.8) #ffffff, scattered tile-safe. 2 small pickleballs (r 4, #f2dd4b, 4 holes #c9b52e) drifting like moons at (28,36) and (76,74), each with a faint flat halo circle r 7 #f2dd4b opacity 0.15. A single horizontal court-line band at y 92 to 94 in #5b8fd4 opacity 0.5 across the full width (reads as a stripe when tiled)."
+      "brief": "Seamless 100x100 tile. Base fill #24334f (night navy). Under-the-lights evening mood: 7 stars as 4-point sparkles (two crossed thin rhombi, about 4 units across) in #f5f1e6 at opacity 0.85, plus 6 dot stars (r 0.8) #ffffff, scattered tile-safe. 2 small pickleballs (r 4, #f2dd4b, 4 holes #c9b52e) drifting like moons at (28,36) and (74,63), each on a flat lighter-navy halo circle r 6.5 #34476b (no yellow tint, it turns olive on navy). Keep balls out of the bottom 15 units so the floor line never cuts one. No horizontal bands or stripes."
     },
     {
       "id": "floor_maple",
@@ -315,7 +315,7 @@
         "floorAccent": "#ffffff",
         "floorPattern": "plain"
       },
-      "brief": "Seamless 100x50 tile of a hard court. Base fill #5b8fd4. Fine acrylic grit: 10 dots r 0.5 in #6c9bd9 and 6 in #4f80c2 scattered tile-safe. One white #ffffff court line, width 2.5, running horizontally at y 18 across the full width (it becomes a continuous line across the room). A second, thinner white line width 1.5 at y 40, opacity 0.7. Nothing vertical, so tiling never shows a seam."
+      "brief": "Seamless 100x50 tile of a hard court. Base fill #5b8fd4. Fine acrylic grit: 10 dots r 0.5 in #6c9bd9 and 6 in #4f80c2 scattered tile-safe. One white #ffffff baseline, 2.5 tall, running horizontally at y 16.75 to 19.25 across the full width, and a white centreline piece 2.2 wide at x 50 running down from the baseline to the tile bottom (y 18 to 50), so the lines meet in a T like a court. No second horizontal line: two stripes read as a running track."
     },
     {
       "id": "floor_herringbone",
@@ -372,7 +372,7 @@
       "viewBox": "0 0 100 33.3",
       "icon": "🎾",
       "sort": 90,
-      "brief": "A rectangular mini pickleball court rug, front-on (the court's long side runs left to right). Rounded rect x 1 y 1 w 98 h 31.3 rx 3 fill #2e7d32 (border). Inner playing area rect x 5 y 4 w 90 h 25.3 rx 1.5 fill #5b8fd4. White #ffffff lines width 1.5: the outer boundary of the playing area (inset 1 unit); a centre net line x 50 from y 4 to 29.3 drawn as a dark band: rect x 49 w 2 fill #3a3a3a with white top tape 0.8; kitchen (non-volley zone) lines at x 36 and x 64 (14 units each side of the net); centre service lines y 16.65 from x 5 to 36 and x 64 to 95. Kitchen zones (x 36 to 49, 51 to 64) filled #4f80c2 for contrast. No players, no text."
+      "brief": "A mini pickleball court rug lying on the floor in light perspective (the court's long side runs left to right): every shape is a trapezoid whose top edge is about 85% of its bottom width, like the oval rugs sit in perspective. Green #2e7d32 border filling the box (soft corners), the blue #5b8fd4 playing area inset about 4 units, kitchen (non-volley zone) strips either side of the net filled #4f80c2. White #ffffff lines width 1.5: the playing-area boundary, the kitchen lines (14 units each side of the net) and the centre service lines from the kitchen lines to the baselines. The net is a white dashed line across the middle, fully inside the rug: no post, no dark band. No players, no text."
     },
     {
       "id": "window_classic",
@@ -398,7 +398,7 @@
       "viewBox": "0 0 100 111.1",
       "icon": "🌳",
       "sort": 110,
-      "brief": "Same frame, glass box, muntins and sill as Classic Window (identical coordinates so the set lines up), frame tinted warm: fill #f5f1e6 stroke #e2dccf. Through the glass, flat layered landscape: sky #bfe3f5 top 45%; a row of 3 round tree canopies (#8fcf8a, #7fae84) along the horizon at y 52; below them two outdoor courts seen from above-ish but drawn flat: green surround #2e7d32 band y 62 to 92, two blue court rectangles #5b8fd4 (x 16 to 46, 52 to 82, y 66 to 88) with white 1-unit boundary and centre net line, a tiny yellow ball dot r 1.2 #f2dd4b on the left court. Curtains: none. The muntin cross is drawn last, over the view."
+      "brief": "Same frame, glass box and sill as Classic Window (identical coordinates so the set lines up), frame tinted warm: fill #f5f1e6 stroke #e2dccf. The glazing is a transom: a horizontal bar at y 32 to 36 (lifted clear of the tree line) and a short vertical bar x 48 to 52 above it only, so the view below is one open pane. Through the glass: sky #bfe3f5, a row of round tree canopies (#8fcf8a, #7fae84) along the horizon at y 52, a green surround #2e7d32 from y 62 down, and ONE court in light perspective (far baseline at y 67 about 30 wide, near baseline at y 89 about 64 wide): blue #5b8fd4 with the kitchen band #4f80c2, a white 1-unit outline, a kitchen line each side of the net, a centreline from each baseline to its kitchen line, and the net as a 1.8 white line across the middle, a bit wider than the court. A tiny yellow ball r 1.3 #f2dd4b on the near side."
     },
     {
       "id": "art_tournament_poster",
@@ -450,7 +450,7 @@
       "viewBox": "0 0 100 80",
       "icon": "🏓",
       "sort": 150,
-      "brief": "A wooden wall board with pegs and two paddles hanging. Board rect x 4 y 4 w 92 h 14 rx 3 fill #b88a5a, top highlight 3 units #c99d64, 2 screw dots r 1.2 #8a6f55 at x 10 and 90. 3 pegs: small rects 4 x 6 rx 1 #8a6f55 at x 26, 50, 74 under the board (y 18 to 24). Two paddles hang upside-down by their handles from pegs 1 and 2 (handle up, face down, each slightly angled +-6 degrees): paddle A face #2e7d32 with a white diagonal stripe, paddle B face #5b8fd4 with a white dot pattern of 3 dots; faces about 30 w x 38 h, rx 9, bottom of faces at y 76. Peg 3 holds a mesh ball bag: a rounded triangle bag outline in #e2dccf width 1 with crosshatch lines, holding 3 pickleballs r 5. Hangs from y 0: the board touches y 4, add two short hanger lines from (20,0) and (80,0) to the board in #8a6f55 width 1.5."
+      "brief": "A wooden wall board with pegs and two paddles hanging. Board rect x 4 y 4 w 92 h 14 rx 3 fill #b88a5a, top highlight 3 units #c99d64, 2 screw dots r 1.2 #8a6f55 at x 10 and 90. 3 pegs: small rects 4 x 6 rx 1 #8a6f55 at x 26, 50, 74 under the board (y 18 to 24). Two paddles hang by their short handles from pegs 1 and 2 (handle up, face down, angled +-6 degrees): faces 25 w x 33.8 h (1.35 : 1), rx 7.5, paddle A #2e7d32, paddle B #5b8fd4, each with a highlight strip and a plain white edge-guard band near the face top (no dots, no slash); grips #1b5e20 with white wrap lines, about a third of the face long. Peg 3 holds a mesh ball bag: a rounded triangle bag outline in #e2dccf width 1 with crosshatch lines, holding 3 pickleballs r 5. Hangs from y 0: the board touches y 4, add two short hanger lines from (20,0) and (80,0) to the board in #8a6f55 width 1.5."
     },
     {
       "id": "rack_champion",
@@ -463,7 +463,7 @@
       "viewBox": "0 0 100 80",
       "icon": "👑",
       "sort": 160,
-      "brief": "A premium display rack: dark wood backboard rect x 2 y 2 w 96 h 76 rx 5 fill #8a6f55 with an inner panel rect inset 4 fill #6e5843 (dark wood darkened). Four paddles stand handle-down in a fan: two outer paddles tilted -20 and +20 degrees (faces #2e7d32 and #5b8fd4), two inner tilted -8 and +8 (#e0533f and #e0871e), each 22 w x 30 h faces, rx 7, with a white stripe. In the centre, in front, a GOLD paddle upright: face #d4a017, highlight band #e9c24a on its left third, edge guard #a27a10, grip #1b5e20 with white wrap lines; a 5-point star r 4 #ffffff on its face. Two small spotlights: rounded rects 8 x 4 #3a3a3a at the top corners pointing in, each with a flat light cone polygon #f2dd4b opacity 0.18 toward the gold paddle. Clearly the best rack in the game."
+      "brief": "A premium display rack: dark wood backboard rect x 2 y 2 w 96 h 76 rx 5 fill #8a6f55 with an inner panel rect inset 4 fill #6e5843. A fan of 5 paddles, handles toward a pivot below the centre (50,77), with at least a 2-unit gap between neighbours so each reads at about 65 px: outer pair at -50 / +50 degrees (faces 14 wide, #2e7d32 and #5b8fd4), inner pair at -25 / +25 (15.5 wide, #e0533f and #e0871e), and the GOLD paddle upright in the centre (19 wide, face #d4a017, highlight #e9c24a, edge guard #a27a10, a white 5-point star). All faces 1.35 : 1 with a white edge-guard band near the top and short #1b5e20 grips (a third of the face). A small gold nameplate rect under the fan. No light cones, no black parts. Clearly the best rack in the game."
     },
     {
       "id": "ceiling_string_lights",
@@ -476,7 +476,7 @@
       "viewBox": "0 0 100 25",
       "icon": "✨",
       "sort": 170,
-      "brief": "Fairy lights strung across the ceiling in three shallow swags. The wire starts at (0,1) and ends at (100,1); swags are quadratic curves dipping to y 12, 15, 12 with anchor points at x 33 and 67 (at y 2), stroke #3a3a3a width 0.8, fill none. 15 bulbs evenly along the wire: each a small rounded teardrop (ellipse rx 1.6 ry 2.2 hanging from the wire) with a 1-unit #8a6f55 cap; bulb colours repeat ball_yellow #f2dd4b, tangerine #e0871e, soft_green #8fcf8a, white #f5f1e6. Each bulb has a flat glow circle r 3.5 in its own colour at opacity 0.2. Two tiny paddle-shaped clips at the anchors (#2e7d32, 3 x 4)."
+      "brief": "Fairy lights strung across the ceiling in three shallow swags. The wire starts at (0,1) and ends at (100,1); swags are quadratic curves dipping to y 12, 15, 12 with anchor points at x 33 and 67 (at y 2), stroke #8a6f55 (dark_wood, never near-black) width 0.9, fill none. 15 bulbs evenly along the wire: each a small rounded teardrop (ellipse rx 1.6 ry 2.2 hanging from the wire) with a 1-unit #8a6f55 cap; bulb colours repeat ball_yellow #f2dd4b, tangerine #e0871e, soft_green #8fcf8a, white #f5f1e6. Each bulb has a flat glow circle r 3.5 in its own colour at opacity 0.2. Two tiny paddle-shaped clips at the anchors (#2e7d32, 3 x 4)."
     },
     {
       "id": "ceiling_ball_chandelier",
@@ -489,7 +489,7 @@
       "viewBox": "0 0 100 25",
       "icon": "🌟",
       "sort": 180,
-      "brief": "A chandelier made of glowing pickleballs, centred in the wide box (empty sides are fine). Ceiling cup: rounded rect x 44 y 0 w 12 h 2.5 rx 1 fill #d4a017. Three cords drop from the cup to different lengths (to y 9, 14, 19), plus two side cords angling to x 34 and x 66; cords #3a3a3a width 0.6. A thin gold ring (ellipse cx 50 cy 8 rx 15 ry 2, stroke #d4a017 width 1.2, fill none) joins them. Hanging from the ring and cords: 7 pickleballs r 2.6 to 3.4, fill #f2dd4b, 3 holes each #c9b52e, each with a flat glow circle r 5.5 #f2dd4b opacity 0.22 behind it, and a tiny white highlight dot r 0.6 upper left. Symmetric, festive, gold accents."
+      "brief": "A chandelier made of pickleballs, centred in the wide box (empty sides are fine), built to read at about 180 x 45 px. Ceiling cup: rounded rect x 43 y 0 w 14 h 3 rx 1.2 fill #d4a017. Three gold arms (#a27a10, width 2, round caps) from the cup to a gold ring (ellipse cx 50 cy 8.6 rx 25 ry 2.2, stroke #d4a017 width 2, fill none). From the ring, 5 short 2-unit gold drops to 5 pickleballs at x 26, 38, 50, 62, 74 (r 4.4, 4.7, 5.2, 4.7, 4.4; the centre one lowest), fill #f2dd4b, 3 holes each #c9b52e, a small white highlight dot upper left. No halos. Symmetric, festive, gold accents."
     },
     {
       "id": "shelf_oak",
@@ -541,13 +541,13 @@
       "viewBox": "0 0 100 100",
       "icon": "🌵",
       "sort": 220,
-      "brief": "A small round succulent in a terracotta pot. Pot: trapezoid from (28,62) (72,62) to (66,100) (34,100), corners softened, fill #c96f4a; rim rect x 24 y 56 w 52 h 10 rx 3 fill #d98563. Succulent rosette: 9 pointed leaves (rounded teardrops) fanning up from (50,58), outer ones #7fae84, inner ones #8fcf8a, centre bud #a9d1a5; leaf tips touched with a tiny #e0533f dot on 3 leaves (blush). A tiny pickleball r 6 tucked at the base right, half behind the pot rim. Height of the whole plant top at about y 18."
+      "brief": "A small round succulent in a terracotta pot. Pot: trapezoid from (28,62) (72,62) to (66,100) (34,100), corners softened, fill #c96f4a; rim rect x 24 y 56 w 52 h 10 rx 3 fill #d98563. Succulent rosette: 9 pointed leaves (rounded teardrops) fanning up from (50,58), outer ones #7fae84, inner ones #8fcf8a, centre bud #a9d1a5; leaf tips touched with a tiny #e0533f dot on 3 leaves (blush). No ball: the room has plenty. Height of the whole plant top at about y 18."
     },
     {
       "id": "item_champion_trophy",
       "name": "Champion Trophy",
       "fits": "shelf_item",
-      "cost": 7500,
+      "cost": 5000,
       "rarity": "legendary",
       "is_starter": false,
       "aspect": 1,
@@ -593,7 +593,7 @@
       "viewBox": "0 0 100 83.3",
       "icon": "🟡",
       "sort": 260,
-      "brief": "A round pickleball throw pillow, slightly squashed, sitting on the bottom edge. Body: ellipse cx 50 cy 44 rx 42 ry 38 fill #f2dd4b; a soft seam ring ellipse rx 40 ry 36 stroke #d9c43f width 1.5 fill none. Holes: 7 circles r 4 #c9b52e (one centre, six around at radius 22). Highlight: ellipse cx 36 cy 26 rx 12 ry 6 fill #f7e98a. A tiny flat contact squish: the bottom 4 units flattened (clip the ellipse to y 82)."
+      "brief": "A round pickleball throw pillow, fully inside the box with about 2 units of padding. Body: circle cx 50 cy 41.65 r 39.6 fill #f2dd4b; a soft seam ring r 36.6 stroke #d9c43f width 1.5 fill none. Holes: 7 circles r 3.8 #c9b52e (one centre, six around at radius 22). Highlight: ellipse cx 34 cy 22 rx 11 ry 5 rotated -30 fill #f7e98a."
     },
     {
       "id": "pillow_paddle",
@@ -606,7 +606,7 @@
       "viewBox": "0 0 100 83.3",
       "icon": "🏓",
       "sort": 270,
-      "brief": "A plush cushion shaped like a paddle, leaning at -15 degrees, its face resting on the bottom edge. Face: rounded rect 64 w x 70 h rx 22 fill #e0533f, edge piping stroke #a83b2c width 2, a white #ffffff stripe 8 wide across the face's upper third, 4 stitch dashes along the stripe in #f5f1e6. Handle: rounded rect 16 w x 22 h fill #3a3a3a with 2 white wrap lines, poking up and right out of the box's top-right. Keep the whole drawing inside the box (the handle may touch the top edge)."
+      "brief": "A plush cushion shaped like a paddle, face up, short handle down, tilted 12 degrees, centred in the box and fully inside it. Face: rounded rect 41 w x 55.4 h (1.35 : 1) rx 12.3 fill #e0533f, edge piping stroke #a83b2c width 2, a highlight strip #e46856 on its left, a white #ffffff edge-guard band near the top. Handle: rounded rect 9.8 w x 18.5 h (a third of the face, 25% of the whole length) fill #1b5e20 with 2 white wrap lines."
     },
     {
       "id": "accent_monstera",
@@ -619,7 +619,7 @@
       "viewBox": "0 0 100 133.3",
       "icon": "🪴",
       "sort": 280,
-      "brief": "A leafy monstera in a cream pot. Pot: rounded rect x 26 y 92 w 48 h 41 rx 6 fill #f5f1e6 stroke #e2dccf width 1.5, a court_green band rect y 100 to 106 #2e7d32 (Pickleague colour). Stems: 5 curving paths from (50,94) out to the leaves, stroke #1b5e20 width 2.5. Leaves: 5 big heart-ish monstera leaves (each a rounded heart path 30 to 40 wide) in #2e7d32 and #3f9a44, each with 2 to 3 notches drawn as thin #1b5e20 slits (lines width 1.5) from the edge inward (no cut-outs, no masks), plus a centre vein #1b5e20 width 1. Leaves reach the box top (y 4) and sides (x 2 and 98)."
+      "brief": "A leafy monstera in a cream pot. Pot: rounded rect x 26 y 92 w 48 h 41 rx 6 fill #f5f1e6 stroke #e2dccf width 1.5, a court_green band rect y 100 to 106 #2e7d32 (Pickleague colour). Stems: 5 curving paths from (50,94) out to the leaves, stroke #1b5e20 width 2.5. Leaves: 5 big heart-ish monstera leaves (each a rounded heart path 30 to 40 wide) in #2e7d32 and #3f9a44, each with 3 notches cut into each edge of the leaf outline itself (the outline steps in toward the midrib and back out, angled toward the tip; no masks), which is the split-leaf shape people know as monstera, plus a centre vein #1b5e20 width 1.5. Leaves reach the box top (y 4) and sides (x 2 and 98)."
     },
     {
       "id": "accent_ball_hopper",
@@ -645,7 +645,7 @@
       "viewBox": "0 0 100 133.3",
       "icon": "💡",
       "sort": 300,
-      "brief": "A cosy arc floor lamp leaning right (flip mirrors it in the second corner). Base: ellipse-ish rounded rect x 10 y 124 w 34 h 9 rx 4.5 fill #3a3a3a with top highlight #555555. Pole: a smooth arc path from (27,124) up to (40,14) and curving right to (78,20), stroke #8a6f55 width 3.5, round caps. Shade: a dome hanging from (78,20): path forming a half-ellipse 34 wide x 22 tall, fill #f5f1e6 stroke #e2dccf width 1.5, rim line #e0871e width 2. Bulb glow: a flat triangle-ish cone below the shade, polygon (64,42) (92,42) (100,80) (56,80), fill #f2dd4b opacity 0.18, and the bulb circle r 3 #fff6c2 under the shade."
+      "brief": "A cosy arc floor lamp leaning right (flip mirrors it in the second corner). Base: rounded rect x 10 y 124 w 34 h 9 rx 4.5 fill #6e5843 with top highlight #8a6f55. Pole: a smooth arc path from (27,124) up to about (33,26) and curving right to (55,21), stroke #8a6f55 width 3.5, round caps. Shade: a dome hanging from (55,21), x 39 to 70 (inside 0.7 of the box width, so the flipped lamp stays clear of the bookcase), fill #f5f1e6 stroke #e2dccf width 1.5, rim line #e0871e width 2, and the bulb circle r 3 #fff6c2 under the shade. No light cone."
     },
     {
       "id": "accent_ball_machine",
@@ -658,7 +658,7 @@
       "viewBox": "0 0 100 133.3",
       "icon": "🤖",
       "sort": 310,
-      "brief": "A pickleball launcher, the ultimate corner piece. Wheels: two circles r 9 at (24,124) and (76,124) fill #3a3a3a, hubs r 3 #8a8f96. Body: rounded box x 12 y 70 w 76 h 50 rx 8 fill #2e7d32, lower band y 108 to 120 #1b5e20, a control panel rect x 22 y 82 w 30 h 18 rx 3 fill #1b5e20 holding 2 knob circles r 3 #f5f1e6 and 3 tiny LED dots r 1.2 (#8fcf8a, #f2dd4b, #e0533f). Launch head: a rounded rect barrel angled up-right at -25 degrees from (60,74), 34 long x 14 wide, fill #e0871e with a dark mouth ellipse #3a3a3a at its end. Hopper on top: a trapezoid funnel x 18 to 58 at y 40 narrowing to x 28 to 48 at y 70, fill #bfe3f5 opacity 0.55 stroke #9cc8e0 width 1.5, full of 6 pickleballs r 6 (#f2dd4b, holes #c9b52e). One ball just fired: r 5 at (90,22) with 3 short white speed lines behind it (stroke #ffffff width 1.5, opacity 0.8). Telescoping handle at the back: line from (16,72) to (6,38) stroke #8a8f96 width 3 with grip #3a3a3a."
+      "brief": "A pickleball launcher, the ultimate corner piece. Wheels: two circles r 9 at (24,124) and (76,124) fill #3a3a3a, hubs r 3 #8a8f96. Body: rounded box x 12 y 70 w 76 h 50 rx 8 fill #2e7d32, lower band y 108 to 120 #1b5e20, a control panel rect x 22 y 82 w 30 h 18 rx 3 fill #1b5e20 holding 2 knob circles r 3 #f5f1e6 with #1b5e20 pointer lines and 3 tiny LED dots r 1.2 (#8fcf8a, #f2dd4b, #e0533f). Launch head: a rounded rect barrel angled up-right at -25 degrees from (60,74), 34 long x 14 wide, fill #e0871e with a dark mouth ellipse #3a3a3a at its end. Hopper on top: a trapezoid funnel x 18 to 58 at y 40 narrowing to x 28 to 48 at y 70, fill #bfe3f5 opacity 0.55 stroke #9cc8e0 width 1.5, full of 6 pickleballs r 6 (#f2dd4b, holes #c9b52e). No ball in flight and no speed lines (they read as dirt at corner size). Telescoping handle at the back: line from (16,72) to (6,38) stroke #8a8f96 width 3 with grip #3a3a3a."
     }
   ]
 }
