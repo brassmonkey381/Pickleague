@@ -23,6 +23,7 @@ import { entityIcon } from '../lib/entityGlyph';
 import { Icon } from '@just-messin-around/expo-foundation/icons';
 import { Chip, FilterPill, Panel, SectionHeader } from '@just-messin-around/expo-foundation/ui';
 import { Button } from '@just-messin-around/expo-foundation/forms';
+import { rainReward } from '@just-messin-around/expo-foundation/ui/rewardRain';
 import { HAIRLINE, RADIUS, SPACE } from '@just-messin-around/expo-foundation/styles';
 import { FONT, textStyles } from '@just-messin-around/expo-foundation/typography';
 
@@ -595,6 +596,18 @@ export default function GodmodeScreen({ navigation }: Props) {
         )}
       </Panel>
 
+      <SectionHeader title="Pickle rain" />
+      <Panel style={S.card}>
+        <Text style={S.previewNote}>
+          Preview the payout animation. Nothing is paid. It doesn't show with Reduce Motion on.
+        </Text>
+        <View style={S.rainRow}>
+          {[25, 100, 500].map((n) => (
+            <Button key={n} size="sm" variant="outline" title={`+${n}`} onPress={() => rainReward(n)} style={S.rainBtn} />
+          ))}
+        </View>
+      </Panel>
+
       <SectionHeader title="Coming soon" />
       <Panel style={[S.card, S.tbdCard]}>
         <Text style={S.tbdText}>
@@ -651,6 +664,8 @@ function makeStyles(c: ReturnType<typeof useTheme>['colors']) {
     previewLabel:     { ...t.sub, fontWeight: FONT.weight.semibold, width: 88 },
     previewValue:     { ...t.sub, flex: 1, color: c.text, fontFamily: 'monospace' },
     previewNote:      { ...t.hint, marginTop: SPACE.sm, fontStyle: 'italic' },
+    rainRow:          { flexDirection: 'row', gap: SPACE.sm, marginTop: SPACE.md },
+    rainBtn:          { flex: 1 },
     placeholderHint:  { ...t.hint, marginTop: SPACE.md, fontStyle: 'italic' },
     primaryBtn:       { marginTop: SPACE.md },
     acceptAllBtn:     { marginBottom: SPACE.md },

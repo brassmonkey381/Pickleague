@@ -22,6 +22,7 @@ import StartupRetryScreen from '../components/StartupRetryScreen';
 import { useBootstrapSession, signOutSafely, useTimeZoneSync } from '@just-messin-around/expo-foundation/supabase';
 import { getNativeBuild, startNetworkMonitor } from '@just-messin-around/expo-foundation/platform';
 import { OfflineBanner, UpdateRequiredScreen } from '@just-messin-around/expo-foundation/ui';
+import { RewardRainHost } from '@just-messin-around/expo-foundation/ui/rewardRain';
 import LaunchUpdateHost from '../components/LaunchUpdateHost';
 import { APP_STORE_URL } from '../lib/appStore';
 import { setupNotificationTapHandling } from '../lib/push';
@@ -561,6 +562,8 @@ export default function AppNavigator() {
       {!splashDone && (
         <SplashScreen onDone={() => setSplashDone(true)} minMs={MIN_MS} />
       )}
+      {/* Pickles shower the screen on a payout (rainReward, kit 1.88). */}
+      <RewardRainHost renderIcon={(size) => <Icon name="pickle" size={size} />} />
     </ToastProvider>
     </ErrorBoundary>
   );
