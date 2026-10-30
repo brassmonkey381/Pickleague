@@ -25,6 +25,8 @@ import { Chip, FilterPill, Panel, SectionHeader } from '@just-messin-around/expo
 import { Button, KeyboardTextInput } from '@just-messin-around/expo-foundation/forms';
 import { rainReward } from '@just-messin-around/expo-foundation/ui/rewardRain';
 import { picklesLabel } from '../components/PickleAmount';
+import PickleShareStudio from '../components/share/PickleShareStudio';
+import { LAB_PHOTOS, labSamples, type LabSample } from '../lib/shareCardLab';
 import { HAIRLINE, RADIUS, SPACE } from '@just-messin-around/expo-foundation/styles';
 import { FONT, textStyles } from '@just-messin-around/expo-foundation/typography';
 
@@ -88,6 +90,11 @@ export default function GodmodeScreen({ navigation }: Props) {
 
   const [grantAmount, setGrantAmount] = useState('');
   const [granting, setGranting] = useState(false);
+  // Share card lab (PKL-013): each card with made-up data, edge cases included.
+  const samples = useMemo(() => labSamples(), []);
+  const [labSample, setLabSample] = useState<LabSample | null>(null);
+  const [labOpen, setLabOpen] = useState(false);
+  const [labPhotos, setLabPhotos] = useState(0);
   const [pluprPickerOpen, setPluprPickerOpen] = useState(false);
   const [pluprTarget, setPluprTarget] = useState<PickedUser | null>(null);
   const [pluprOverall, setPluprOverall] = useState('');
@@ -667,6 +674,31 @@ export default function GodmodeScreen({ navigation }: Props) {
         </View>
       </Panel>
 
+      <SectionHeader title="Share card lab" />
+      <Panel style={S.card}>
+        <Text style={S.previewNote}>
+          Every share card with made-up players and edge cases. Try each layout, look, size and SHOW toggle. Sharing works, so pick Save Image to check the picture.
+        </Text>
+        <Text style={[S.label, S.labelGap]}>Photos to start with</Text>
+        <View style={S.genderRow}>
+          {[0, 1, 2, 4].map((n) => (
+            <FilterPill key={n} label={n === 0 ? 'None' : String(n)} active={labPhotos === n} onPress={() => setLabPhotos(n)} />
+          ))}
+        </View>
+        <View style={S.labList}>
+          {samples.map((x) => (
+            <Button
+              key={x.id}
+              size="sm"
+              variant="outline"
+              title={`${x.group}: ${x.label}`}
+              onPress={() => { setLabSample(x); setLabOpen(true); }}
+              style={S.labBtn}
+            />
+          ))}
+        </View>
+      </Panel>
+
       <SectionHeader title="Coming soon" />
       <Panel style={[S.card, S.tbdCard]}>
         <Text style={S.tbdText}>
@@ -674,6 +706,17 @@ export default function GodmodeScreen({ navigation }: Props) {
           impersonate user, force-close a tournament, dump DB stats.
         </Text>
       </Panel>
+
+      {labSample ? (
+        <PickleShareStudio
+          visible={labOpen}
+          onClose={() => setLabOpen(false)}
+          title={`Lab · ${labSample.title}`}
+          model={labSample.model}
+          initialPhotos={LAB_PHOTOS.slice(0, labPhotos)}
+          trackProps={{ lab: true }}
+        />
+      ) : null}
 
       <UserPickerModal
         visible={pluprPickerOpen}
@@ -725,6 +768,8 @@ function makeStyles(c: ReturnType<typeof useTheme>['colors']) {
     previewNote:      { ...t.hint, marginTop: SPACE.sm, fontStyle: 'italic' },
     rainRow:          { flexDirection: 'row', gap: SPACE.sm, marginTop: SPACE.md },
     rainBtn:          { flex: 1 },
+    labList:          { gap: SPACE.sm, marginTop: SPACE.md },
+    labBtn:           { alignSelf: 'stretch' },
     placeholderHint:  { ...t.hint, marginTop: SPACE.md, fontStyle: 'italic' },
     primaryBtn:       { marginTop: SPACE.md },
     acceptAllBtn:     { marginBottom: SPACE.md },
