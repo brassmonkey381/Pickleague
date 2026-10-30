@@ -79,6 +79,7 @@ import { openPlayStart, playSession, startPlay } from '../lib/playSession';
 import { COURT_DISCOVERY_ENABLED } from '../lib/features';
 import { openDiscover } from '../lib/discoverNav';
 import { checkinHostOwnsNotes } from '../lib/checkinHost';
+import { passForVenue } from '../lib/qrWallet';
 import type { RootStackParamList } from '../types';
 
 // Check out waits at most 3 s for its stay-proof fix, then the write as before.
@@ -164,7 +165,8 @@ export type CourtCardTap =
   | 'add_court'
   | 'alerts_on'
   | 'alerts_not_now'
-  | 'browse_courts';
+  | 'browse_courts'
+  | 'show_qr';
 
 type Props = {
   onModeChange?: (mode: CourtCardMode) => void;
@@ -200,6 +202,26 @@ export default function CourtCheckinCard({ onModeChange, onTap }: Props = {}) {
   useEffect(() => {
     onModeChange?.(mode);
   }, [mode, onModeChange]);
+
+  // The QR code saved for the court shown (lib/qrWallet, this phone only):
+  // "Show my QR code" opens it, as the arrival notice's tap does. Re-read on
+  // focus, so a code just added in the wallet shows on coming back.
+  const shownVenueId = current?.venueId ?? nearby?.id ?? null;
+  const [passId, setPassId] = useState<string | null>(null);
+  const [passTick, setPassTick] = useState(0);
+  useFocusEffect(useCallback(() => setPassTick((n) => n + 1), []));
+  useEffect(() => {
+    let live = true;
+    setPassId(null);
+    void passForVenue(shownVenueId)
+      .then((p) => {
+        if (live) setPassId(p?.id ?? null);
+      })
+      .catch(() => {});
+    return () => {
+      live = false;
+    };
+  }, [shownVenueId, passTick]);
 
   // How long Check in here asks for: to the end of a routine stop due here
   // with its occurrence (manualCheckinMinutes), else 2 hours. My routines are
@@ -324,6 +346,16 @@ export default function CourtCheckinCard({ onModeChange, onTap }: Props = {}) {
     fn();
   };
 
+  // The court's saved QR code (see passForVenue above).
+  const qrLink = passId ? (
+    <TextLink
+      label="Show my QR code"
+      style={[S.textLink, S.hug]}
+      onPress={tap('show_qr', () => navigation.navigate('QrPass', { passId }))}
+      accessibilityHint="Opens the check-in code you saved for this court"
+    />
+  ) : null;
+
   // Outcome lines and the one-time offers render under either look.
   const footer = (
     <CourtCheckInNotes flow={flow} onStarOfferTap={(target) => onTap?.(target)}>
@@ -422,6 +454,7 @@ export default function CourtCheckinCard({ onModeChange, onTap }: Props = {}) {
           </Text>
         ) : null}
         <PauseSharingChip style={S.hug} />
+        {qrLink}
         {footer}
       </Panel>
     );
@@ -462,6 +495,7 @@ export default function CourtCheckinCard({ onModeChange, onTap }: Props = {}) {
         </HereLine>
         {/* No star here: the header has it (one per court on the card). */}
         <CrowdLine venueId={nearby.id} venueName={nearby.name} />
+        {qrLink}
         {footer}
       </Panel>
     );

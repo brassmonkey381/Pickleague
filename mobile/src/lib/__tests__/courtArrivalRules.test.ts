@@ -35,6 +35,7 @@ import {
   nearbyPromptBody,
   normalizeCourtArrivalSettings,
   notHereOutcome,
+  monitorPromptRoute,
   promptRoute,
   reconcileArrivalEntries,
   showWhileAppActive,
@@ -206,6 +207,13 @@ describe('decideQueueAnswer (rows 22-25)', () => {
     expect(promptRoute(null, false)).toBe('nearby');
     expect(promptRoute(STARRED_WALLET, false)).toBe('wallet');
     expect(promptRoute(STARRED_WALLET, true)).toBe('quiet');
+  });
+
+  it("the app-open monitor's prompt at a QR court is the QR notice, else it still asks", () => {
+    expect(monitorPromptRoute(STARRED_WALLET, false)).toBe('wallet');
+    expect(monitorPromptRoute(STARRED_WALLET, true)).toBe('nearby');
+    expect(monitorPromptRoute(STARRED, false)).toBe('nearby');
+    expect(monitorPromptRoute(null, false)).toBe('nearby');
   });
 });
 

@@ -294,6 +294,16 @@ export function promptRoute(
   return walletThrottled ? 'quiet' : 'wallet';
 }
 
+/**
+ * The foreground monitor's prompt at a court with a saved QR code: the QR
+ * notice (a tap opens the code, Check in on it), which shows while the app
+ * is open. Within its 3 hours it is the plain "Check in nearby?" instead, so
+ * the monitor still asks.
+ */
+export function monitorPromptRoute(info: CourtRegionInfo | null, walletThrottled: boolean): 'nearby' | 'wallet' {
+  return info?.passId && !walletThrottled ? 'wallet' : 'nearby';
+}
+
 // ── Prompt delivery (row 28) ──────────────────────────────────────────────────
 /**
  * The server's push is the prompt; the phone's own copy only when the server

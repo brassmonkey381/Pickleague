@@ -60,6 +60,14 @@ export async function getPassImage(id: string): Promise<string | null> {
   return AsyncStorage.getItem(IMAGE_PREFIX + id).catch(() => null);
 }
 
+/** The code saved for this catalog court (the newest), or null. */
+export async function passForVenue(venueId: string | null | undefined): Promise<WalletPass | null> {
+  if (!venueId) return null;
+  const mine = (await listPasses()).filter((p) => p.venueId === venueId);
+  mine.sort((a, b) => b.addedAt.localeCompare(a.addedAt));
+  return mine[0] ?? null;
+}
+
 /** The geofence region id: the court's id, so the arrival notice keeps its Check in button. */
 export function walletRegionId(p: Pick<WalletPass, 'id' | 'venueId'>): string {
   return p.venueId ?? `qr:${p.id}`;

@@ -9,7 +9,9 @@
 // saw me arrive at in the last 2 hours is left to it (native, automatic
 // check-in on), so that arrival doesn't also get a prompt. Its prompts show
 // while the app is open (lib/push), unlike Doggle's: this scan runs only then,
-// so hidden they would never be seen.
+// so hidden they would never be seen. At a court with a saved QR code
+// (lib/qrWallet, "Show these codes when I arrive" on) the prompt is the QR
+// notice instead, so a tap opens the code (at most once per 3 hours).
 //
 // It never asks for location: it reads a position only when foreground
 // permission is already granted (Doggle's raised the sheet). The coordinates
@@ -20,8 +22,8 @@ import { AppState, Platform } from 'react-native';
 import { withTimeout } from '@just-messin-around/expo-foundation/platform';
 import { getForegroundLocationStatus } from '@just-messin-around/expo-foundation/platform/location';
 import { playSession } from './playSession';
-import { arrivedRecently, promptCourtCheckin } from './courtArrival';
-import { isStarredCourtRegion } from './courtGeofence';
+import { arrivedRecently, promptCourtFromMonitor } from './courtArrival';
+import { courtRegionInfo, isStarredCourtRegion } from './courtGeofence';
 import { MONITOR_COOLDOWN_MS } from './courtArrivalRules';
 import { traceArrival } from './courtArrivalTrace';
 import { courtPromptScan, loadCourtArrivalSettings } from '../data/courtArrival';
@@ -107,7 +109,7 @@ export async function courtPromptTick(): Promise<void> {
     const inside = scan.inside;
     if (inside && now - (cooldown.get(inside.venue_id) ?? 0) >= MONITOR_COOLDOWN_MS && !(await leftToGeofence(inside.venue_id))) {
       cooldown.set(inside.venue_id, now);
-      await promptCourtCheckin(inside.venue_id, inside.name);
+      await promptCourtFromMonitor(inside.venue_id, inside.name, await courtRegionInfo(inside.venue_id).catch(() => null));
       prompted += 1;
     }
 
@@ -120,7 +122,7 @@ export async function courtPromptTick(): Promise<void> {
         if (radius <= 0 || court.distance_m > radius) continue;
         if (now - (cooldown.get(court.venue_id) ?? 0) < MONITOR_COOLDOWN_MS) continue;
         cooldown.set(court.venue_id, now);
-        await promptCourtCheckin(court.venue_id, court.name);
+        await promptCourtFromMonitor(court.venue_id, court.name, await courtRegionInfo(court.venue_id).catch(() => null));
         prompted += 1;
       }
     }

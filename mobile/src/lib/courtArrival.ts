@@ -67,6 +67,7 @@ import {
   nearbyPromptBody,
   PREFS_LOOKUP_TIMEOUT_MS,
   PROMPT_COVERS_ARRIVAL_MS,
+  monitorPromptRoute,
   promptRoute,
   STALE_ON_WAKE_MS,
   WALLET_RENOTIFY_MS,
@@ -253,6 +254,23 @@ async function postWalletNotice(regionId: string, info: CourtRegionInfo, opts: {
     },
   });
   traceArrival('notice', { id: regionId, notice: 'wallet', check_in_button: !!venueId && !checkedIn, stand_in: !!opts.standIn });
+}
+
+/**
+ * The foreground monitor's prompt (lib/courtPromptMonitor): at a court with a
+ * saved QR code, the QR notice, not as a stand-in, so it shows while the app
+ * is open (a stand-in carries the hidden prompt kind); else "Check in nearby?".
+ */
+export async function promptCourtFromMonitor(
+  venueId: string,
+  name: string | null,
+  info: CourtRegionInfo | null,
+): Promise<void> {
+  const throttled = !!info?.passId && (await walletNotices.within(venueId).catch(() => false));
+  if (info && monitorPromptRoute(info, throttled) === 'wallet') {
+    return postWalletNotice(venueId, { ...info, name: info.name || name || '' });
+  }
+  await promptCourtCheckin(venueId, name);
 }
 
 /** Ask first: the QR notice at a wallet court (3 h apart), else "Check in nearby?". */
