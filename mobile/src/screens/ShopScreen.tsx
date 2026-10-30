@@ -22,7 +22,7 @@ import {
 } from 'react-native';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { useFocusEffect } from '@react-navigation/native';
-import { Panel, SegmentedToggle, ModalBackdrop, ErrorState } from '@just-messin-around/expo-foundation/ui';
+import { Panel, SegmentedToggle, ModalBackdrop, ErrorState, celebrate } from '@just-messin-around/expo-foundation/ui';
 import { Icon, EmojiGlyph } from '@just-messin-around/expo-foundation/icons';
 import { Button } from '@just-messin-around/expo-foundation/forms';
 import { ProgressBar } from '@just-messin-around/expo-foundation/gamification';
@@ -227,6 +227,7 @@ export default function ShopScreen({ navigation }: Props) {
     const row = Array.isArray(data) ? data[0] : data;
     if (!row?.success) { setGiftError(row?.message ?? 'Could not gift — unknown error.'); return; }
     setPickles(row.new_balance);
+    celebrate();
     status.success(`Gift sent! ${giftItem.name} is now in ${giftRecipient.full_name}'s inventory.`);
     setGiftItem(null);
     setGiftRecipient(null);
@@ -266,6 +267,8 @@ export default function ShopScreen({ navigation }: Props) {
     }
     setPickles(row.new_balance);
     setOwned(prev => new Set(prev).add(item.id));
+    // The purchase stands whatever the equip below does: celebrate it now.
+    celebrate();
 
     // purchase_shop_item already equips what it can; Buy & Equip asks the
     // server again (equip_shop_item checks the purchase) so the two agree.

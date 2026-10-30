@@ -20,7 +20,7 @@ import type { NativeStackScreenProps } from '@react-navigation/native-stack';
 import { useFocusEffect } from '@react-navigation/native';
 import { createArtResolver } from '@just-messin-around/expo-foundation/room/art';
 import { roomBuyConfirmCopy } from '@just-messin-around/expo-foundation/room';
-import { Panel, SectionHeader, Chip, ErrorState, SegmentedToggle, ConfirmModal } from '@just-messin-around/expo-foundation/ui';
+import { Panel, SectionHeader, Chip, ErrorState, SegmentedToggle, ConfirmModal, celebrate } from '@just-messin-around/expo-foundation/ui';
 import { Button } from '@just-messin-around/expo-foundation/forms';
 import { Icon } from '@just-messin-around/expo-foundation/icons';
 import { currentUserId } from '@just-messin-around/expo-foundation/supabase';
@@ -281,6 +281,7 @@ export default function MyPlaceScreen({ navigation, route }: Props) {
         say('error', explainRefusal(e, `Couldn't buy ${p.item.name}, and no pickles were spent. Check your connection and try again.`));
         return;
       }
+      celebrate();
       try {
         await equipHomeItem(p.slotId, p.item.id);
         setPreview(null);

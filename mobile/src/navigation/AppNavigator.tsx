@@ -23,6 +23,7 @@ import { useBootstrapSession, signOutSafely, useTimeZoneSync } from '@just-messi
 import { getNativeBuild, startNetworkMonitor } from '@just-messin-around/expo-foundation/platform';
 import { OfflineBanner, UpdateRequiredScreen } from '@just-messin-around/expo-foundation/ui';
 import { RewardRainHost } from '@just-messin-around/expo-foundation/ui/rewardRain';
+import { CelebrationHost } from '@just-messin-around/expo-foundation/ui';
 import LaunchUpdateHost from '../components/LaunchUpdateHost';
 import { APP_STORE_URL } from '../lib/appStore';
 import { setupNotificationTapHandling } from '../lib/push';
@@ -187,6 +188,8 @@ function SavedButton() {
   );
 }
 
+// Pickle greens, ball yellow and gold: readable on light and dark screens.
+const CELEBRATION_COLORS = ['#2e8b57', '#4caf50', '#c6f36b', '#ffd166', '#f4a62a'];
 // Brian's tuning from Rain Lab, the same as Doggle's (the rest are kit 1.89 defaults).
 const PICKLE_RAIN = { sizeRange: [1.1, 2.15] as const, driftMax: 0.54, spinMax: 540, wobble: [0.005, 0.015] as const };
 
@@ -567,6 +570,8 @@ export default function AppNavigator() {
       )}
       {/* Pickles shower the screen on a payout (rainReward, kit 1.88). */}
       <RewardRainHost renderIcon={(size) => <Icon name="pickle" size={size} color={colors.primary} />} config={PICKLE_RAIN} />
+      {/* celebrate(): confetti + a success haptic, on a Shop or My Place purchase. */}
+      <CelebrationHost colors={CELEBRATION_COLORS} />
     </ToastProvider>
     </ErrorBoundary>
   );
