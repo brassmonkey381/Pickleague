@@ -7,6 +7,7 @@ import { friendlySbMessage } from '@just-messin-around/expo-foundation/supabase'
 import { useToast } from '../../lib/useToast';
 import { useBlockedIds } from '../../lib/moderation';
 import { loadDrillShare } from '../../data/drillShare';
+import { releasePayoutRain } from '../../lib/payoutRain';
 import { drillCardModel, type ShareCardModel } from '../../lib/shareCards';
 import PickleShareStudio from './PickleShareStudio';
 
@@ -40,6 +41,7 @@ export default function DrillShareStudio({ target, onClose }: Props) {
       .catch((e) => {
         if (!alive) return;
         toast.error(friendlySbMessage(e, "Couldn't load that drill. Try again."));
+        releasePayoutRain();
         onClose();
       });
     return () => { alive = false; };
@@ -53,6 +55,8 @@ export default function DrillShareStudio({ target, onClose }: Props) {
       visible={open}
       onClose={() => {
         setOpen(false);
+        // The review's pickles, held while this studio covered the screen.
+        releasePayoutRain();
         onClose();
       }}
       title="Share your drill"

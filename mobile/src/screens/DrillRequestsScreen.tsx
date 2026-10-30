@@ -34,7 +34,6 @@ import StatusBanner from '../components/StatusBanner';
 import FlairName from '../components/FlairName';
 import DrillReviewModal from '../components/DrillReviewModal';
 import DrillShareStudio, { type DrillShareTarget } from '../components/share/DrillShareStudio';
-import { rainReward } from '@just-messin-around/expo-foundation/ui/rewardRain';
 import { loadDrillReviewDrafts } from '../lib/drillReviewDraft';
 import EmptyState from '../components/EmptyState';
 import PlayerModerationMenu from '../components/PlayerModerationMenu';
@@ -267,7 +266,7 @@ export default function DrillRequestsScreen({ route }: Props) {
     setReviewable(prev => prev.filter(s => s.id !== sessionId));
     setDraftIds(prev => { const next = new Set(prev); next.delete(sessionId); return next; });
     setReviewTarget(null);
-    if (earned) setTimeout(() => rainReward(earned), 350);
+    // The pickles rain once the review sheet has closed (DrillReviewModal).
     status.success(earned != null ? `+${earned} pickles earned!` : 'Your review was saved.');
   }
 

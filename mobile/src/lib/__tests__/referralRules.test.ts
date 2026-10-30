@@ -11,6 +11,7 @@ import {
   INVITE_ORIGIN,
   INVITE_SHARE_MESSAGE,
   REFERRAL_REWARD_PICKLES,
+  claimRainPickles,
   claimToastText,
   keepReferralForLater,
   nextMilestoneText,
@@ -103,5 +104,15 @@ describe('referral copy and rules', () => {
     });
     expect(parseReferralStats(null)).toEqual({ invited: 0, joined: 0, pending: 0, pickles_earned: 0 });
     expect(parseReferralStats({ invited: '4' }).invited).toBe(4);
+  });
+});
+
+describe('claimRainPickles', () => {
+  it('rains only for a claim that paid just now', () => {
+    expect(claimRainPickles({ linked: true, rewarded: true })).toBe(REFERRAL_REWARD_PICKLES);
+    expect(claimRainPickles({ linked: true, rewarded: true, already: true })).toBe(0);
+    expect(claimRainPickles({ linked: true, rewarded: false })).toBe(0);
+    expect(claimRainPickles({ linked: false, rewarded: true })).toBe(0);
+    expect(claimRainPickles(null)).toBe(0);
   });
 });

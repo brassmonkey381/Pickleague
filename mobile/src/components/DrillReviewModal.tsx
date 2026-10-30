@@ -6,6 +6,7 @@ import { isImageShareAvailable, isNetworkError } from '@just-messin-around/expo-
 import { sbCall } from '@just-messin-around/expo-foundation/supabase';
 import { Button } from '@just-messin-around/expo-foundation/forms';
 import { Icon } from '@just-messin-around/expo-foundation/icons';
+import { useModalDismissed } from '@just-messin-around/expo-foundation/ui';
 import { FONT, textStyles } from '@just-messin-around/expo-foundation/typography';
 import { HAIRLINE, RADIUS, SPACE } from '@just-messin-around/expo-foundation/styles';
 import { PickleAmount } from './PickleAmount';
@@ -13,6 +14,7 @@ import { supabase } from '../lib/supabase';
 import { useTheme } from '../lib/ThemeContext';
 import { useToast } from '../lib/useToast';
 import { noteDrillReviewed } from '../lib/playSession';
+import { holdPayoutRain, rainPayout, RAIN_AFTER_DISMISS_MS } from '../lib/payoutRain';
 import { explainRefusal } from '../lib/refusalNotices';
 import { drillReviewRefusal, isAlreadyReviewedMessage } from '../lib/refusals';
 import { isAlreadyLoggedMessage, loggedDrillNote } from '../lib/sessionAdds';
@@ -61,6 +63,12 @@ const TEXT_PICKLE_CAP = 50;
  * With `onShare` (and image sharing on this binary), the thanks stays up with
  * "Share your drill" and Done instead of closing by itself: either one calls
  * onSubmitted, and Share then hands the drill to the caller's share card.
+ *
+ * The pickles earned rain (lib/payoutRain) once this Modal has fully closed:
+ * the rain draws under a Modal, so raining from the thanks, or as the caller
+ * closes it, can't be seen. So the Modal stays mounted while it fades out
+ * (with the last drill), and its dismissal starts the rain; with Share, the
+ * rain waits for the share studio to close (DrillShareStudio releases it).
  */
 export default function DrillReviewModal({
   session, onSubmitted, onClose, onDraftSaved, onShare,
@@ -93,6 +101,20 @@ export default function DrillReviewModal({
   const shareable = !!onShare && isImageShareAvailable();
   // onSubmitted runs once per review, whichever way the thanks closes.
   const left = useRef(false);
+  // The drill on screen, kept while the Modal fades out after `session` goes null.
+  const lastSession = useRef<ReviewableDrill | null>(session);
+  if (session) lastSession.current = session;
+  const shown = session ?? lastSession.current;
+  // The payout to rain once the Modal is gone, and whether Share took it.
+  const pendingRain = useRef<number | null>(null);
+  const sharing = useRef(false);
+  const onModalDismiss = useModalDismissed(!!session, () => {
+    const earned = pendingRain.current;
+    pendingRain.current = null;
+    if (sharing.current) holdPayoutRain(earned);
+    else rainPayout(earned, RAIN_AFTER_DISMISS_MS);
+    sharing.current = false;
+  });
 
   useEffect(() => {
     if (!session) return;
@@ -105,6 +127,8 @@ export default function DrillReviewModal({
     setSavingDraft(false);
     lostAnswer.current = false;
     left.current = false;
+    pendingRain.current = null;
+    sharing.current = false;
     // Pick up a saved draft, unless something was already typed meanwhile.
     let live = true;
     const id = session.id;
@@ -119,7 +143,7 @@ export default function DrillReviewModal({
     };
   }, [session?.id]);
 
-  if (!session) return null;
+  if (!shown) return null;
 
   const answered    = FACETS.filter(f => ratings[f.key] >= 1).length;
   const facetPickles = answered * PICKLES_PER_FACET;
@@ -198,6 +222,7 @@ export default function DrillReviewModal({
   function finish(earned: number | null, drillId: string | null = null) {
     if (!session) return;
     setDone({ earned, drillId });
+    pendingRain.current = earned;
     void clearDrillReviewDraft(session.id);
     // A drill held during my running (or just-ended) play session makes it
     // count: say so, or why this drill doesn't count for it. A toast, so it
@@ -221,18 +246,19 @@ export default function DrillReviewModal({
     onSubmitted(session.id, done.earned);
     // A logged drill shares by the drill it stored (unknown when the answer was lost: no card).
     const shareId = session.logForPlaySession ? done.drillId : session.id;
+    sharing.current = share && !!shareId && !!onShare;
     if (share && shareId) onShare?.(shareId);
   }
   const closeNow = () => (done && shareable ? leave(false) : onClose());
 
 
   return (
-    <Modal visible={!!session} transparent animationType="fade" onRequestClose={closeNow}>
+    <Modal visible={!!session} transparent animationType="fade" onRequestClose={closeNow} onDismiss={onModalDismiss}>
       <View style={S.overlay}>
         <View style={S.panel}>
           <View style={S.header}>
             <Icon name="edit" size={16} color={c.textSub} />
-            <Text style={[t.title, S.title]} numberOfLines={1}>{session.logForPlaySession ? 'Log your drill' : 'Review your drill'}</Text>
+            <Text style={[t.title, S.title]} numberOfLines={1}>{shown.logForPlaySession ? 'Log your drill' : 'Review your drill'}</Text>
             <TouchableOpacity onPress={closeNow} style={S.closeBox} accessibilityRole="button" accessibilityLabel="Close">
               <Icon name="close" size={20} color={c.textSub} />
             </TouchableOpacity>
@@ -244,7 +270,7 @@ export default function DrillReviewModal({
               {done.earned !== null ? (
                 <>
                   <Text style={[t.h2, S.successText]}>+{done.earned} pickles earned!</Text>
-                  <Text style={[t.sub, S.center]}>{session.logForPlaySession ? 'Your drill is logged.' : 'Thanks for reviewing your drill.'}</Text>
+                  <Text style={[t.sub, S.center]}>{shown.logForPlaySession ? 'Your drill is logged.' : 'Thanks for reviewing your drill.'}</Text>
                 </>
               ) : (
                 <>
@@ -262,7 +288,7 @@ export default function DrillReviewModal({
             </View>
           ) : (
             <ScrollView contentContainerStyle={S.body} keyboardShouldPersistTaps="handled">
-              <Text style={t.title}>{session.heading ?? `Drill with ${session.partner_name}`}</Text>
+              <Text style={t.title}>{shown.heading ?? `Drill with ${shown.partner_name}`}</Text>
               <Text style={[t.hint, S.hint]}>Rate each aspect (5 pickles each) and add a review (1 pickle per 10 characters, up to 50).</Text>
               {fromDraft ? <Text style={[t.caption, S.draftNote]}>Picked up from your saved draft.</Text> : null}
 

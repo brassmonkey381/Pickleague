@@ -23,7 +23,6 @@ import AppRefreshControl from '../components/AppRefreshControl';
 import { SkeletonList } from '../components/Skeleton';
 import EmptyState from '../components/EmptyState';
 import { Chip, ErrorState, Panel, SegmentedToggle, ShortcutGrid, ThemedSwitch } from '@just-messin-around/expo-foundation/ui';
-import { rainReward } from '@just-messin-around/expo-foundation/ui/rewardRain';
 import { Button } from '@just-messin-around/expo-foundation/forms';
 import { Icon } from '@just-messin-around/expo-foundation/icons';
 import { FONT, textStyles } from '@just-messin-around/expo-foundation/typography';
@@ -504,7 +503,7 @@ export default function DrillScreen({ navigation }: Props) {
       onSubmitted={(sessionId, earned) => {
         setSessions(prev => prev.map(s => s.id === sessionId ? { ...s, reviewed: true } : s));
         setReviewTarget(null);
-        if (earned) setTimeout(() => rainReward(earned), 350);
+        // The pickles rain once the review sheet has closed (DrillReviewModal).
         // null: an earlier try saved it and its answer was lost (amount unknown).
         status.success(earned != null ? `+${earned} pickles earned!` : 'Your review was saved.');
       }}

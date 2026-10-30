@@ -55,6 +55,11 @@ export function claimToastText(r: ClaimReferralResult | null | undefined): strin
     : `${by} — confirm your email to get ${REFERRAL_REWARD_PICKLES} pickles`;
 }
 
+/** Pickles this claim paid me just now, to rain: 0 when it didn't pay, or an earlier claim did. */
+export function claimRainPickles(r: ClaimReferralResult | null | undefined): number {
+  return r?.linked && r.rewarded && !r.already ? REFERRAL_REWARD_PICKLES : 0;
+}
+
 /** A claim answer that should keep the stashed code for later: a guest, who
  *  qualifies only after upgrading to a real account. */
 export function keepReferralForLater(r: ClaimReferralResult | null | undefined): boolean {

@@ -8,7 +8,8 @@ import { useReferralCapture } from '@just-messin-around/expo-foundation/referral
 import { supabase } from '../../lib/supabase';
 import { useToast } from '../../lib/useToast';
 import { REFERRALS_ENABLED } from '../../lib/features';
-import { claimToastText, keepReferralForLater } from '../../lib/referralRules';
+import { claimRainPickles, claimToastText, keepReferralForLater } from '../../lib/referralRules';
+import { rainPayout } from '../../lib/payoutRain';
 import { claimReferral, deferredInvites, referralStash } from '../../data/referrals';
 
 export default function ReferralHost() {
@@ -25,6 +26,8 @@ export default function ReferralHost() {
     onResult: (result) => {
       const text = claimToastText(result);
       if (text) toast.success(text);
+      // Paid just now: the pickles rain (an earlier claim's pay already did).
+      rainPayout(claimRainPickles(result));
     },
   });
   return null;
