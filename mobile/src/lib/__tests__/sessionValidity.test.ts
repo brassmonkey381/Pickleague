@@ -304,7 +304,9 @@ describe('End after the 2-hour window closed (an auto-ended session found late)'
   const now = start + 10 * 60 * MIN;
 
   it('the server says nothing counts: a toast that it didn\'t count, never "record one by <a past time>"', () => {
-    expect(MISSED_END_NOTE).toBe("Session ended. It didn't count: no match or drill was recorded within 2 hours of its end.");
+    expect(MISSED_END_NOTE).toBe(
+      "Session ended. It doesn't count yet: no match or drill was recorded within 2 hours of its end. Add one from Me › Play history within 7 days.",
+    );
     const d = endDecisionWithServer(auto, v({ window_ends_at: iso(start + 8 * 60 * MIN) }), { nowMs: now });
     expect(d).toEqual({ show: 'note', tone: 'info', message: MISSED_END_NOTE });
   });
@@ -487,7 +489,8 @@ describe('validityNote (my_session_validity, worded)', () => {
   });
 
   it('window closed (or unknown): it did not count', () => {
-    const missed = "This session didn't count: no match or drill was recorded within 2 hours of its end.";
+    const missed =
+      "This session doesn't count yet: no match or drill was recorded within 2 hours of its end. Add one from Me › Play history within 7 days.";
     expect(validityNote(v({ window_ends_at: iso(T0 - MIN) }), T0, label)).toBe(missed);
     expect(validityNote(v({ window_ends_at: iso(T0) }), T0, label)).toBe(missed);
     expect(validityNote(v({ window_ends_at: null }), T0, label)).toBe(missed);

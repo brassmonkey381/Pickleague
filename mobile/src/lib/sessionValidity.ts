@@ -101,7 +101,8 @@ export const PENDING_END_NOTE = 'Session ended. It counts once the other team co
 const CONFIRMED_END_NOTE = 'Session ended. It counts: you recorded a match.';
 const DRILL_END_NOTE = 'Session ended. It counts: you reviewed a drill held during it.';
 /** End after the 2-hour window closed, with the server's word that nothing counts. */
-export const MISSED_END_NOTE = "Session ended. It didn't count: no match or drill was recorded within 2 hours of its end.";
+export const MISSED_END_NOTE =
+  "Session ended. It doesn't count yet: no match or drill was recorded within 2 hours of its end. Add one from Me › Play history within 7 days.";
 /** End after the 2-hour window closed, with no word from the server. */
 export const MISSED_UNSURE_END_NOTE =
   'Session ended. The 2 hours to record a match or drill for it are over, so it counts only if one was recorded in time.';
@@ -403,7 +404,7 @@ export function validityNote(
     const ask = `This session counts once you record a match or drill by ${timeLabel(new Date(ends))}.`;
     return why ? `${why} ${ask}` : ask;
   }
-  return "This session didn't count: no match or drill was recorded within 2 hours of its end.";
+  return "This session doesn't count yet: no match or drill was recorded within 2 hours of its end. Add one from Me › Play history within 7 days.";
 }
 
 /** The drill made it count (the server's drill_counted, or a session valid through a drill alone). */

@@ -3,12 +3,17 @@
 // (list_my_play_sessions). Each row: court and kind, day and times, whether it
 // counts, its matches. The row's ⋯ discards it (discard_play_session): it
 // leaves the list and never counts again, with a confirm first. A server
-// without the history SQL says so instead of an error.
-import React, { useCallback, useEffect, useRef, useState } from 'react';
+// without the history SQL says so instead of an error. For 7 days after a
+// session ends its row offers Add a match (MatchEntry linked to it) and Add a
+// drill (logged and reviewed in one step, log_session_drill), so a session
+// can still count (lib/sessionAdds); the list reloads on coming back.
+import React, { useCallback, useRef, useState } from 'react';
 import { FlatList, Pressable, StyleSheet, Text, View } from 'react-native';
+import { useFocusEffect } from '@react-navigation/native';
 import { NativeStackScreenProps } from '@react-navigation/native-stack';
 import { classifySbError, friendlySbMessage } from '@just-messin-around/expo-foundation/supabase';
 import { Badge, ConfirmModal, EmptyState, ErrorState, ListCard } from '@just-messin-around/expo-foundation/ui';
+import { Button } from '@just-messin-around/expo-foundation/forms';
 import { Icon } from '@just-messin-around/expo-foundation/icons';
 import { SPACE, SMALL_TEXT_MAX_SCALE } from '@just-messin-around/expo-foundation/styles';
 import { textStyles } from '@just-messin-around/expo-foundation/typography';
@@ -37,6 +42,9 @@ import {
   playHistoryTitle,
   playHistoryWhen,
 } from '../lib/playHistory';
+import { openMatchEntryForSession } from '../lib/navigationRef';
+import { historyAdds, loggedDrillDraftId } from '../lib/sessionAdds';
+import DrillReviewModal, { type ReviewableDrill } from '../components/DrillReviewModal';
 import type { RootStackParamList } from '../types';
 
 type Props = NativeStackScreenProps<RootStackParamList, 'PlayHistory'>;
@@ -60,6 +68,8 @@ export default function PlayHistoryScreen(_props: Props) {
   const [sharing, setSharing] = useState<string | null>(null);
   // A drill session gets the drill card (its review, focus, weeks of work).
   const [drillShare, setDrillShare] = useState<DrillShareTarget | null>(null);
+  // Add a drill: its review sheet (log_session_drill).
+  const [logging, setLogging] = useState<ReviewableDrill | null>(null);
   const openShare = async (r: PlayHistoryRow) => {
     if (sharing) return;
     if (r.kind === 'drill') {
@@ -115,7 +125,8 @@ export default function PlayHistoryScreen(_props: Props) {
       else setError(e);
     }
   }, []);
-  useEffect(() => { void load(); }, [load]);
+  // On every visit: back from Add a match, the row says whether it counts now.
+  useFocusEffect(useCallback(() => { void load(); }, [load]));
   const refresh = useRefresh(load);
 
   const loadMore = async () => {
@@ -157,6 +168,7 @@ export default function PlayHistoryScreen(_props: Props) {
   const now = Date.now();
   const renderRow = ({ item: r }: { item: PlayHistoryRow }) => {
     const status = playHistoryStatus(r);
+    const adds = historyAdds(r, now);
     const matches = matchCountLabel(r.matchCount);
     return (
       <ListCard
@@ -170,6 +182,35 @@ export default function PlayHistoryScreen(_props: Props) {
               {matches ? <Text style={t.meta}>{matches}</Text> : null}
             </View>
             {status.note ? <Text style={[t.meta, { color: c.textSub }]} numberOfLines={2}>{status.note}</Text> : null}
+            {adds.match || adds.drill ? (
+              <View style={S.adds}>
+                {adds.match ? (
+                  <Button
+                    title="Add a match"
+                    size="sm"
+                    variant="outline"
+                    iconName="plus"
+                    onPress={() => openMatchEntryForSession(r.id)}
+                    accessibilityLabel={`Add a match to ${playHistoryTitle(r)}, ${playHistoryWhen(r, now)}`}
+                  />
+                ) : null}
+                {adds.drill ? (
+                  <Button
+                    title="Add a drill"
+                    size="sm"
+                    variant="outline"
+                    iconName="plus"
+                    onPress={() => setLogging({
+                      id: loggedDrillDraftId(r.id),
+                      partner_name: '',
+                      logForPlaySession: r.id,
+                      heading: `Your drill · ${playHistoryWhen(r, now)}`,
+                    })}
+                    accessibilityLabel={`Add a drill to ${playHistoryTitle(r)}, ${playHistoryWhen(r, now)}`}
+                  />
+                ) : null}
+              </View>
+            ) : null}
           </View>
         }
         trailing={
@@ -238,7 +279,7 @@ export default function PlayHistoryScreen(_props: Props) {
         ListHeaderComponent={
           rows.length ? (
             <Text style={[t.meta, S.header, { color: c.textSub }]}>
-              A session counts once it lasts 5 minutes and has a match or drill. Discard one you didn't mean to start.
+              A session counts once it lasts 5 minutes and has a match or drill. Add one for up to 7 days after it ends. Discard one you didn't mean to start.
             </Text>
           ) : null
         }
@@ -259,6 +300,15 @@ export default function PlayHistoryScreen(_props: Props) {
         />
       ) : null}
       <DrillShareStudio target={drillShare} onClose={() => setDrillShare(null)} />
+      <DrillReviewModal
+        session={logging}
+        onClose={() => setLogging(null)}
+        onSubmitted={() => {
+          setLogging(null);
+          void load();
+        }}
+        onShare={(drillSessionId) => setTimeout(() => setDrillShare({ drillSessionId }), 350)}
+      />
       <ConfirmModal
         visible={!!discarding}
         title="Discard this session?"
@@ -282,6 +332,7 @@ const S = StyleSheet.create({
   row: { marginBottom: SPACE.sm },
   sub: { gap: SPACE.xs, marginTop: SPACE.xs },
   statusLine: { flexDirection: 'row', alignItems: 'center', gap: SPACE.sm },
+  adds: { flexDirection: 'row', flexWrap: 'wrap', gap: SPACE.sm, marginTop: SPACE.xs },
   actions: { flexDirection: 'row', alignItems: 'center' },
   more: { minWidth: 44, minHeight: 44, alignItems: 'center', justifyContent: 'center' },
 });

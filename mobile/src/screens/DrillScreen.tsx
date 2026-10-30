@@ -28,6 +28,7 @@ import { Button } from '@just-messin-around/expo-foundation/forms';
 import { Icon } from '@just-messin-around/expo-foundation/icons';
 import { FONT, textStyles } from '@just-messin-around/expo-foundation/typography';
 import { RADIUS, SPACE } from '@just-messin-around/expo-foundation/styles';
+import { isLoggedDrill } from '../lib/sessionAdds';
 
 type SessionWithPartner = DrillSession & { partner_id: string; partner_name: string; reviewed: boolean; calledOff: boolean };
 
@@ -141,7 +142,9 @@ export default function DrillScreen({ navigation }: Props) {
     }
     setPendingCount((requestsRes as any).count ?? 0);
 
-    const rows = ((sessionsRes as any).data ?? []) as any[];
+    // A drill logged for a play session (log_session_drill) is mine alone
+    // (player1 = player2): Play history has it, not this partner list.
+    const rows = (((sessionsRes as any).data ?? []) as any[]).filter(r => !isLoggedDrill(r));
     setSessions(rows.map(r => ({
       ...r,
       partner_id: r.player1_id === uid ? r.player2_id : r.player1_id,

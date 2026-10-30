@@ -9,7 +9,8 @@
 // within the hour; supabase/migration_validity_rules.sql's insert guard. The
 // 1-hour cron removes a match nobody confirmed (and tells its players why).
 import { whenLabel } from './refusals';
-import type { SessionValidity } from './sessionValidity';
+import { RECORD_WINDOW_MS, type SessionValidity } from './sessionValidity';
+import { LATE_ADD_MS } from './sessionAdds';
 
 /**
  * matches_score_sanity_check (and tournament_matches'): the higher score is
@@ -77,9 +78,10 @@ export function linkDroppedNote(p: {
       ? "Match recorded. Your play session was saved with no signal and hasn't reached Pickleague yet. The match counts for it once it does."
       : "Match recorded, but your play session never reached Pickleague, so the match can't count for it.";
   }
+  // window_ends_at is the end + 2 h; the server keeps a link for 7 days after the end.
   const ends = p.validity.window_ends_at ? Date.parse(p.validity.window_ends_at) : NaN;
-  if (Number.isFinite(ends) && ends <= p.nowMs) {
-    return "Match recorded, but it doesn't count for your play session: it was recorded more than 2 hours after the session ended.";
+  if (Number.isFinite(ends) && ends - RECORD_WINDOW_MS + LATE_ADD_MS <= p.nowMs) {
+    return "Match recorded, but it doesn't count for your play session: it was recorded more than 7 days after the session ended.";
   }
   return null;
 }

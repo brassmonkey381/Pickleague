@@ -44,6 +44,7 @@ import { useStatusMessage } from '../lib/useStatusMessage';
 import { useRefresh } from '../lib/useRefresh';
 import { trackSectionToggle } from '../lib/analytics';
 import DrillUpcomingSessions from '../components/DrillUpcomingSessions';
+import { isLoggedDrill } from '../lib/sessionAdds';
 
 type Props = {
   navigation: NativeStackNavigationProp<RootStackParamList, 'DrillRequests'>;
@@ -248,7 +249,8 @@ export default function DrillRequestsScreen({ route }: Props) {
         // Only sessions this user hasn't reviewed yet.
         const reviewedByMe = (r.drill_session_reviews ?? []).some((rv: any) => rv.user_id === uid);
         // Not ones either of us called off: they never happened.
-        return started && !reviewedByMe && !drillCalledOff(r.drill_session_rsvps);
+        // A drill logged for a play session is reviewed as it's logged.
+        return started && !reviewedByMe && !drillCalledOff(r.drill_session_rsvps) && !isLoggedDrill(r);
       })
       .map(r => ({
         ...r,

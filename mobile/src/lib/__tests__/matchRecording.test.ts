@@ -77,10 +77,16 @@ describe('linkDroppedNote (why a match recorded from a session does not count fo
     expect(linkDroppedNote({ ...base, validity: 'unknown' })).toBeNull();
   });
 
-  it('the session ended over 2 hours ago', () => {
-    expect(linkDroppedNote({ ...base, validity: v({ window_ends_at: new Date(T0 - 60_000).toISOString() }) })).toBe(
-      "Match recorded, but it doesn't count for your play session: it was recorded more than 2 hours after the session ended.",
+  it('the session ended over 7 days ago (window_ends_at is its end + 2 h)', () => {
+    const endsAt = (endedAgoMs: number) => new Date(T0 - endedAgoMs + 2 * 3_600_000).toISOString();
+    expect(linkDroppedNote({ ...base, validity: v({ window_ends_at: endsAt(7 * 86_400_000 + 60_000) }) })).toBe(
+      "Match recorded, but it doesn't count for your play session: it was recorded more than 7 days after the session ended.",
     );
+  });
+
+  it('nothing to say for a session that ended under 7 days ago (the server keeps that link)', () => {
+    const endsAt = new Date(T0 - 3 * 86_400_000 + 2 * 3_600_000).toISOString();
+    expect(linkDroppedNote({ ...base, validity: v({ window_ends_at: endsAt }) })).toBeNull();
   });
 
   it('the session is not on the server: still queued, or never got there', () => {

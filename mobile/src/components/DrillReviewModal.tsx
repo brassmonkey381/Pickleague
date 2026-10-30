@@ -15,6 +15,8 @@ import { useToast } from '../lib/useToast';
 import { noteDrillReviewed } from '../lib/playSession';
 import { explainRefusal } from '../lib/refusalNotices';
 import { drillReviewRefusal, isAlreadyReviewedMessage } from '../lib/refusals';
+import { isAlreadyLoggedMessage, loggedDrillNote } from '../lib/sessionAdds';
+import { getMySessionValidity } from '../data/playSessions';
 import {
   clearDrillReviewDraft,
   draftHasContent,
@@ -24,7 +26,11 @@ import {
 } from '../lib/drillReviewDraft';
 
 // The minimal session shape both DrillScreen and DrillRequestsScreen can supply.
-export type ReviewableDrill = { id: string; partner_name: string };
+// `logForPlaySession`: a drill of my own, logged for that play session and
+// reviewed in one step (log_session_drill; End's "Log a drill", Play
+// history's "Add a drill"). Then `id` is only the draft's key
+// (lib/sessionAdds loggedDrillDraftId) and `heading` names the session.
+export type ReviewableDrill = { id: string; partner_name: string; logForPlaySession?: string; heading?: string };
 
 const FACETS = [
   { key: 'consistency',    label: 'Consistency' },
@@ -78,7 +84,7 @@ export default function DrillReviewModal({
   const [submitting, setSubmitting] = useState(false);
   const [error, setError]           = useState<string | null>(null);
   // Saved: the pickles earned, or null when an earlier try saved it and its answer was lost.
-  const [done, setDone]             = useState<{ earned: number | null } | null>(null);
+  const [done, setDone]             = useState<{ earned: number | null; drillId?: string | null } | null>(null);
   // The review reopened from a saved draft.
   const [fromDraft, setFromDraft]   = useState(false);
   const [savingDraft, setSavingDraft] = useState(false);
@@ -124,22 +130,26 @@ export default function DrillReviewModal({
     if (!session || answered < 1) return;
     setSubmitting(true);
     setError(null);
-    type Row = { success?: boolean; pickles_granted?: number; message?: string };
+    type Row = { success?: boolean; pickles_granted?: number; message?: string; drill_session_id?: string | null };
     let data: Row[] | Row | null;
+    const facets = {
+      p_consistency:    ratings.consistency    || null,
+      p_effort:         ratings.effort         || null,
+      p_organization:   ratings.organization   || null,
+      p_intentionality: ratings.intentionality || null,
+      p_fun:            ratings.fun            || null,
+      p_notes:          notes.trim() || null,
+    };
+    const logFor = session.logForPlaySession;
     try {
       // Bounded (a dead connection never leaves the spinner running); not
-      // retried: a second try of a review that landed reads "already reviewed".
+      // retried: a second try of a review that landed reads "already reviewed"
+      // (a logged drill: "already logged").
       data = (await sbCall(
         () =>
-          supabase.rpc('submit_drill_review', {
-            p_session_id:     session.id,
-            p_consistency:    ratings.consistency    || null,
-            p_effort:         ratings.effort         || null,
-            p_organization:   ratings.organization   || null,
-            p_intentionality: ratings.intentionality || null,
-            p_fun:            ratings.fun            || null,
-            p_notes:          notes.trim() || null,
-          }),
+          logFor
+            ? supabase.rpc('log_session_drill', { p_play_session: logFor, ...facets })
+            : supabase.rpc('submit_drill_review', { p_session_id: session.id, ...facets }),
         { retries: 0, timeoutMs: 15_000 },
       )) as Row[] | Row | null;
     } catch (e) {
@@ -157,15 +167,16 @@ export default function DrillReviewModal({
     setSubmitting(false);
     const row = Array.isArray(data) ? data[0] : data;
     if (!row?.success) {
+      const already = isAlreadyReviewedMessage(row?.message) || (!!logFor && isAlreadyLoggedMessage(row?.message));
       // The try whose answer was lost had saved it.
-      if (lostAnswer.current && isAlreadyReviewedMessage(row?.message)) { finish(null); return; }
+      if (lostAnswer.current && already) { finish(null); return; }
       // Reviewed already (another device): the draft has nothing left to finish.
-      if (isAlreadyReviewedMessage(row?.message)) void clearDrillReviewDraft(session.id);
+      if (already) void clearDrillReviewDraft(session.id);
       // Why the server didn't take it, then what to do.
       setError(drillReviewRefusal(row?.message));
       return;
     }
-    finish(row.pickles_granted ?? preview);
+    finish(row.pickles_granted ?? preview, row.drill_session_id ?? null);
   }
 
   async function saveDraft() {
@@ -177,20 +188,26 @@ export default function DrillReviewModal({
       setError("Couldn't save your draft on this phone. Try again.");
       return;
     }
-    toast.success('Draft saved. Finish it from Review your drills.');
+    toast.success(session.logForPlaySession
+      ? 'Draft saved. Finish it from Me › Play history.'
+      : 'Draft saved. Finish it from Review your drills.');
     onDraftSaved?.(session.id);
     onClose();
   }
 
-  function finish(earned: number | null) {
+  function finish(earned: number | null, drillId: string | null = null) {
     if (!session) return;
-    setDone({ earned });
+    setDone({ earned, drillId });
     void clearDrillReviewDraft(session.id);
     // A drill held during my running (or just-ended) play session makes it
     // count: say so, or why this drill doesn't count for it. A toast, so it
-    // outlives this sheet.
-    void noteDrillReviewed().then((note) => {
-      if (note) toast.info(note);
+    // outlives this sheet. A logged drill: whether its own session counts now.
+    const logFor = session.logForPlaySession;
+    const note = logFor
+      ? getMySessionValidity(logFor).then(loggedDrillNote, () => null)
+      : noteDrillReviewed();
+    void note.then((n) => {
+      if (n) toast.info(n);
     });
     if (shareable) return; // the thanks stays up with Share / Done
     const sid = session.id;
@@ -202,7 +219,9 @@ export default function DrillReviewModal({
     if (!session || !done || left.current) return;
     left.current = true;
     onSubmitted(session.id, done.earned);
-    if (share) onShare?.(session.id);
+    // A logged drill shares by the drill it stored (unknown when the answer was lost: no card).
+    const shareId = session.logForPlaySession ? done.drillId : session.id;
+    if (share && shareId) onShare?.(shareId);
   }
   const closeNow = () => (done && shareable ? leave(false) : onClose());
 
@@ -213,7 +232,7 @@ export default function DrillReviewModal({
         <View style={S.panel}>
           <View style={S.header}>
             <Icon name="edit" size={16} color={c.textSub} />
-            <Text style={[t.title, S.title]} numberOfLines={1}>Review your drill</Text>
+            <Text style={[t.title, S.title]} numberOfLines={1}>{session.logForPlaySession ? 'Log your drill' : 'Review your drill'}</Text>
             <TouchableOpacity onPress={closeNow} style={S.closeBox} accessibilityRole="button" accessibilityLabel="Close">
               <Icon name="close" size={20} color={c.textSub} />
             </TouchableOpacity>
@@ -225,7 +244,7 @@ export default function DrillReviewModal({
               {done.earned !== null ? (
                 <>
                   <Text style={[t.h2, S.successText]}>+{done.earned} pickles earned!</Text>
-                  <Text style={[t.sub, S.center]}>Thanks for reviewing your drill.</Text>
+                  <Text style={[t.sub, S.center]}>{session.logForPlaySession ? 'Your drill is logged.' : 'Thanks for reviewing your drill.'}</Text>
                 </>
               ) : (
                 <>
@@ -243,7 +262,7 @@ export default function DrillReviewModal({
             </View>
           ) : (
             <ScrollView contentContainerStyle={S.body} keyboardShouldPersistTaps="handled">
-              <Text style={t.title}>Drill with {session.partner_name}</Text>
+              <Text style={t.title}>{session.heading ?? `Drill with ${session.partner_name}`}</Text>
               <Text style={[t.hint, S.hint]}>Rate each aspect (5 pickles each) and add a review (1 pickle per 10 characters, up to 50).</Text>
               {fromDraft ? <Text style={[t.caption, S.draftNote]}>Picked up from your saved draft.</Text> : null}
 

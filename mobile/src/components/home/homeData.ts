@@ -61,6 +61,7 @@ import {
 } from '../../lib/inboxRequests';
 import type { SeasonInput as SummarySeason } from '../../lib/seasonSummary';
 import type { Profile } from '../../types';
+import { isLoggedDrill } from '../../lib/sessionAdds';
 
 export const HOME_KEY = 'home:overview:v2';
 
@@ -540,6 +541,8 @@ export async function loadHome(): Promise<HomeData> {
   const drillsToday: AgendaDrillInput[] = [];
   for (const r of (drillRows ?? []) as DrillSessionRow[]) {
     if ((r.reminder_dismissed_by ?? []).includes(uid)) continue;
+    // A drill logged for a play session: done already, and mine alone.
+    if (isLoggedDrill(r)) continue;
     const req = Array.isArray(r.req) ? r.req[0] ?? null : r.req ?? null;
     // A request that was cancelled or declined after it was accepted.
     if (req && req.status && req.status !== 'accepted') continue;

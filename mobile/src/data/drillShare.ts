@@ -11,6 +11,7 @@ import { cardPlayer } from '../lib/finishShare';
 import { DRILL_WEEKS, drillStats, minutesBetween, type DrillShareData } from '../lib/shareCards';
 import { playHistoryDay } from '../lib/playHistory';
 import { findShotPref } from './drillOptions';
+import { isLoggedDrill } from '../lib/sessionAdds';
 
 const BOUND = { timeoutMs: 9_000 };
 
@@ -88,7 +89,8 @@ export async function loadDrillShare(
     }, null);
   }
 
-  const partnerId = drill ? (drill.player1_id === me ? drill.player2_id : drill.player1_id) : null;
+  // A drill logged for a play session is mine alone (no partner on the card).
+  const partnerId = drill && !isLoggedDrill(drill) ? (drill.player1_id === me ? drill.player2_id : drill.player1_id) : null;
   const since = new Date(now.getTime() - (DRILL_WEEKS * 7 + 7) * 86_400_000).toISOString();
 
   type ReviewRow = { rating: number | null; notes: string | null } & Partial<Record<(typeof FACETS)[number][0], number | null>>;
