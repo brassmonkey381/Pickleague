@@ -973,16 +973,18 @@ export function switchToOpenWindows(
   checkedInAt: string,
   endAt: string,
   now: Date = new Date(),
+  /** The mode to switch to (Switch to closed group now passes 'closed'). */
+  mode: PlayMode = 'open',
 ): AbsoluteTimeWindow<PlayMode>[] | null {
   const spanned = current.length > 0 ? spanCheckinWindows(current, checkedInAt, endAt) : [];
   if (current.length > 0 && spanned.length > 0) {
     const at = modeAt(spanned, now);
-    if (at?.mode === 'open') return null;
+    if (at?.mode === mode) return null;
     // Past the end, the last mode carries on: open from now to the end is all there is to do.
     if (now.getTime() >= Date.parse(endAt)) return null;
-    return splitAbsoluteAt(spanned, now, 'open');
+    return splitAbsoluteAt(spanned, now, mode);
   }
-  if (modeAt(current, now)?.mode === 'open') return null;
+  if (modeAt(current, now)?.mode === mode) return null;
   const start = Date.parse(checkedInAt);
   const nowIso = now.toISOString();
   const list: AbsoluteTimeWindow<PlayMode>[] = [];
@@ -990,7 +992,7 @@ export function switchToOpenWindows(
   if (Number.isFinite(start) && now.getTime() - start >= 60_000) {
     list.push({ startsAt: new Date(start).toISOString(), endsAt: nowIso, mode: null, hint: null, group: [] });
   }
-  list.push({ startsAt: list.length ? nowIso : new Date(Number.isFinite(start) ? start : now.getTime()).toISOString(), endsAt: endAt, mode: 'open', hint: null, group: [] });
+  list.push({ startsAt: list.length ? nowIso : new Date(Number.isFinite(start) ? start : now.getTime()).toISOString(), endsAt: endAt, mode, hint: null, group: [] });
   return list;
 }
 
@@ -1005,11 +1007,12 @@ export function switchToOpenWindows(
 export function switchToOpenPlan(
   plan: { checkedInAt: string; plannedEndAt: string | null; expiresAt: string; windows: readonly AbsoluteTimeWindow<PlayMode>[] },
   now: Date = new Date(),
+  mode: PlayMode = 'open',
 ): { windows: AbsoluteTimeWindow<PlayMode>[]; plannedEnd: Date | null } | null {
   const plannedEnd = plan.plannedEndAt ? Date.parse(plan.plannedEndAt) : NaN;
   const passed = Number.isFinite(plannedEnd) && plannedEnd <= now.getTime();
   const endAt = plan.plannedEndAt && !passed ? plan.plannedEndAt : plan.expiresAt;
-  const windows = switchToOpenWindows(plan.windows, plan.checkedInAt, endAt, now);
+  const windows = switchToOpenWindows(plan.windows, plan.checkedInAt, endAt, now, mode);
   if (!windows) return null;
   return { windows, plannedEnd: passed ? new Date(plan.expiresAt) : null };
 }

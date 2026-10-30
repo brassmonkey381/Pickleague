@@ -189,7 +189,7 @@ function PlanLine({ checkinId, venueName, compact, style }: Props & { checkinId:
   const t = textStyles(c);
   const toast = useToast();
   const [plan, reload] = useCheckinPlan(checkinId);
-  const [busy, setBusy] = React.useState<'switch' | 'stay' | null>(null);
+  const [busy, setBusy] = React.useState<'switch' | 'closed' | 'stay' | null>(null);
   const [editing, setEditing] = React.useState(false);
   // A minute tick, so "until 10:30" moves on without a refetch.
   const [, setTick] = React.useState(0);
@@ -201,7 +201,8 @@ function PlanLine({ checkinId, venueName, compact, style }: Props & { checkinId:
   if (!plan || !plan.checkedInAt) return null;
   const now = new Date();
   const shown = checkinPlanLine(plan, now);
-  const open = modeAt(plan.windows, now)?.mode === 'open';
+  const modeNow = modeAt(plan.windows, now)?.mode;
+  const open = modeNow === 'open';
   // The check-in ends before its planned end (a routine check-in by hand
   // keeps the length asked): one tap runs it to the planned end, or as far
   // as extend_checkin goes without a fix.
@@ -216,6 +217,21 @@ function PlanLine({ checkinId, venueName, compact, style }: Props & { checkinId:
       toast.success("You're open to play. Others here see it.");
     } catch (e) {
       toast.error(explainRefusal(e, "Couldn't switch to open play. Try again.", { venueName, action: 'plan' }));
+    } finally {
+      setBusy(null);
+    }
+  };
+
+  // The rest of the current window becomes Closed group (later windows stay).
+  const switchToClosed = async () => {
+    const next = switchToOpenPlan(plan, new Date(), 'closed');
+    if (!next) return;
+    setBusy('closed');
+    try {
+      await setCheckinPlan(checkinId, next.plannedEnd, next.windows);
+      toast.success("You're playing with your group. Others here see you're not open to play.");
+    } catch (e) {
+      toast.error(explainRefusal(e, "Couldn't switch to closed group. Try again.", { venueName, action: 'plan' }));
     } finally {
       setBusy(null);
     }
@@ -264,6 +280,16 @@ function PlanLine({ checkinId, venueName, compact, style }: Props & { checkinId:
             loading={busy === 'switch'}
             disabled={busy != null}
             onPress={() => void switchToOpen()}
+          />
+        ) : null}
+        {modeNow !== 'closed' ? (
+          <Button
+            title="Switch to closed group now"
+            size="sm"
+            variant="outline"
+            loading={busy === 'closed'}
+            disabled={busy != null}
+            onPress={() => void switchToClosed()}
           />
         ) : null}
         {!compact ? (

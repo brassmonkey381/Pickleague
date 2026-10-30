@@ -497,6 +497,15 @@ describe('the closed / open split, end to end', () => {
     expect(modeAt(next!.windows, at(-10))?.mode).toBe('open');
   });
 
+  it('"Switch to closed group now" closes the rest of the current window; null when closed already', () => {
+    const plan = { checkedInAt: at(0).toISOString(), plannedEndAt: at(120).toISOString(), expiresAt: at(120).toISOString(), windows: [abs(0, 120, 'open')] };
+    const next = switchToOpenPlan(plan, at(30), 'closed');
+    expect(next?.plannedEnd).toBeNull();
+    expect(absSpan(next?.windows)).toBe('0-30:open 30-120:closed');
+    expect(modeAt(next!.windows, at(30))?.mode).toBe('closed');
+    expect(switchToOpenPlan({ ...plan, windows: next!.windows }, at(45), 'closed')).toBeNull();
+  });
+
   it('"Switch to open play now" after the planned end (the check-in was extended) moves the plan to the check-in\'s end', () => {
     const plan = { checkedInAt: at(0).toISOString(), plannedEndAt: at(120).toISOString(), expiresAt: at(180).toISOString(), windows: [abs(0, 60, 'open'), abs(60, 120, 'closed')] };
     const next = switchToOpenPlan(plan, at(150));
