@@ -73,6 +73,9 @@ const KNOWN_PREF_KEYS = new Set([
   // "Sam is on the way to Lakeside" (migration_on_my_way.sql). No buttons;
   // the tap opens the court (deep link court/<venue id>).
   'notifyFriendsOnTheWay',
+  // "X started the group session" for an event or tournament you're in
+  // (migration_group_sessions.sql, which also checks it before it queues one).
+  'notifyGroupSessions',
 ]);
 
 type Row = OutboxRow & {
@@ -189,6 +192,10 @@ async function eventButtons(row: Row, data: Data, kind: string | null): Promise<
   if (!ev) return { data };
   const d = { ...data, league_id: ev.league_id };
   const organizer = !!ev.created_by && ev.created_by === me;
+
+  // "X started the group session" (migration_group_sessions.sql): the tap
+  // opens the event to join; no answer buttons.
+  if (kind === 'group_session') return { data: d };
 
   // The vote failed: the organizer can start a new one; members have nothing to answer.
   if (kind === 'event_cancelled') {
