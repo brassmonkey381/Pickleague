@@ -187,6 +187,10 @@ function SavedButton() {
   );
 }
 
+// Brian's tuning: a small payout still rains for about 2.5 s (25 -> 50 pickles
+// spread out, not one burst), slower falls, and more sideways drift.
+const PICKLE_RAIN = { minMs: 1500, perIconMs: 20, fallMs: [1400, 2400] as const, driftMax: 0.25 };
+
 export default function AppNavigator() {
   const { colors, isDark } = useTheme();
   // Bounded startup session resolution: never gate the whole app on an
@@ -563,7 +567,7 @@ export default function AppNavigator() {
         <SplashScreen onDone={() => setSplashDone(true)} minMs={MIN_MS} />
       )}
       {/* Pickles shower the screen on a payout (rainReward, kit 1.88). */}
-      <RewardRainHost renderIcon={(size) => <Icon name="pickle" size={size} />} />
+      <RewardRainHost renderIcon={(size) => <Icon name="pickle" size={size} color={colors.primary} />} config={PICKLE_RAIN} />
     </ToastProvider>
     </ErrorBoundary>
   );
