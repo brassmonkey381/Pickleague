@@ -1,7 +1,7 @@
 import React, { useCallback, useMemo, useState } from 'react';
 import {
   View, Text, TextInput, StyleSheet,
-  ActivityIndicator, ScrollView,
+  ActivityIndicator, ScrollView, Keyboard,
 } from 'react-native';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { useFocusEffect } from '@react-navigation/native';
@@ -24,6 +24,7 @@ import { Icon } from '@just-messin-around/expo-foundation/icons';
 import { Chip, FilterPill, Panel, SectionHeader } from '@just-messin-around/expo-foundation/ui';
 import { Button } from '@just-messin-around/expo-foundation/forms';
 import { rainReward } from '@just-messin-around/expo-foundation/ui/rewardRain';
+import { picklesLabel } from '../components/PickleAmount';
 import { HAIRLINE, RADIUS, SPACE } from '@just-messin-around/expo-foundation/styles';
 import { FONT, textStyles } from '@just-messin-around/expo-foundation/typography';
 
@@ -85,6 +86,8 @@ export default function GodmodeScreen({ navigation }: Props) {
   const [acceptingInviteeKey, setAcceptingInviteeKey] = useState<string | null>(null);
   const [bulkAcceptingCodeId, setBulkAcceptingCodeId] = useState<string | null>(null);
 
+  const [grantAmount, setGrantAmount] = useState('');
+  const [granting, setGranting] = useState(false);
   const [pluprPickerOpen, setPluprPickerOpen] = useState(false);
   const [pluprTarget, setPluprTarget] = useState<PickedUser | null>(null);
   const [pluprOverall, setPluprOverall] = useState('');
@@ -246,6 +249,29 @@ export default function GodmodeScreen({ navigation }: Props) {
     status.success(`Saved PLUPR for ${pluprTarget.full_name}`);
   }
 
+  // Credits my own balance (godmode_grant_pickles: God mode only, 1 to 10M).
+  // No retry: a retried call that landed would grant twice.
+  async function grantPickles(amount: number) {
+    if (!Number.isInteger(amount) || amount < 1 || amount > 10_000_000) {
+      status.error('Pick an amount from 1 to 10,000,000.');
+      return;
+    }
+    Keyboard.dismiss();
+    setGranting(true);
+    try {
+      const data = await sbCall(() => supabase.rpc('godmode_grant_pickles', { p_amount: amount }), { retries: 0 });
+      const row = Array.isArray(data) ? data[0] : data;
+      if (!row?.success) { status.error(row?.message ?? 'Could not grant pickles.'); return; }
+      setGrantAmount('');
+      rainReward(amount);
+      status.success(`${picklesLabel(amount)} added. Your balance: ${picklesLabel(row.new_balance ?? 0)}.`, { iconName: 'pickle' });
+    } catch (e) {
+      status.error(friendlySbMessage(e, 'Could not grant pickles.'));
+    } finally {
+      setGranting(false);
+    }
+  }
+
   async function forceAcceptAllInvitees(invite: ActiveInvite) {
     if (invite.pending_invitees.length === 0) return;
     setBulkAcceptingCodeId(invite.code_id);
@@ -312,7 +338,7 @@ export default function GodmodeScreen({ navigation }: Props) {
   const eligibleCount = (invites ?? []).filter(i => !i.already_member).length;
 
   return (
-    <ScrollView style={S.screen} contentContainerStyle={S.container} refreshControl={<AppRefreshControl {...refresh} />}>
+    <ScrollView style={S.screen} contentContainerStyle={S.container} keyboardShouldPersistTaps="handled" keyboardDismissMode="on-drag" refreshControl={<AppRefreshControl {...refresh} />}>
       <Text style={S.hint}>
         Admin-only utilities. Anything risky should go behind a confirm. Feel free
         to keep stacking sections here as needs come up.
@@ -594,6 +620,39 @@ export default function GodmodeScreen({ navigation }: Props) {
             })}
           </View>
         )}
+      </Panel>
+
+      <SectionHeader title="Give myself pickles" />
+      <Panel style={S.card}>
+        <Text style={S.previewNote}>Adds to your own balance. It shows in your pickle history as God mode top-up.</Text>
+        <View style={S.rainRow}>
+          {[1_000, 10_000, 100_000].map((n) => (
+            <Button key={n} size="sm" variant="outline" title={`+${n.toLocaleString('en-US')}`} disabled={granting}
+              onPress={() => grantPickles(n)} style={S.rainBtn} />
+          ))}
+        </View>
+        <View style={[S.pluprRow, S.gapTop]}>
+          <Text style={S.pluprLabel}>Amount</Text>
+          <TextInput
+            style={S.pluprInput}
+            keyboardType="number-pad"
+            returnKeyType="done"
+            value={grantAmount}
+            onChangeText={(t) => setGrantAmount(t.replace(/[^0-9]/g, ''))}
+            onSubmitEditing={() => grantPickles(parseInt(grantAmount, 10))}
+            placeholder="Any amount"
+            placeholderTextColor={c.textMuted}
+            maxLength={8}
+            accessibilityLabel="Pickles to add"
+          />
+        </View>
+        <Button
+          title={grantAmount ? `Add ${picklesLabel(parseInt(grantAmount, 10) || 0)}` : 'Add pickles'}
+          onPress={() => grantPickles(parseInt(grantAmount, 10))}
+          loading={granting}
+          disabled={!grantAmount}
+          style={S.primaryBtn}
+        />
       </Panel>
 
       <SectionHeader title="Pickle rain" />

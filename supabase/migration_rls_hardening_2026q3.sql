@@ -108,7 +108,7 @@ begin
         'godmode_approve_all_invitees','godmode_auto_pair_doubles_for_tournament',
         'godmode_confirm_my_mlp_invites','godmode_dedupe_mlp_team_members','godmode_delete_league',
         'godmode_delete_tournament','godmode_force_accept_invitee','godmode_force_fill_mlp_teams',
-        'godmode_gift_pickles','godmode_list_active_invites','godmode_set_plupr',
+        'godmode_gift_pickles','godmode_grant_pickles','godmode_list_active_invites','godmode_set_plupr',
         'godmode_simulate_fill_matches','lock_season_period','mlp_invite','mlp_leave_team',
         'mlp_lock_team','mlp_request_join','mlp_respond_to_join','mlp_set_dreambreaker',
         'mlp_set_slot','mlp_team_standings','og_card_tz','pair_invite','pair_leave_pair','pair_lock_pair',
