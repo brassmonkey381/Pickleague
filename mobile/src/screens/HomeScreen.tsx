@@ -46,6 +46,7 @@ import { useFocusEffect, useIsFocused, useRoute, type RouteProp } from '@react-n
 import { sbCall, currentUserId, friendlySbMessage } from '@just-messin-around/expo-foundation/supabase';
 import { useCachedQuery, setQueryData, peekQuery } from '@just-messin-around/expo-foundation/cache';
 import { AppTopBar, ConfirmModal, ErrorState, Panel, SkeletonList, SectionHeader } from '@just-messin-around/expo-foundation/ui';
+import { rainReward } from '@just-messin-around/expo-foundation/ui/rewardRain';
 import { SPACE, HAIRLINE } from '@just-messin-around/expo-foundation/styles';
 import { FONT, textStyles } from '@just-messin-around/expo-foundation/typography';
 import { Icon } from '@just-messin-around/expo-foundation/icons';
@@ -124,6 +125,8 @@ const OPEN_ROWS = 3;
 /** The modal handoff pause: longer than RN Modal's ~300ms fade-out. */
 const HANDOFF_MS = 350;
 const NEW_ACCOUNT_MS = 7 * 24 * 60 * 60 * 1000;
+/** The welcome grant the pop-up names (1,000 pickles), rained when it closes. */
+const WELCOME_RAIN = 1000;
 const METERS_PER_MILE = 1609.344;
 /** With the feed on, YOUR LEAGUES is gone: its standings hook reads nothing. */
 const NO_LEAGUES: HomeData['myLeagues'] = [];
@@ -251,6 +254,12 @@ export default function HomeScreen({ navigation }: Props) {
     });
   }, []);
   const closeModal = useCallback(() => {
+    // A reward pop-up closing is when the header balance shows: rain the
+    // pickles it paid then (the rain sits under a Modal, so not while it's up).
+    const shown = shownRef.current;
+    const paid = shown?.kind === 'streak' ? shown.result.daily_pickles + shown.result.milestone_pickles
+      : shown?.kind === 'welcome' ? WELCOME_RAIN : 0;
+    if (paid > 0) setTimeout(() => rainReward(paid), 350);
     holdHandoff();
     setQueue(q => q.slice(1));
     // Dismissing is the moment the header becomes visible and worth being

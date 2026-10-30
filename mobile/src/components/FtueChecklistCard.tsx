@@ -3,6 +3,7 @@ import { View, Text, StyleSheet, ActivityIndicator } from 'react-native';
 import { useFocusEffect } from '@react-navigation/native';
 import { sbCall, currentUserId, friendlySbMessage } from '@just-messin-around/expo-foundation/supabase';
 import { ListCard, TITLE_ICON_COLUMN } from '@just-messin-around/expo-foundation/ui';
+import { rainReward } from '@just-messin-around/expo-foundation/ui/rewardRain';
 import { Button } from '@just-messin-around/expo-foundation/forms';
 import { Icon } from '@just-messin-around/expo-foundation/icons';
 import { SPACE, RADIUS, SMALL_TEXT_MAX_SCALE } from '@just-messin-around/expo-foundation/styles';
@@ -173,6 +174,7 @@ export function useFtueChecklist({ profile, navigation, onClaimed, inLeague: inL
       const row = Array.isArray(data) ? data[0] : data;
       if (row?.success) {
         setClaimed(prev => new Set(prev).add(step));
+        rainReward(FTUE_REWARDS[step]);
         if (typeof row.new_balance === 'number') onClaimed?.(row.new_balance);
       } else if (row?.message === 'Already claimed') {
         // Server says it's already granted — reconcile local state.
