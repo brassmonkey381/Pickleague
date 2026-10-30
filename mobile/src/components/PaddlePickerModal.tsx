@@ -1,12 +1,12 @@
 import React, { useEffect, useRef, useState } from 'react';
 import {
-  View, Text, TouchableOpacity, TextInput, FlatList, StyleSheet, ActivityIndicator,
+  View, Text, TouchableOpacity, FlatList, StyleSheet, ActivityIndicator,
 } from 'react-native';
 import { sbCall, friendlySbMessage } from '@just-messin-around/expo-foundation/supabase';
 import { supabase } from '../lib/supabase';
 import { useTheme } from '../lib/ThemeContext';
 import { Icon } from '@just-messin-around/expo-foundation/icons';
-import { Button } from '@just-messin-around/expo-foundation/forms';
+import { Button, KeyboardTextInput } from '@just-messin-around/expo-foundation/forms';
 import { BottomSheet, FilterSearchField } from '@just-messin-around/expo-foundation/ui';
 import { SPACE, RADIUS, HAIRLINE, webInputFontFloor } from '@just-messin-around/expo-foundation/styles';
 import { FONT, textStyles } from '@just-messin-around/expo-foundation/typography';
@@ -296,7 +296,7 @@ export default function PaddlePickerModal({ visible, onSelect, onClose, initial 
             <Text style={styles.optionLabel}>Not sure</Text>
           </TouchableOpacity>
           <View style={styles.customRow}>
-            <TextInput
+            <KeyboardTextInput
               style={[styles.customInput, webInputFontFloor(styles.customInput)]}
               placeholder="Other mm (e.g. 11.5)"
               placeholderTextColor={c.textMuted}

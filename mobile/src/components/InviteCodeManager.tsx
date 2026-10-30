@@ -1,7 +1,6 @@
 import React, { useEffect, useState, useCallback } from 'react';
 import {
-  View, Text, TouchableOpacity, StyleSheet, TextInput,
-  ActivityIndicator, ScrollView, Alert,
+  View, Text, TouchableOpacity, StyleSheet, ActivityIndicator, ScrollView, Alert,
 } from 'react-native';
 import { useFocusEffect, useNavigation } from '@react-navigation/native';
 import { sbCall, currentUserId, friendlySbMessage } from '@just-messin-around/expo-foundation/supabase';
@@ -15,7 +14,7 @@ import StatusBanner from './StatusBanner';
 import { useStatusMessage } from '../lib/useStatusMessage';
 import MultiUserPickerModal, { MultiPickedUser } from './MultiUserPickerModal';
 import { DISCOVER_ENABLED } from '../lib/features';
-import { Button } from '@just-messin-around/expo-foundation/forms';
+import { Button, KeyboardTextInput } from '@just-messin-around/expo-foundation/forms';
 import { Icon } from '@just-messin-around/expo-foundation/icons';
 import { shadowColor } from '@just-messin-around/expo-foundation/theme';
 import { HAIRLINE, RADIUS, SPACE } from '@just-messin-around/expo-foundation/styles';
@@ -295,7 +294,7 @@ export default function InviteCodeManager({ scopeType, scopeId, scopeName, tourn
   })();
 
   return (
-    <ScrollView contentContainerStyle={S.container}>
+    <ScrollView contentContainerStyle={S.container} keyboardShouldPersistTaps="handled" keyboardDismissMode="on-drag">
       <Text style={S.subtitle}>
         Share this code with people you want to invite to{' '}
         <Text style={S.scopeName}>{scopeName}</Text>.
@@ -372,7 +371,7 @@ export default function InviteCodeManager({ scopeType, scopeId, scopeName, tourn
           <View>
             <Text style={S.modalLabel}>Max uses</Text>
             <Text style={S.modalHint}>Leave blank for unlimited. Subsidized codes require a limit.</Text>
-            <TextInput
+            <KeyboardTextInput
               style={S.input}
               keyboardType="number-pad"
               placeholder="unlimited"
@@ -390,7 +389,7 @@ export default function InviteCodeManager({ scopeType, scopeId, scopeName, tourn
                     ? ` Tournament ante is ${picklesLabel(tournamentAnte)}.`
                     : ' This tournament has no entry fee, so subsidies have no effect.'}
                 </Text>
-                <TextInput
+                <KeyboardTextInput
                   style={S.input}
                   keyboardType="number-pad"
                   placeholder="0"

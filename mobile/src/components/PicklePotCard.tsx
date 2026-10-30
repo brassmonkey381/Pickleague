@@ -3,6 +3,7 @@ import {
   View, Text, TouchableOpacity, Modal, TextInput, ScrollView,
   StyleSheet, ActivityIndicator, Pressable,
 } from 'react-native';
+import { KeyboardTextInput, keyboardDismissTap } from '@just-messin-around/expo-foundation/forms';
 import { supabase } from '../lib/supabase';
 import { useTheme } from '../lib/ThemeContext';
 import StatusBanner from './StatusBanner';
@@ -215,7 +216,7 @@ function ContributeModal({
   return (
     <Modal visible={visible} transparent animationType="slide" onRequestClose={onClose}>
       <Pressable style={S.modalBackdrop} onPress={(e) => { if (e.target === e.currentTarget) onClose(); }}>
-        <View style={S.modalCard}>
+        <View style={S.modalCard} {...keyboardDismissTap}>
           <Text style={S.modalTitle}>Contribute to {scopeLabel} Pot</Text>
           <Text style={S.modalBody}>
             Your pickles go straight into the pot for the winners.
@@ -228,7 +229,7 @@ function ContributeModal({
           )}
 
           <Text style={S.label}>Amount to contribute</Text>
-          <TextInput
+          <KeyboardTextInput
             style={[S.input, webInputFontFloor(S.input)]}
             keyboardType="number-pad"
             placeholder="100"
@@ -318,7 +319,7 @@ function AwardModal({
   return (
     <Modal visible={visible} transparent animationType="slide" onRequestClose={onClose}>
       <Pressable style={S.modalBackdrop} onPress={(e) => { if (e.target === e.currentTarget) onClose(); }}>
-        <View style={[S.modalCard, { maxHeight: '85%' }]}>
+        <View style={[S.modalCard, { maxHeight: '85%' }]} {...keyboardDismissTap}>
           <Text style={S.modalTitle}>Award from {scopeLabel} Pot</Text>
           <View style={S.modalSubRow}>
             <Text style={S.modalSubText}>Pool balance:</Text>
@@ -349,7 +350,7 @@ function AwardModal({
           </ScrollView>
 
           <Text style={S.label}>Amount (max {pool})</Text>
-          <TextInput style={[S.input, webInputFontFloor(S.input)]} keyboardType="number-pad" placeholder="50" value={amount} onChangeText={setAmount} />
+          <KeyboardTextInput style={[S.input, webInputFontFloor(S.input)]} keyboardType="number-pad" placeholder="50" value={amount} onChangeText={setAmount} />
 
           <Text style={S.label}>Reason (optional)</Text>
           <TextInput style={[S.input, webInputFontFloor(S.input)]} placeholder="e.g. Period 2 winner" value={reason} onChangeText={setReason} />
@@ -429,7 +430,7 @@ function DistributeModal({
   return (
     <Modal visible={visible} transparent animationType="slide" onRequestClose={onClose}>
       <Pressable style={S.modalBackdrop} onPress={(e) => { if (e.target === e.currentTarget) onClose(); }}>
-        <View style={[S.modalCard, { maxHeight: '90%' }]}>
+        <View style={[S.modalCard, { maxHeight: '90%' }]} {...keyboardDismissTap}>
           <Text style={S.modalTitle}>Distribute {scopeLabel} Pot</Text>
           <View style={S.modalSubRow}>
             <Text style={S.modalSubText}>Pool:</Text>

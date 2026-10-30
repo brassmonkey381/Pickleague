@@ -22,7 +22,7 @@ import { HideTestAccountsSwitch } from '../components/TestAccountSwitches';
 import { entityIcon } from '../lib/entityGlyph';
 import { Icon } from '@just-messin-around/expo-foundation/icons';
 import { Chip, FilterPill, Panel, SectionHeader } from '@just-messin-around/expo-foundation/ui';
-import { Button } from '@just-messin-around/expo-foundation/forms';
+import { Button, KeyboardTextInput } from '@just-messin-around/expo-foundation/forms';
 import { rainReward } from '@just-messin-around/expo-foundation/ui/rewardRain';
 import { picklesLabel } from '../components/PickleAmount';
 import { HAIRLINE, RADIUS, SPACE } from '@just-messin-around/expo-foundation/styles';
@@ -558,7 +558,7 @@ export default function GodmodeScreen({ navigation }: Props) {
               ] as const).map(([label, value, set]) => (
                 <View key={label} style={S.pluprRow}>
                   <Text style={S.pluprLabel}>{label}</Text>
-                  <TextInput
+                  <KeyboardTextInput
                     style={S.pluprInput}
                     keyboardType="decimal-pad"
                     value={value}
@@ -633,7 +633,7 @@ export default function GodmodeScreen({ navigation }: Props) {
         </View>
         <View style={[S.pluprRow, S.gapTop]}>
           <Text style={S.pluprLabel}>Amount</Text>
-          <TextInput
+          <KeyboardTextInput
             style={S.pluprInput}
             keyboardType="number-pad"
             returnKeyType="done"

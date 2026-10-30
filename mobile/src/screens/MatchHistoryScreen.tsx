@@ -1,5 +1,5 @@
 import React, { useEffect, useState, useMemo, useRef } from 'react';
-import { View, Text, FlatList, StyleSheet, Pressable, TextInput } from 'react-native';
+import { View, Text, FlatList, StyleSheet, Pressable } from 'react-native';
 import { RouteProp } from '@react-navigation/native';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { supabase } from '../lib/supabase';
@@ -22,7 +22,7 @@ import {
   type FilterSheetGroup,
   type FilterValues,
 } from '@just-messin-around/expo-foundation/ui';
-import { Button } from '@just-messin-around/expo-foundation/forms';
+import { Button, KeyboardTextInput } from '@just-messin-around/expo-foundation/forms';
 import { Icon, type IconName } from '@just-messin-around/expo-foundation/icons';
 import { SPACE, RADIUS, HAIRLINE, SMALL_TEXT_MAX_SCALE } from '@just-messin-around/expo-foundation/styles';
 import { FONT, textStyles } from '@just-messin-around/expo-foundation/typography';
@@ -975,7 +975,7 @@ export default function MatchHistoryScreen({ navigation, route }: Props) {
           <View>
             <Text style={[t.fieldLabel, S.scoreInputLabel]}>Predicted final score</Text>
             <View style={S.scoreInputRow}>
-              <TextInput
+              <KeyboardTextInput
                 style={S.scoreInput}
                 value={scoreInput.t1}
                 onChangeText={(v) => setScoreInput({ ...scoreInput, t1: v.replace(/[^0-9]/g, '') })}
@@ -985,7 +985,7 @@ export default function MatchHistoryScreen({ navigation, route }: Props) {
                 placeholderTextColor={colors.textMuted}
               />
               <Text style={S.scoreInputDash}>–</Text>
-              <TextInput
+              <KeyboardTextInput
                 style={S.scoreInput}
                 value={scoreInput.t2}
                 onChangeText={(v) => setScoreInput({ ...scoreInput, t2: v.replace(/[^0-9]/g, '') })}

@@ -15,7 +15,7 @@ import StatusBanner from '../components/StatusBanner';
 import { useStatusMessage } from '../lib/useStatusMessage';
 import { useRefresh } from '../lib/useRefresh';
 import { LoadingState } from '@just-messin-around/expo-foundation/ui';
-import { Button } from '@just-messin-around/expo-foundation/forms';
+import { Button, KeyboardTextInput } from '@just-messin-around/expo-foundation/forms';
 import { SPACE, RADIUS, HAIRLINE, webInputFontFloor } from '@just-messin-around/expo-foundation/styles';
 import { FONT, textStyles } from '@just-messin-around/expo-foundation/typography';
 import AppRefreshControl from '../components/AppRefreshControl';
@@ -111,7 +111,7 @@ export default function GiftPicklesScreen({ navigation }: Props) {
   }
 
   return (
-    <ScrollView contentContainerStyle={S.container} refreshControl={<AppRefreshControl {...refresh} />}>
+    <ScrollView contentContainerStyle={S.container} keyboardShouldPersistTaps="handled" keyboardDismissMode="on-drag" refreshControl={<AppRefreshControl {...refresh} />}>
       <View style={S.balanceCard}>
         <Text style={S.balanceLabel}>Your balance</Text>
         <PickleAmount amount={myBalance} preset="display" style={S.balanceValue} />
@@ -148,7 +148,7 @@ export default function GiftPicklesScreen({ navigation }: Props) {
       </TouchableOpacity>
 
       <Text style={S.fieldLabel}>Amount (max {myBalance.toLocaleString()})</Text>
-      <TextInput
+      <KeyboardTextInput
         style={[S.input, webInputFontFloor(S.input)]}
         keyboardType="number-pad"
         placeholder="500"

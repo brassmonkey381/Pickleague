@@ -17,7 +17,7 @@ import { sbCall, requireUserId, currentUserId, friendlySbMessage } from '@just-m
 import { refusalMessage } from '../lib/refusals';
 import { createCostLine } from '../lib/createCosts';
 import { Icon, type IconName } from '@just-messin-around/expo-foundation/icons';
-import { Button } from '@just-messin-around/expo-foundation/forms';
+import { Button, KeyboardTextInput } from '@just-messin-around/expo-foundation/forms';
 import { shadowColor } from '@just-messin-around/expo-foundation/theme';
 import { HAIRLINE, RADIUS, SPACE } from '@just-messin-around/expo-foundation/styles';
 import { FONT, textStyles } from '@just-messin-around/expo-foundation/typography';
@@ -462,7 +462,7 @@ export default function CreateTournamentScreen({ navigation, route }: Props) {
         <Text style={S.hint}>Defaults to the upcoming Saturday at 9 AM. Tap to change.</Text>
 
         <Text style={S.label}>Expected Duration (hours)</Text>
-        <TextInput
+        <KeyboardTextInput
           style={[S.input, S.inputSmall]}
           placeholder="3"
           placeholderTextColor={colors.textMuted}
@@ -476,11 +476,11 @@ export default function CreateTournamentScreen({ navigation, route }: Props) {
         <CourtPicker value={location} onSelect={setLocation} active showNoneOption placeholder="Search for tournament venue…" />
 
         <Text style={S.label}>Min Players</Text>
-        <TextInput style={[S.input, S.inputSmall]} placeholder="No minimum" placeholderTextColor={colors.textMuted} keyboardType="number-pad" value={minPlayers} onChangeText={setMinPlayers} />
+        <KeyboardTextInput style={[S.input, S.inputSmall]} placeholder="No minimum" placeholderTextColor={colors.textMuted} keyboardType="number-pad" value={minPlayers} onChangeText={setMinPlayers} />
         <Text style={S.hint}>The bracket can't be locked in with fewer approved players than this.</Text>
 
         <Text style={S.label}>Max Players</Text>
-        <TextInput style={[S.input, S.inputSmall]} placeholder="No limit" placeholderTextColor={colors.textMuted} keyboardType="number-pad" value={maxPlayers} onChangeText={setMaxPlayers} />
+        <KeyboardTextInput style={[S.input, S.inputSmall]} placeholder="No limit" placeholderTextColor={colors.textMuted} keyboardType="number-pad" value={maxPlayers} onChangeText={setMaxPlayers} />
         <Text style={S.hint}>Once full, new join requests go on a waitlist and are promoted automatically when a spot opens.</Text>
 
         {/* ── Team Type ── (moved above Format; defaults to Doubles) */}
@@ -663,7 +663,7 @@ export default function CreateTournamentScreen({ navigation, route }: Props) {
         <SectionHeader iconName="pickle" title="Pickle Pot" S={S} />
 
         <Text style={S.label}>Entry Ante</Text>
-        <TextInput
+        <KeyboardTextInput
           style={[S.input, S.inputSmall]}
           placeholder="0"
           placeholderTextColor={colors.textMuted}

@@ -1,11 +1,10 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
-  Modal, Pressable, View, Text, TextInput, TouchableOpacity,
-  ActivityIndicator, StyleSheet, Platform,
+  Modal, Pressable, View, Text, TouchableOpacity, ActivityIndicator, StyleSheet, Platform,
 } from 'react-native';
 import { useTheme } from '../lib/ThemeContext';
 import { Icon } from '@just-messin-around/expo-foundation/icons';
-import { Button } from '@just-messin-around/expo-foundation/forms';
+import { Button, KeyboardTextInput, keyboardDismissTap } from '@just-messin-around/expo-foundation/forms';
 import { SPACE, RADIUS, HAIRLINE, webInputFontFloor } from '@just-messin-around/expo-foundation/styles';
 import { FONT, textStyles } from '@just-messin-around/expo-foundation/typography';
 import { PickleAmount } from './PickleAmount';
@@ -139,7 +138,7 @@ export default function WagerProposeModal({ visible, subject, onClose, onPlaced 
       </View>
 
       <Text style={S.fieldLabel}>Stake</Text>
-      <TextInput
+      <KeyboardTextInput
         style={[S.stakeInput, webInputFontFloor(S.stakeInput)]}
         accessibilityLabel="Stake in pickles"
         value={stakeText}
@@ -214,7 +213,7 @@ export default function WagerProposeModal({ visible, subject, onClose, onPlaced 
           {card}
         </Pressable>
       ) : (
-        <View style={S.backdrop}>{card}</View>
+        <View style={S.backdrop} {...keyboardDismissTap}>{card}</View>
       )}
     </Modal>
   );

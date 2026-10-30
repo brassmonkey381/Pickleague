@@ -1,5 +1,6 @@
 import React from 'react';
 import { View, Text, TouchableOpacity, Modal, ScrollView, TextInput, Platform } from 'react-native';
+import { KeyboardTextInput } from '@just-messin-around/expo-foundation/forms';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { RADIUS, SPACE, webInputFontFloor } from '@just-messin-around/expo-foundation/styles';
 import { FONT } from '@just-messin-around/expo-foundation/typography';
@@ -89,7 +90,7 @@ export default function EditTournamentModal({
         )}
 
         <Text style={S.editFieldLabel}>Expected length (hours)</Text>
-        <TextInput
+        <KeyboardTextInput
           style={[S.editInput, webInputFontFloor(S.editInput)]}
           value={editLengthHours}
           onChangeText={setEditLengthHours}
@@ -110,7 +111,7 @@ export default function EditTournamentModal({
         />
 
         <Text style={S.editFieldLabel}>Min players</Text>
-        <TextInput
+        <KeyboardTextInput
           style={[S.editInput, webInputFontFloor(S.editInput)]}
           value={editMinPlayers}
           onChangeText={setEditMinPlayers}
@@ -121,7 +122,7 @@ export default function EditTournamentModal({
         />
 
         <Text style={S.editFieldLabel}>Max players (raising it promotes the waitlist)</Text>
-        <TextInput
+        <KeyboardTextInput
           style={[S.editInput, webInputFontFloor(S.editInput)]}
           value={editMaxPlayers}
           onChangeText={setEditMaxPlayers}
@@ -132,7 +133,7 @@ export default function EditTournamentModal({
         />
 
         <Text style={S.editFieldLabel}>Entry ante (pickles)</Text>
-        <TextInput
+        <KeyboardTextInput
           style={[S.editInput, webInputFontFloor(S.editInput)]}
           value={editAnte}
           onChangeText={setEditAnte}

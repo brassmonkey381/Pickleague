@@ -1,7 +1,6 @@
 import React, { useEffect, useMemo, useRef, useState, useCallback } from 'react';
 import {
-  View, Text, TextInput, TouchableOpacity, Pressable,
-  StyleSheet, ScrollView,
+  View, Text, TouchableOpacity, Pressable, StyleSheet, ScrollView,
 } from 'react-native';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { RouteProp } from '@react-navigation/native';
@@ -10,7 +9,7 @@ import { RouteProp } from '@react-navigation/native';
 // The picker package stays installed for any other caller; this screen no
 // longer imports it.
 import { Panel, Badge, FilterPill, SectionHeader, SegmentedToggle, SingleSelectModal } from '@just-messin-around/expo-foundation/ui';
-import { Button } from '@just-messin-around/expo-foundation/forms';
+import { Button, KeyboardTextInput } from '@just-messin-around/expo-foundation/forms';
 import { Icon, type IconName } from '@just-messin-around/expo-foundation/icons';
 import { SPACE, RADIUS, HAIRLINE, SMALL_TEXT_MAX_SCALE } from '@just-messin-around/expo-foundation/styles';
 import { FONT, textStyles } from '@just-messin-around/expo-foundation/typography';
@@ -1099,7 +1098,7 @@ export default function MatchEntryScreen({ navigation, route }: Props) {
               )}
               <View style={S.scoreCol}>
                 {i === 0 && <Text style={S.scoreName} numberOfLines={1}>{p1Name}</Text>}
-                <TextInput
+                <KeyboardTextInput
                   style={S.scoreInput}
                   keyboardType="number-pad"
                   value={g.t1}
@@ -1113,7 +1112,7 @@ export default function MatchEntryScreen({ navigation, route }: Props) {
               <Text style={S.vs}>–</Text>
               <View style={S.scoreCol}>
                 {i === 0 && <Text style={S.scoreName} numberOfLines={1}>{p2Name}</Text>}
-                <TextInput
+                <KeyboardTextInput
                   style={S.scoreInput}
                   keyboardType="number-pad"
                   value={g.t2}
