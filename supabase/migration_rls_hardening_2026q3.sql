@@ -209,7 +209,10 @@ begin
         '_pl_album_member','_pl_album_manager','album_access',
         -- Group sessions for events and tournaments (migration_group_sessions.sql,
         -- which grants them too).
-        'list_group_session','notify_group_session'
+        'list_group_session','notify_group_session',
+        -- Log a drill for a play session (migration_session_drills.sql, which
+        -- grants it too).
+        'log_session_drill'
         -- Deliberately NOT listed (no client caller; a re-run revokes them):
         -- backfill_venue_cities (a full-table venues UPDATE, maintenance only),
         -- send_test_push, venue_containing_point, list_venues_in_radius.
