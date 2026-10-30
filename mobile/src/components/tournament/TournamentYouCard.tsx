@@ -175,7 +175,7 @@ export function youCardView(kind: YouCardKind, f: YouCardFacts): YouCardView | n
         title: f.myRank != null ? `You finished ${ordinal(f.myRank)}` : 'Podium',
         podium: f.podium,
         lines: f.payoutLine ? [f.payoutLine] : undefined,
-        primary: f.myRank != null && f.onShare ? { title: 'Share my finish', onPress: f.onShare, variant: 'outline' } : undefined,
+        primary: f.myRank != null && f.onShare ? { title: 'Share my finish', onPress: f.onShare } : undefined,
       };
     default:
       return null;

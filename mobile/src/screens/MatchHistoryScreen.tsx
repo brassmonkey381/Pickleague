@@ -47,6 +47,11 @@ import { noteGoodMoment } from '../lib/ratingPrompt';
 import { explainRefusal } from '../lib/refusalNotices';
 import { confirmResultMessage } from '../lib/refusals';
 import { entityIcon, joinFacts } from '../lib/entityGlyph';
+import { isImageShareAvailable } from '@just-messin-around/expo-foundation/platform';
+import PickleShareStudio from '../components/share/PickleShareStudio';
+import { matchCardModel, type ShareCardModel } from '../lib/shareCards';
+import { cardPlayer, shortName } from '../lib/finishShare';
+import { useBlockedIds } from '../lib/moderation';
 
 type Props = {
   navigation: NativeStackNavigationProp<RootStackParamList, 'MatchHistory'>;
@@ -193,6 +198,36 @@ export default function MatchHistoryScreen({ navigation, route }: Props) {
   const [scoreInput, setScoreInput] = useState<{ t1: string; t2: string } | null>(null);
   const [wagerSubject, setWagerSubject] = useState<WagerSubject | null>(null);
 
+  // ── Share this match (PKL-013): my completed matches, on a binary that can share an image ──
+  const blocked = useBlockedIds();
+  const canShareImage = isImageShareAvailable();
+  const [shareModel, setShareModel] = useState<ShareCardModel | null>(null);
+  const [shareOpen, setShareOpen] = useState(false);
+  function openShare(item: HistoryMatch, me: string) {
+    const onTeam1 = isOnTeam1(item, me);
+    const asPlayer = (p: { id: string; full_name: string | null; deleted_at?: string | null } | null | undefined) =>
+      p ? cardPlayer({ id: p.id, fullName: p.full_name, deleted: !!p.deleted_at }, blocked) : null;
+    const meP = onTeam1 ? (item.player1_id === me ? item.player1 : item.partner1) : (item.player2_id === me ? item.player2 : item.partner2);
+    const partner = onTeam1 ? (item.player1_id === me ? item.partner1 : item.player1) : (item.player2_id === me ? item.partner2 : item.player2);
+    const opps = (onTeam1 ? [item.player2, item.partner2] : [item.player1, item.partner1])
+      .map(asPlayer)
+      .filter((p): p is NonNullable<typeof p> => !!p);
+    setShareModel(matchCardModel({
+      doubles: item.match_type === 'doubles',
+      won: didWin(item, me),
+      myScore: (onTeam1 ? item.player1_score : item.player2_score) ?? 0,
+      oppScore: (onTeam1 ? item.player2_score : item.player1_score) ?? 0,
+      me: shortName(meP?.full_name),
+      partner: item.match_type === 'doubles' ? asPlayer(partner) : null,
+      opponents: opps,
+      pluprDelta: ratingChange(item, me),
+      court: item.location_name ? displayCourtName(item.location_name) : null,
+      date: shortDate(item.played_at),
+      scope: item.tournament?.name ?? item.league?.name ?? null,
+    }));
+    setShareOpen(true);
+  }
+
   function openWagerSheet(ctx: WagerRowCtx) {
     setWagerCtx(ctx);
     setWagerSheetOpen(true);
@@ -240,10 +275,10 @@ export default function MatchHistoryScreen({ navigation, route }: Props) {
           .from('matches')
           .select(`
             *,
-            player1:profiles!matches_player1_id_fkey(id, full_name, name_color, list_name_style_id),
-            partner1:profiles!matches_partner1_id_fkey(id, full_name, name_color, list_name_style_id),
-            player2:profiles!matches_player2_id_fkey(id, full_name, name_color, list_name_style_id),
-            partner2:profiles!matches_partner2_id_fkey(id, full_name, name_color, list_name_style_id),
+            player1:profiles!matches_player1_id_fkey(id, full_name, name_color, list_name_style_id, deleted_at),
+            partner1:profiles!matches_partner1_id_fkey(id, full_name, name_color, list_name_style_id, deleted_at),
+            player2:profiles!matches_player2_id_fkey(id, full_name, name_color, list_name_style_id, deleted_at),
+            partner2:profiles!matches_partner2_id_fkey(id, full_name, name_color, list_name_style_id, deleted_at),
             league:leagues(id, name),
             tournament:tournaments(id, name)
           `)
@@ -573,13 +608,25 @@ export default function MatchHistoryScreen({ navigation, route }: Props) {
           ...tagFacts(item),
         ]))}
         trailing={
-          <View style={S.scoreCol}>
-            <Text style={S.score}>{myScore}–{oppScore}</Text>
-            {delta != null && (
-              <Text style={[S.delta, { color: delta >= 0 ? colors.primary : colors.danger }]} maxFontSizeMultiplier={SMALL_TEXT_MAX_SCALE}>
-                {delta >= 0 ? '+' : ''}{delta.toFixed(2)}
-              </Text>
-            )}
+          <View style={S.trailingRow}>
+            <View style={S.scoreCol}>
+              <Text style={S.score}>{myScore}–{oppScore}</Text>
+              {delta != null && (
+                <Text style={[S.delta, { color: delta >= 0 ? colors.primary : colors.danger }]} maxFontSizeMultiplier={SMALL_TEXT_MAX_SCALE}>
+                  {delta >= 0 ? '+' : ''}{delta.toFixed(2)}
+                </Text>
+              )}
+            </View>
+            {canShareImage && viewAs === currentUserId && item.status === 'completed' ? (
+              <Pressable
+                style={({ pressed }) => [S.menuBox, pressed && S.pressed]}
+                accessibilityRole="button"
+                accessibilityLabel="Share this match"
+                onPress={() => openShare(item, viewAs)}
+              >
+                <Icon name="share" size={18} color={colors.primary} />
+              </Pressable>
+            ) : null}
           </View>
         }
       />
@@ -953,6 +1000,15 @@ export default function MatchHistoryScreen({ navigation, route }: Props) {
         onConfirm={confirmScoreWager}
         onClose={() => setScoreInput(null)}
       />
+
+      {shareModel ? (
+        <PickleShareStudio
+          visible={shareOpen}
+          onClose={() => setShareOpen(false)}
+          title="Share this match"
+          model={shareModel}
+        />
+      ) : null}
 
       <WagerProposeModal
         visible={WAGERS_ENABLED && wagerSubject != null}

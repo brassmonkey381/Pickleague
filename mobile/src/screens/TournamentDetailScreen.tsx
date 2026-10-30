@@ -11,7 +11,10 @@ import { CollapsibleSection, ErrorState, Panel, StickyActionBar } from '@just-me
 import { Icon } from '@just-messin-around/expo-foundation/icons';
 import { isImageShareAvailable } from '@just-messin-around/expo-foundation/platform';
 import FinishShareStudio from '../components/share/FinishShareStudio';
-import { cardPodium, shortName, type FinishShareData } from '../lib/finishShare';
+import PickleShareStudio from '../components/share/PickleShareStudio';
+import ShareCallout from '../components/share/ShareCallout';
+import { bracketCardModel, bracketSteps, type BracketMatchIn, type ShareCardModel } from '../lib/shareCards';
+import { cardPlayer, cardPodium, ordinal, shortName, type FinishShareData } from '../lib/finishShare';
 import { useBlockedIds } from '../lib/moderation';
 import { SPACE, SMALL_TEXT_MAX_SCALE } from '@just-messin-around/expo-foundation/styles';
 import { textStyles } from '@just-messin-around/expo-foundation/typography';
@@ -233,6 +236,7 @@ export default function TournamentDetailScreen({ navigation, route }: Props) {
   // ── Derived data (memoized; safe before the loading return) ──
   const blocked = useBlockedIds();
   const [shareOpen, setShareOpen] = useState(false);
+  const [bracketOpen, setBracketOpen] = useState(false);
   const registrations = td.registrations;
   const approved = useMemo(() => registrations.filter(r => r.status === 'approved'), [registrations]);
   const myUserId = td.myUserId;
@@ -505,6 +509,25 @@ export default function TournamentDetailScreen({ navigation, route }: Props) {
     };
   }
   const canShareFinish = !!shareData && isImageShareAvailable();
+
+  // ── Share my bracket (PKL-013): any player with a finished match here ──
+  let bracketModel: ShareCardModel | null = null;
+  if (myUserId && (status === 'active' || status === 'completed') && isImageShareAvailable()) {
+    const steps = bracketSteps(td.savedMatches as BracketMatchIn[], myUserId, (id) => {
+      const prof = registrations.find(r => r.user_id === id)?.profile;
+      return cardPlayer({ id, fullName: prof?.full_name ?? td.profileNames[id] ?? null, deleted: !!prof?.deleted_at }, blocked);
+    });
+    if (steps.length > 0) {
+      bracketModel = bracketCardModel({
+        title: tournament.name,
+        rank: status === 'completed' ? myRank : null,
+        of: status === 'completed' ? (new Set(td.finalRanks.map(r => r.final_rank)).size || null) : null,
+        wins: steps.filter(x => x.won === true).length,
+        losses: steps.filter(x => x.won === false).length,
+        steps,
+      });
+    }
+  }
   const view = youCardView(kind, {
     isFull,
     spotsLeft: tournament.max_players != null ? Math.max(0, tournament.max_players - approved.length) : null,
@@ -550,7 +573,8 @@ export default function TournamentDetailScreen({ navigation, route }: Props) {
     payoutLine: pool > 0
       ? (tournament.champion_payout_applied_at ? `${picklesLabel(pool)} pot paid out` : `${picklesLabel(pool)} pot · payout pending`)
       : null,
-    onShare: canShareFinish ? () => setShareOpen(true) : null,
+    // The big Share callout under the You card has it (PKL-013).
+    onShare: null,
   });
 
   // ── Sticky bar: the You card's primary action, once the card is off screen ──
@@ -922,6 +946,22 @@ export default function TournamentDetailScreen({ navigation, route }: Props) {
           {view ? <TournamentYouCard view={view} /> : null}
         </View>
 
+        {/* Share my finish / my bracket (PKL-013): big, right under the You card. */}
+        {canShareFinish || bracketModel ? (
+          <ShareCallout
+            title={canShareFinish && myRank != null
+              ? (myRank === 1 ? 'You won this tournament' : `You finished ${ordinal(myRank)}`)
+              : 'Share your run'}
+            line={canShareFinish
+              ? 'Make an Instagram post or Story of your finish.'
+              : 'Your matches so far, as an Instagram post or Story.'}
+            buttonTitle={canShareFinish ? 'Share my finish' : 'Share my bracket'}
+            onPress={canShareFinish ? () => setShareOpen(true) : () => setBracketOpen(true)}
+            secondary={canShareFinish && bracketModel ? { title: 'Share my bracket', onPress: () => setBracketOpen(true) } : null}
+            style={styles.block}
+          />
+        ) : null}
+
         {/* collapsable={false}: Android would flatten a style-less wrapper
             away, leaving nothing to measure. */}
         <View ref={anchorRef('banner')} collapsable={false}>
@@ -1074,6 +1114,15 @@ export default function TournamentDetailScreen({ navigation, route }: Props) {
 
       {shareData ? (
         <FinishShareStudio visible={shareOpen} onClose={() => setShareOpen(false)} data={shareData} />
+      ) : null}
+      {bracketModel ? (
+        <PickleShareStudio
+          visible={bracketOpen}
+          onClose={() => setBracketOpen(false)}
+          title="Share my bracket"
+          model={bracketModel}
+          trackProps={{ tournament_status: status }}
+        />
       ) : null}
 
       {/* ── Bracket release time picker ── */}

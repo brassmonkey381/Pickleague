@@ -56,6 +56,10 @@ import { trackSectionToggle } from '../lib/analytics';
 import { sbCall, friendlySbMessage, insertIgnoringDuplicate, currentUserId as localUserId } from '@just-messin-around/expo-foundation/supabase';
 import EventSlotCard from '../components/event/EventSlotCard';
 import EventTimeCard from '../components/event/EventTimeCard';
+import { isImageShareAvailable } from '@just-messin-around/expo-foundation/platform';
+import PickleShareStudio from '../components/share/PickleShareStudio';
+import ShareCallout from '../components/share/ShareCallout';
+import { eventCardModel } from '../lib/shareCards';
 import VoterChips from '../components/event/VoterChips';
 import {
   categorizeEvent, eventStatusLabel, eventStatusTone, timeLeftLabel, LIVE_WINDOW_MS,
@@ -100,6 +104,7 @@ export default function EventDetailScreen({ navigation, route }: Props) {
   const [event, setEvent] = useState<LeagueEvent | null>(null);
   const [leagueName, setLeagueName] = useState<string>('');
   const [showGuestPicker, setShowGuestPicker] = useState(false);
+  const [shareOpen, setShareOpen] = useState(false);
   const [invitingGuests, setInvitingGuests] = useState(false);
   const [closeWinner, setCloseWinner] = useState<EventSlot | null>(null);
   const [closing, setClosing]         = useState(false);
@@ -827,6 +832,17 @@ export default function EventDetailScreen({ navigation, route }: Props) {
 
   const recordMatch = () => navigation.navigate('MatchEntry', { leagueId: event.league_id, eventId });
 
+  // ── Share this event (PKL-013): I was in, and it has started ──
+  const shareModel = confirmedSlot && iAmIn && !cancelled && slotStart != null && now >= slotStart && isImageShareAvailable()
+    ? eventCardModel({
+        title: event.title,
+        league: leagueName || null,
+        court: place,
+        date: new Date(confirmedSlot.starts_at).toLocaleDateString(undefined, { weekday: 'short', month: 'short', day: 'numeric' }),
+        count: confirmedAttendees.length,
+      })
+    : null;
+
   const voteResults = slots.length > 0 && (
     <CollapsibleSection
       compact
@@ -1006,6 +1022,16 @@ export default function EventDetailScreen({ navigation, route }: Props) {
                 })}
               />
             </View>
+
+            {shareModel ? (
+              <ShareCallout
+                title={isLive ? "You're playing this event" : 'You played this event'}
+                line="Make an Instagram post or Story of it, with your photos."
+                buttonTitle="Share this event"
+                onPress={() => setShareOpen(true)}
+                style={S.block}
+              />
+            ) : null}
 
             {confirmedAttendees.length > 0 && (
               <View style={S.block}>
@@ -1269,6 +1295,10 @@ export default function EventDetailScreen({ navigation, route }: Props) {
           onClose={() => setShowGuestPicker(false)}
         />
       </ScrollView>
+
+      {shareModel ? (
+        <PickleShareStudio visible={shareOpen} onClose={() => setShareOpen(false)} title="Share this event" model={shareModel} />
+      ) : null}
 
       {/* Last child of the root, outside the ScrollView (foundation rule). */}
       <StickyActionBar

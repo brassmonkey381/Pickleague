@@ -204,3 +204,34 @@ export async function listMyPlaySessions(before?: string | null): Promise<PlayHi
 export async function discardPlaySession(id: string): Promise<number> {
   return ((await sbCall(() => supabase.rpc('discard_play_session', { p_id: id }), BOUND)) ?? 0) as number;
 }
+
+/** A match row for a play session's share card (lib/shareCards sessionTally), with the players' names. */
+export type SessionShareMatch = import('../lib/shareCards').SessionMatchIn & {
+  player1: { id: string; full_name: string | null; deleted_at?: string | null } | null;
+  partner1: { id: string; full_name: string | null; deleted_at?: string | null } | null;
+  player2: { id: string; full_name: string | null; deleted_at?: string | null } | null;
+  partner2: { id: string; full_name: string | null; deleted_at?: string | null } | null;
+};
+
+/**
+ * Completed matches that may belong to one of my ended sessions: linked to it,
+ * or recorded between its start and two hours after its end. sessionTally
+ * picks mine and the ones that count.
+ */
+export async function listSessionShareMatches(row: { id: string; startedAt: string; endedAt: string }): Promise<SessionShareMatch[]> {
+  const end = new Date(Date.parse(row.endedAt) + 2 * 60 * 60 * 1000).toISOString();
+  const data = await sbCall(
+    () => supabase
+      .from('matches')
+      .select(`status, winner_team, player1_id, partner1_id, player2_id, partner2_id, play_session_id, created_at,
+        player1:profiles!matches_player1_id_fkey(id, full_name, deleted_at),
+        partner1:profiles!matches_partner1_id_fkey(id, full_name, deleted_at),
+        player2:profiles!matches_player2_id_fkey(id, full_name, deleted_at),
+        partner2:profiles!matches_partner2_id_fkey(id, full_name, deleted_at)`)
+      .eq('status', 'completed')
+      .or(`play_session_id.eq.${row.id},and(created_at.gte."${row.startedAt}",created_at.lte."${end}")`)
+      .limit(50),
+    BOUND,
+  );
+  return (data ?? []) as unknown as SessionShareMatch[];
+}

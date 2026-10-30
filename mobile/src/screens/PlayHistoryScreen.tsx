@@ -18,8 +18,18 @@ import { useRefresh } from '../lib/useRefresh';
 import AppRefreshControl from '../components/AppRefreshControl';
 import { SkeletonList } from '../components/Skeleton';
 import { refusalMessage } from '../lib/refusals';
-import { discardPlaySession, listMyPlaySessions, PLAY_HISTORY_PAGE, type PlayHistoryRow } from '../data/playSessions';
+import { discardPlaySession, listMyPlaySessions, listSessionShareMatches, PLAY_HISTORY_PAGE, type PlayHistoryRow } from '../data/playSessions';
+import { currentUserId } from '@just-messin-around/expo-foundation/supabase';
+import { isImageShareAvailable } from '@just-messin-around/expo-foundation/platform';
+import { supabase } from '../lib/supabase';
+import PickleShareStudio from '../components/share/PickleShareStudio';
+import { sessionCardModel, sessionTally, type ShareCardModel } from '../lib/shareCards';
+import { cardPlayer } from '../lib/finishShare';
+import { useBlockedIds } from '../lib/moderation';
+import { playedFor } from '../lib/playStartRules';
 import {
+  PLAY_KIND_LABEL,
+  playHistoryDay,
   matchCountLabel,
   mergeHistory,
   nextHistoryCursor,
@@ -42,6 +52,41 @@ export default function PlayHistoryScreen(_props: Props) {
   const [loadingMore, setLoadingMore] = useState(false);
   const [discarding, setDiscarding] = useState<PlayHistoryRow | null>(null);
   const [busy, setBusy] = useState(false);
+  // Share a session (PKL-013): its matches load on tap.
+  const blocked = useBlockedIds();
+  const canShare = isImageShareAvailable();
+  const [shareModel, setShareModel] = useState<ShareCardModel | null>(null);
+  const [shareOpen, setShareOpen] = useState(false);
+  const [sharing, setSharing] = useState<string | null>(null);
+  const openShare = async (r: PlayHistoryRow) => {
+    if (sharing) return;
+    setSharing(r.id);
+    try {
+      const me = await currentUserId(supabase);
+      const rows = me ? await listSessionShareMatches(r) : [];
+      const tally = me ? sessionTally(rows, me, r) : { games: 0, wins: 0, losses: 0, people: [] as string[] };
+      const profiles = new Map<string, { id: string; full_name: string | null; deleted_at?: string | null }>();
+      for (const m of rows) for (const p of [m.player1, m.partner1, m.player2, m.partner2]) if (p) profiles.set(p.id, p);
+      setShareModel(sessionCardModel({
+        court: r.venueName,
+        kindLabel: PLAY_KIND_LABEL[r.kind] ?? 'Play',
+        date: playHistoryDay(new Date(r.startedAt), new Date()),
+        duration: playedFor(Date.parse(r.endedAt) - Date.parse(r.startedAt)),
+        games: tally.games,
+        wins: tally.games > 0 ? tally.wins : null,
+        losses: tally.games > 0 ? tally.losses : null,
+        people: tally.people.map((id) => {
+          const p = profiles.get(id);
+          return cardPlayer({ id, fullName: p?.full_name ?? null, deleted: !!p?.deleted_at }, blocked);
+        }),
+      }));
+      setShareOpen(true);
+    } catch (e) {
+      toast.error(friendlySbMessage(e, "Couldn't load that session's matches. Try again."));
+    } finally {
+      setSharing(null);
+    }
+  };
   // A slower first page never overwrites a newer one.
   const seq = useRef(0);
 
@@ -118,6 +163,19 @@ export default function PlayHistoryScreen(_props: Props) {
           </View>
         }
         trailing={
+          <View style={S.actions}>
+          {canShare ? (
+            <Pressable
+              onPress={() => void openShare(r)}
+              hitSlop={8}
+              disabled={sharing != null}
+              style={({ pressed }) => [S.more, (pressed || sharing === r.id) && { opacity: 0.6 }]}
+              accessibilityRole="button"
+              accessibilityLabel={`Share ${playHistoryTitle(r)}, ${playHistoryWhen(r, now)}`}
+            >
+              <Icon name="share" size={18} color={c.primary} />
+            </Pressable>
+          ) : null}
           <Pressable
             onPress={() => setDiscarding(r)}
             hitSlop={8}
@@ -127,6 +185,7 @@ export default function PlayHistoryScreen(_props: Props) {
           >
             <Icon name="trash" size={18} color={c.textMuted} />
           </Pressable>
+          </View>
         }
         accessibilityLabel={`${playHistoryTitle(r)}, ${playHistoryWhen(r, now)}, ${status.label}`}
       />
@@ -181,6 +240,14 @@ export default function PlayHistoryScreen(_props: Props) {
           />
         }
       />
+      {shareModel ? (
+        <PickleShareStudio
+          visible={shareOpen}
+          onClose={() => setShareOpen(false)}
+          title="Share this session"
+          model={shareModel}
+        />
+      ) : null}
       <ConfirmModal
         visible={!!discarding}
         title="Discard this session?"
@@ -204,5 +271,6 @@ const S = StyleSheet.create({
   row: { marginBottom: SPACE.sm },
   sub: { gap: SPACE.xs, marginTop: SPACE.xs },
   statusLine: { flexDirection: 'row', alignItems: 'center', gap: SPACE.sm },
+  actions: { flexDirection: 'row', alignItems: 'center' },
   more: { minWidth: 44, minHeight: 44, alignItems: 'center', justifyContent: 'center' },
 });

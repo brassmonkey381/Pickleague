@@ -62,7 +62,8 @@ import { resolveStandingsTarget } from '../lib/savedStandingsData';
 import { Icon } from '@just-messin-around/expo-foundation/icons';
 import { isImageShareAvailable } from '@just-messin-around/expo-foundation/platform';
 import FinishShareStudio from '../components/share/FinishShareStudio';
-import { cardPodium, shortName, type FinishShareData } from '../lib/finishShare';
+import ShareCallout from '../components/share/ShareCallout';
+import { cardPodium, ordinal, shortName, type FinishShareData } from '../lib/finishShare';
 import { useBlockedIds } from '../lib/moderation';
 
 type Props = {
@@ -687,6 +688,17 @@ function SeasonStandingsBody({ navigation, route, seasonId, leagueId }: Props & 
         <View onLayout={(e: LayoutChangeEvent) => { aboveH.current = e.nativeEvent.layout.height; recomputeJump(); }}>
         {status.value ? <StatusBanner status={status.value} style={S.banner} /> : null}
 
+        {/* ── Share my finish (PKL-013): big and first on a finished season ── */}
+        {canShareFinish && myFinalRank != null ? (
+          <ShareCallout
+            title={myFinalRank === 1 ? 'You won this season' : `You finished ${ordinal(myFinalRank)}`}
+            line="Make an Instagram post or Story of your finish."
+            buttonTitle="Share your finish"
+            onPress={() => setShareOpen(true)}
+            style={S.shareCallout}
+          />
+        ) : null}
+
         {/* ── Manage (admins / co-admins) — on top, collapsed unless a lock is due ── */}
         {privileged && (
           <CollapsibleSection
@@ -962,6 +974,7 @@ function makeStyles(c: ReturnType<typeof useTheme>['colors']) {
     root:        { flex: 1, backgroundColor: c.bg },
     container:   { padding: SPACE.lg, backgroundColor: c.bg },
     banner:      { marginTop: 0, marginBottom: SPACE.md },
+    shareCallout: { marginBottom: SPACE.md },
     manageRow:   { flexDirection: 'row', alignItems: 'center', gap: SPACE.md, minHeight: 56 },
     manageText:  { flex: 1, minWidth: 0 },
     headerLine:  { minHeight: 32, justifyContent: 'center', marginBottom: SPACE.xs },
