@@ -133,7 +133,7 @@ export function shareToastText(p: { invite: boolean; aspect: 'post' | 'story'; r
 }
 
 // ── The card model ──────────────────────────────────────────────────────
-export type ShareKind = 'finish' | 'match' | 'session' | 'drill' | 'event' | 'bracket';
+export type ShareKind = 'finish' | 'match' | 'session' | 'drill' | 'event' | 'bracket' | 'group';
 
 /** A row's lead mark: a medal for a podium place, W / L for a result. */
 export type ShareRowLead = { medal: number } | { won: boolean | null } | null;
@@ -588,6 +588,51 @@ export function eventCardModel(d: EventShareData): ShareCardModel {
     defaultLook: 'night',
     showsScores: false,
     message: `I played "${d.title}" on Pickleague 🥒`,
+  };
+}
+
+// ── Group session: everyone who played an event's or tournament's group ──
+export type GroupShareData = {
+  /** The event's or tournament's name. */
+  title: string;
+  /** Above the title: the league, or "Tournament". */
+  over: string | null;
+  court: string | null;
+  /** "Today", "Sat, Oct 25". */
+  date: string;
+  /** How long I played in it (null: I didn't). */
+  myMinutes: number | null;
+  /** Everyone who played in it today, me first. */
+  people: FinishPlayer[];
+};
+
+export function groupCardModel(d: GroupShareData): ShareCardModel {
+  const n = d.people.length;
+  const mine = d.myMinutes != null && d.myMinutes >= 1 ? lengthLabel(d.myMinutes) : null;
+  const stats: ShareStat[] = [];
+  if (mine) stats.push({ id: 'mine', label: 'My time', value: `I played ${mine}` });
+  if (d.court) stats.push({ id: 'court', label: 'Court', value: d.court });
+  stats.push({ id: 'date', label: 'Date', value: d.date });
+  return {
+    kind: 'group',
+    eyebrow: 'GROUP SESSION',
+    title: d.title,
+    over: d.over,
+    hero: n >= 2
+      ? { big: String(n), small: 'played together', medal: null }
+      : mine
+        ? { big: mine, small: 'on the court', medal: null }
+        : { big: 'We played', small: null, medal: null },
+    stats,
+    rows: n > 0
+      ? [{ id: 'people', label: 'Players', heading: 'Who played', items: d.people.map((p) => ({ lead: null, people: [p] })) }]
+      : [],
+    offByDefault: ['court'],
+    defaultLook: 'court',
+    showsScores: false,
+    message: n >= 2
+      ? `${n} of us played "${d.title}" together on Pickleague 🥒`
+      : `I played "${d.title}" on Pickleague 🥒`,
   };
 }
 

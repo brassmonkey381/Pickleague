@@ -36,6 +36,12 @@
 // (lib/playStartPlan), and never navigates. "▶ Play here" opens it with that
 // court picked (request.venue). A request for a match or with a source (the
 // "starting now" notice) shows that instead of the chips.
+//
+// Group sessions (lib/groupSession): a request for an event or tournament
+// (Join on its screen) shows "Group session: <name>" instead of the chips,
+// and its Start joins that group. With no request, when an event or
+// tournament I'm in is around now, the sheet offers it the same way
+// ("Group session: Ladder Night"), unselected until tapped.
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { ActivityIndicator, ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import { Button } from '@just-messin-around/expo-foundation/forms';
@@ -87,15 +93,18 @@ import { PLAY_NAV_ENABLED } from '../../lib/features';
 import {
   PLAY_CHIP_KIND,
   PLAY_CHIP_LABEL,
+  pickGroupOffer,
   pickPlayChip,
   windowsForChip,
   type ChipDraftWindow,
   type ChipPick,
   type ChipScheduleItem,
+  type GroupOffer,
   type PlayChip,
 } from '../../lib/playStartRules';
 import { loadChipRoutine, loadChipSchedule, readLastChip, saveLastChip } from '../../lib/playStartSchedule';
 import { planAfterStart } from '../../lib/playStartPlan';
+import { notifyGroupWhenStarted, watchGroupStarts } from '../../lib/groupSession';
 import { track } from '../../lib/analytics';
 import {
   DEFAULT_PLAY_LENGTH_MIN,
@@ -130,7 +139,8 @@ const PLAY_KIND_LINE: Record<PlayKind, string> = {
   open_play: 'Open play',
   drill: 'Drill session',
   match: 'Match',
-  event: 'Event',
+  event: 'Group session',
+  tournament: 'Group session',
 };
 
 /** One open of the sheet. privateOnly: the consent sheet got "Not now". */
@@ -238,6 +248,11 @@ export function PlayStartSheet({
   // A match, or a drill / match from the "starting now" notice: that, not the chips.
   const fixedKind: PlayKind | null =
     request && (request.kind === 'match' || !!request.sourceId) ? (request.kind ?? 'open_play') : null;
+  // "Group session: X" offered from my calendar, and whether the player took it.
+  const groupOffer: GroupOffer | null =
+    slim && !fixedKind && chipInputs ? pickGroupOffer(chipInputs.schedule, Date.now()) : null;
+  const [groupPicked, setGroupPicked] = useState(false);
+  const requestGroup = fixedKind === 'event' || fixedKind === 'tournament';
 
   useEffect(() => {
     if (!request) return;
@@ -254,6 +269,7 @@ export function PlayStartSheet({
     setShowCourts(false);
     setLocOff(false);
     setChipInputs(null);
+    setGroupPicked(false);
     if (slim && !privateOnly) {
       void getForegroundLocationStatus()
         .then((s) => alive && setLocOff(s === 'denied'))
@@ -423,10 +439,17 @@ export function PlayStartSheet({
 
   /** Start the session (and, at a court, send the plan once its check-in exists). */
   function launch(m: { venueId: string | null; venueName: string | null; fix?: DeviceFix | null; viaCheckin?: boolean }) {
-    const sourceId = request?.sourceId ?? null;
-    const k: PlayKind = slim ? (fixedKind ?? PLAY_CHIP_KIND[chip].kind) : kind;
-    const id = startPlay({ kind: k, sourceId, ...m });
-    if (slim && !fixedKind) {
+    const offered = groupPicked && groupOffer ? groupOffer : null;
+    const sourceId = offered ? offered.id : (request?.sourceId ?? null);
+    const k: PlayKind = offered ? offered.kind : slim ? (fixedKind ?? PLAY_CHIP_KIND[chip].kind) : kind;
+    const label = offered ? offered.title : requestGroup ? request?.label : undefined;
+    const id = startPlay({ kind: k, sourceId, ...(label ? { label } : {}), ...m });
+    if (k === 'event' || k === 'tournament') {
+      watchGroupStarts();
+      if (request?.notifyGroup && !offered) notifyGroupWhenStarted(id);
+      track('group_session.start', { kind: k, from: offered ? 'sheet_offer' : 'join', court: !!m.venueId });
+    }
+    if (slim && !fixedKind && !offered) {
       saveLastChip(chip);
       if (m.venueId) planAfterStart(id, { venueId: m.venueId, lengthMin, windows: draft });
       track('play.start_sheet', { chip, why: chipPick?.why ?? 'default', court: !!m.venueId, length_min: lengthMin });
@@ -619,9 +642,22 @@ export function PlayStartSheet({
           ) : null}
 
           <Text style={[t.label, S.label]}>HOW ARE YOU PLAYING</Text>
-          {fixedKind ? (
+          {groupOffer ? (
+            <View style={S.list}>
+              <CourtRow
+                title={`Group session: ${groupOffer.title}`}
+                iconName="group"
+                note={groupPicked ? 'Everyone in it sees you playing' : 'Tap to join its group'}
+                selected={groupPicked}
+                onPress={() => setGroupPicked((x) => !x)}
+              />
+            </View>
+          ) : null}
+          {requestGroup ? (
+            <Text style={t.body}>{`Group session: ${request?.label ?? PLAY_KIND_LINE[fixedKind]}`}</Text>
+          ) : fixedKind ? (
             <Text style={t.body}>{PLAY_KIND_LINE[fixedKind]}</Text>
-          ) : (
+          ) : groupPicked ? null : (
             <>
               <SegmentedToggle options={chips} value={chip} onChange={chooseChip} size="lg" fullWidth />
               {chipPick?.hint && !chipTouched.current ? <Text style={[t.hint, S.hint]}>{chipPick.hint}</Text> : null}
@@ -629,7 +665,7 @@ export function PlayStartSheet({
           )}
 
           {/* How long and the plan set the check-in: none without a court. */}
-          {!fixedKind && court ? (
+          {!fixedKind && !groupPicked && court ? (
             <>
               <Text style={[t.label, S.label]}>HOW LONG</Text>
               <DurationChips value={lengthMin} onChange={chooseLength} options={slimLengths(lengthMin)} format={formatDurationMinutes} />

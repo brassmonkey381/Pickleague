@@ -65,6 +65,7 @@ import {
   categorizeEvent, eventStatusLabel, eventStatusTone, timeLeftLabel, LIVE_WINDOW_MS,
 } from '../components/event/eventModel';
 import AlbumSection from '../components/AlbumSection';
+import GroupSessionSection from '../components/GroupSessionSection';
 
 type Props = {
   navigation: NativeStackNavigationProp<RootStackParamList, 'EventDetail'>;
@@ -1235,6 +1236,18 @@ export default function EventDetailScreen({ navigation, route }: Props) {
             </CollapsibleSection>
           </View>
         )}
+
+        {/* The group session: who's playing at this event, and Join on its
+            day (hidden unless you're in the event). */}
+        <GroupSessionSection
+          kind="event"
+          id={eventId}
+          title={event.title}
+          startsAt={confirmedSlot?.starts_at ?? null}
+          endsAt={confirmedSlot?.ends_at ?? null}
+          over={leagueName || null}
+          court={place}
+        />
 
         {/* Photos: the event's shared album (hidden unless you're in it). */}
         <AlbumSection kind="event" id={eventId} />

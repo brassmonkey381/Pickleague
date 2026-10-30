@@ -9,6 +9,10 @@
 // (useResumeLiveSession, 8 s bound) and the "starting now" notice sync, and
 // expands when something asks to start a session while one already runs
 // (openPlayStart -> playIslandExpand).
+//
+// A group session (an event's or tournament's, lib/groupSession) says the
+// group's name and how many are playing ("Ladder Night · 4 playing"), and
+// opens the event or tournament from "Open group".
 import React, { useContext, useEffect, useState } from 'react';
 import { Platform } from 'react-native';
 import { SafeAreaInsetsContext } from 'react-native-safe-area-context';
@@ -18,6 +22,7 @@ import { islandBottom } from '../lib/navBarRules';
 import CheckinPlanLine from './routines/CheckinPlanLine';
 import { LiveStatusIsland, type IslandAction } from '@just-messin-around/expo-foundation/ui/island';
 import { useResumeLiveSession } from '@just-messin-around/expo-foundation/session';
+import { useCachedQuery } from '@just-messin-around/expo-foundation/cache';
 import { useElapsed, useSignal } from '@just-messin-around/expo-foundation/hooks';
 import { useToast } from '../lib/useToast';
 import { navigateWhenReady, openMatchEntryForSession } from '../lib/navigationRef';
@@ -42,6 +47,8 @@ import { STILL_WORKING, untrackedStartNote } from '../lib/refusals';
 import { lostPlayNote, lostPlayOffersRecord } from '../lib/sessionValidity';
 import { extendCheckinByHour, takeFixIfAllowed } from '../lib/courtCheckin';
 import { useCurrentCheckin } from '../lib/useCurrentCheckin';
+import { listGroupSession } from '../data/playSessions';
+import { GROUP_CACHE_TTL_MS, groupSessionKey, islandGroupLine, playingNow } from '../lib/groupSessionRules';
 
 function clock(totalSeconds: number): string {
   const h = Math.floor(totalSeconds / 3600);
@@ -94,6 +101,17 @@ export default function PlayIsland({ signedIn }: { signedIn: boolean }) {
 
   const meta = s.meta;
   const active = signedIn && s.status !== 'idle' && !!meta;
+  // A group session: its name (a session rebuilt from the server has only
+  // "Group session" locally) and who's playing in it.
+  const groupKind = active && (meta?.kind === 'event' || meta?.kind === 'tournament') && meta.sourceId ? meta.kind : null;
+  const groupId = groupKind ? meta?.sourceId ?? null : null;
+  const group = useCachedQuery(
+    groupKind && groupId ? groupSessionKey(groupKind, groupId) : 'groupSession:none',
+    () => (groupKind && groupId ? listGroupSession(groupKind, groupId) : Promise.resolve(null)),
+    { ttlMs: GROUP_CACHE_TTL_MS, enabled: !!groupKind },
+  ).data;
+  const groupTitle = groupKind ? (group?.title ?? (meta?.label !== 'Group session' ? meta?.label : null) ?? 'Group session') : null;
+  const label = groupTitle ? islandGroupLine(groupTitle, group ? playingNow(group.players).length : 0) : meta?.label;
   const where = meta?.venueName ?? checkin?.venueName ?? null;
   // The next session starts collapsed.
   useEffect(() => {
@@ -117,6 +135,19 @@ export default function PlayIsland({ signedIn }: { signedIn: boolean }) {
   const planCheckin = PLAY_NAV_ENABLED && checkin && !checkin.queued ? checkin : null;
 
   const actions: IslandAction[] = [
+    ...(groupKind && groupId
+      ? [
+          {
+            label: 'Open group',
+            variant: 'secondary' as const,
+            onPress: () => {
+              setExpanded(false);
+              if (groupKind === 'event') navigateWhenReady('EventDetail', { eventId: groupId, title: groupTitle ?? 'Event' });
+              else navigateWhenReady('TournamentDetail', { tournamentId: groupId, tournamentName: groupTitle ?? 'Tournament' });
+            },
+          },
+        ]
+      : []),
     meta?.kind === 'drill'
       ? {
           // A drill: Review, not a score. The drill it started from opens its
@@ -242,10 +273,11 @@ export default function PlayIsland({ signedIn }: { signedIn: boolean }) {
       anchor="bottom"
       style={position}
       // The mode and timer stay whole; only the court is cut short (foundation 1.72).
-      pill={{ primary: `${meta?.label ?? 'Playing'} · ${clock(elapsed)}`, secondary: where ?? undefined }}
+      pill={{ primary: `${label ?? 'Playing'} · ${clock(elapsed)}`, secondary: where ?? undefined }}
       title="PLAYING NOW"
       stats={[
         { value: clock(elapsed), label: 'Elapsed' },
+        ...(group && groupKind ? [{ value: String(playingNow(group.players).length), label: 'Playing' }] : []),
         ...(where ? [{ value: where, label: 'Court' }] : []),
       ]}
       sections={

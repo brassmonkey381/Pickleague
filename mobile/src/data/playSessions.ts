@@ -15,10 +15,13 @@ import type { SessionValidity } from '../lib/sessionValidity';
 import { parsePlayHistory, PLAY_HISTORY_PAGE, type PlayHistoryRow } from '../lib/playHistory';
 import { parseAbsoluteWindows, type AbsoluteTimeWindow } from '@just-messin-around/expo-foundation/scheduling/timeWindows';
 import { PLAY_MODES, type PlayMode } from '../lib/courtRoutineRules';
+import { parseGroupSession, type GroupKind, type GroupSession } from '../lib/groupSessionRules';
 
 export { PLAY_HISTORY_PAGE };
 
-export type PlayKind = 'open_play' | 'drill' | 'match' | 'event';
+/** 'event' and 'tournament': a group session, source_id the league event or
+ *  tournament (supabase/migration_group_sessions.sql). */
+export type PlayKind = 'open_play' | 'drill' | 'match' | 'event' | 'tournament';
 
 export type PlaySessionRow = {
   id: string;
@@ -256,4 +259,29 @@ export async function listSessionShareMatches(row: { id: string; startedAt: stri
     BOUND,
   );
   return (data ?? []) as unknown as SessionShareMatch[];
+}
+
+// ── Group sessions (supabase/migration_group_sessions.sql) ──────────────────
+
+/**
+ * Who played in an event's or tournament's group session today, one row per
+ * player, playing now first; can_view false for anyone not in it. Blocks are
+ * hidden by the server. Throws as sbCall does (missingFunction before the SQL).
+ */
+export async function listGroupSession(kind: GroupKind, id: string): Promise<GroupSession> {
+  return parseGroupSession(
+    await sbCall(() => supabase.rpc('list_group_session', { p_kind: kind, p_id: id }), BOUND),
+  );
+}
+
+/**
+ * "Let everyone know": tell the people going that my group session started.
+ * Only for my own open event or tournament session; the server skips anyone
+ * told in the last 2 hours. Returns how many were told. No retry: a second
+ * call would tell nobody new anyway.
+ */
+export async function notifyGroupSession(sessionId: string): Promise<number> {
+  return Number(
+    (await sbCall(() => supabase.rpc('notify_group_session', { p_session_id: sessionId }), { ...BOUND, retries: 0 })) ?? 0,
+  );
 }

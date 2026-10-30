@@ -126,7 +126,7 @@ describe('helpers', () => {
 describe('share card lab', () => {
   it('has every kind, each with a message and toggles that exist', () => {
     const samples = labSamples();
-    expect(new Set(samples.map((x) => x.model.kind))).toEqual(new Set(['finish', 'match', 'session', 'drill', 'event', 'bracket']));
+    expect(new Set(samples.map((x) => x.model.kind))).toEqual(new Set(['finish', 'match', 'session', 'drill', 'event', 'bracket', 'group']));
     expect(new Set(samples.map((x) => x.id)).size).toBe(samples.length);
     for (const x of samples) {
       expect(x.model.message.length).toBeGreaterThan(0);

@@ -115,7 +115,8 @@ export const PLAY_LABEL: Record<PlayKind, string> = {
   open_play: 'Open play',
   drill: 'Drill session',
   match: 'Match',
-  event: 'Event',
+  event: 'Group session',
+  tournament: 'Group session',
 };
 
 const MUTATION_START = 'play:start';
@@ -725,6 +726,10 @@ export type PlayStartRequest = {
   venue?: { id: string; name: string };
   /** Switch mode on the island: the sheet opens over the running session, and its Start replaces it. */
   switching?: boolean;
+  /** A group session (kind 'event' / 'tournament'): the event's or tournament's name, the island's label. */
+  label?: string;
+  /** "Let everyone know": once the Start lands, tell the people going (notify_group_session). */
+  notifyGroup?: boolean;
 };
 
 /** Emits when the start sheet should open (its host takes the request). */

@@ -134,7 +134,7 @@ create trigger trg_play_sessions_group_guard
   for each row execute function public._pl_play_sessions_group_guard();
 
 -- 4. The group ------------------------------------------------------------------
--- {can_view, can_join, players: [{user_id, full_name, avatar_url, avatar_emoji,
+-- {can_view, can_join, title (the event's or tournament's name), players: [{user_id, full_name, avatar_url, avatar_emoji,
 --  avatar_bg_color, started_at, ended_at (null: playing now), played_s, is_me}]}
 -- Sessions that started in the last 12 hours, or are still open; an open one
 -- older than 6 hours counts as ended at 6 hours (the hourly expiry closes it).
@@ -156,6 +156,10 @@ begin
   return jsonb_build_object(
     'can_view', true,
     'can_join', public._pl_group_joinable(v_uid, p_kind, p_id),
+    'title', case p_kind
+               when 'event' then (select e.title from public.league_events e where e.id = p_id)
+               else (select t.name from public.tournaments t where t.id = p_id)
+             end,
     'players', coalesce((
       with s as (
         select s.user_id, s.started_at,

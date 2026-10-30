@@ -325,6 +325,13 @@ function RowLead({ lead, u }: { lead: ShareRowItem['lead']; u: number }) {
   );
 }
 
+/** At most `max` tags; past that the last says how many more ("+5 more"). */
+function moreTag<T extends { initials: string | null; label: string }>(tags: T[], max: number): { initials: string | null; label: string }[] {
+  if (tags.length <= max) return tags;
+  const keep = Math.max(1, max - 1);
+  return [...tags.slice(0, keep), { initials: null, label: `+${tags.length - keep} more` }];
+}
+
 function Rows({ model, s, c, u, max, center, people = 8 }: { model: ShareCardModel; s: ShareStudioState; c: Ink; u: number; max?: number; center?: boolean; people?: number }) {
   const on = model.rows.filter((r) => r.items.length > 0 && s.details[r.id] === true);
   if (!on.length) return null;
@@ -344,10 +351,10 @@ function Rows({ model, s, c, u, max, center, people = 8 }: { model: ShareCardMod
             // Just people (who I played with) or just words (what I'm working on):
             // wrapped tags, not a tall list.
             <View style={[cs.wrap, { gap: 6 * u, justifyContent: center ? 'center' : 'flex-start' }]}>
-              {r.items.flatMap((it) => [
+              {moreTag(r.items.flatMap((it) => [
                 ...(it.people ?? []).map((p) => ({ initials: p.initials as string | null, label: p.name })),
                 ...(it.text ? [{ initials: null, label: it.text.replace(/^•\s*/, '') }] : []),
-              ]).slice(0, people).map((t, j) => (
+              ]), people).map((t, j) => (
                 <View key={j} style={[cs.row, { gap: 4 * u, backgroundColor: c.chip, borderRadius: 12 * u, paddingVertical: 3 * u, paddingLeft: (t.initials ? 3 : 8) * u, paddingRight: 8 * u, maxWidth: '100%' }]}>
                   {t.initials ? (
                     <View style={[cs.initials, { width: 18 * u, height: 18 * u, borderRadius: 9 * u, backgroundColor: c.chip }]}>

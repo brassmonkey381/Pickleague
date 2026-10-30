@@ -8,6 +8,7 @@ import {
   drillCardModel,
   eventCardModel,
   finishCardModel,
+  groupCardModel,
   matchCardModel,
   sessionCardModel,
   type ShareCardModel,
@@ -104,6 +105,22 @@ export function labSamples(): LabSample[] {
     {
       id: 'event-empty', group: 'Event', label: 'Event, long title, no count', title: 'Share this event',
       model: eventCardModel({ title: 'Beginner-Friendly Thursday Night Under-the-Lights Social and Clinic', league: null, court: null, date: 'Thu, Oct 30', count: 0 }),
+    },
+    {
+      id: 'group-big', group: 'Group', label: 'Group session, 14 played', title: 'Share the group session',
+      model: groupCardModel({
+        title: 'Saturday Round Robin', over: 'Alameda Evening League', court: 'Lakeside Park', date: 'Today', myMinutes: 135,
+        people: [{ name: 'Brian S.', initials: 'BS' }, pat, sam, lee, kim, longName, anon,
+          { name: 'Ana P.', initials: 'AP' }, { name: 'Raj T.', initials: 'RT' }, { name: 'Jo W.', initials: 'JW' },
+          { name: 'Mo F.', initials: 'MF' }, { name: 'Lu C.', initials: 'LC' }, { name: 'Bo H.', initials: 'BH' }, { name: 'Cy N.', initials: 'CN' }],
+      }),
+    },
+    {
+      id: 'group-small', group: 'Group', label: 'Group session, just me, long title', title: 'Share the group session',
+      model: groupCardModel({
+        title: 'The Very Long Annual Bay Area Mixed Doubles Charity Classic Invitational', over: 'Tournament', court: null,
+        date: 'Sat, Oct 25', myMinutes: 52, people: [longName],
+      }),
     },
     {
       id: 'bracket', group: 'Bracket', label: 'Bracket, 6 rounds', title: 'Share my bracket',

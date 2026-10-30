@@ -64,6 +64,8 @@ import GodmodePanel from '../components/tournament/GodmodePanel';
 import EditTournamentModal from '../components/tournament/EditTournamentModal';
 import WagerModals from '../components/tournament/WagerModals';
 import AlbumSection from '../components/AlbumSection';
+import GroupSessionSection from '../components/GroupSessionSection';
+import { tournamentEndsAt } from '../lib/groupSessionRules';
 
 type Props = {
   navigation: NativeStackNavigationProp<RootStackParamList, 'TournamentDetail'>;
@@ -1065,6 +1067,19 @@ export default function TournamentDetailScreen({ navigation, route }: Props) {
             {wagerSection}
           </>
         )}
+
+        {/* The group session: who's playing in this tournament, and Join on
+            its day (hidden unless you're in it). */}
+        <GroupSessionSection
+          kind="tournament"
+          id={tournamentId}
+          title={tournament.name}
+          startsAt={tournament.start_time}
+          endsAt={tournamentEndsAt(tournament.start_time, tournament.expected_length_hours)}
+          live={tournament.status === 'active' && !tournament.start_time}
+          over="Tournament"
+          court={tournament.location_name}
+        />
 
         {/* Photos: the tournament's shared album (hidden unless you're in it). */}
         <AlbumSection kind="tournament" id={tournamentId} />

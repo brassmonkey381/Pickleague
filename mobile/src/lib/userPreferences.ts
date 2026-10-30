@@ -51,6 +51,10 @@ export type Prefs = {
    *  notifyFriendsOnTheWay, migration_on_my_way.sql and
    *  migration_court_oneoff_plans.sql). The server reads it too, before it queues one. */
   notifyFriendsOnTheWay:    boolean;
+  /** "Sam started the group session" for an event or tournament I'm in
+   *  (category notifyGroupSessions, migration_group_sessions.sql). The server
+   *  reads it too, before it queues one. */
+  notifyGroupSessions:      boolean;
   defaultMatchType:         MatchType;
   defaultScoreLimit:        ScoreLimit;
 };
@@ -68,6 +72,7 @@ export const DEFAULT_PREFS: Prefs = {
   notifyAutoCheckins:       true,
   notifyCheckinPrompts:     true,
   notifyFriendsOnTheWay:    true,
+  notifyGroupSessions:      true,
   defaultMatchType:         'doubles',
   defaultScoreLimit:        11,
 };

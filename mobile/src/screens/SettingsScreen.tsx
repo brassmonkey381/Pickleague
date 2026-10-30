@@ -66,7 +66,8 @@ type PushTypeKey =
   | 'notifyAutoCheckins'
   | 'notifyCheckinPrompts'
   | 'notifyFriendRequests'
-  | 'notifyFriendsOnTheWay';
+  | 'notifyFriendsOnTheWay'
+  | 'notifyGroupSessions';
 
 const PUSH_TYPES: { key: PushTypeKey; label: string; desc: string }[] = [
   { key: 'notifyMatchResults', label: 'Match results', desc: 'When a match you played is recorded' },
@@ -79,6 +80,7 @@ const PUSH_TYPES: { key: PushTypeKey; label: string; desc: string }[] = [
   { key: 'notifyEventReminders', label: 'Event reminders', desc: 'Before a league event starts, and before a scheduling vote closes' },
   { key: 'notifyLeagueUpdates', label: 'League announcements', desc: 'Admin posts and league news' },
   { key: 'notifyTournamentUpdates', label: 'Tournament updates', desc: 'Bracket results and schedule changes' },
+  { key: 'notifyGroupSessions', label: 'Group sessions', desc: "When someone starts playing at an event or tournament you're in" },
   { key: 'notifyChallenges', label: 'Match challenges', desc: 'When someone challenges you to a match' },
   { key: 'notifyDrillRequests', label: 'Drilling', desc: 'Drill requests, answers and session reminders' },
   // Court arrival (Check-in automation below). These gate the server's

@@ -56,7 +56,8 @@ export const PLAY_KIND_LABEL: Record<PlayKind, string> = {
   open_play: 'Open play',
   drill: 'Drill',
   match: 'Match',
-  event: 'Event',
+  event: 'League event',
+  tournament: 'Tournament',
 };
 
 /** "Lakeside · Open play", or "Open play" without a court. */

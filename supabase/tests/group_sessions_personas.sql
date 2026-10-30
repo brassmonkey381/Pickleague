@@ -209,7 +209,7 @@ declare
 begin
   j := pg_temp.list('M2', 'event', pg_temp.i('E'));
   perform pg_temp.ok('G3 a member sees MB playing now',
-    (j ->> 'can_view')::boolean and (j ->> 'can_join')::boolean and pg_temp.has(j, 'MB')
+    j ->> 'title' = 'Group Test Event' and (j ->> 'can_view')::boolean and (j ->> 'can_join')::boolean and pg_temp.has(j, 'MB')
     and exists (select 1 from jsonb_array_elements(j -> 'players') x
                  where (x ->> 'user_id')::uuid = pg_temp.p('MB') and x -> 'ended_at' = 'null'::jsonb), j::text);
   j := pg_temp.list('MB', 'event', pg_temp.i('E'));

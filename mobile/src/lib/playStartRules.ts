@@ -151,6 +151,8 @@ export type ChipScheduleItem = {
   /** When it ends, if known (an event runs to its end). */
   endsAt?: string | null;
   title: string;
+  /** An event or tournament I'm in: its id, for "Group session: X" (lib/groupSession). */
+  groupId?: string;
 };
 
 export type ChipDraftWindow = { startMin: number; endMin: number; mode: WindowMode };
@@ -303,10 +305,28 @@ export function scheduleFromAgenda(items: readonly AgendaItem[]): ChipScheduleIt
   for (const i of items) {
     switch (i.kind) {
       case 'event':
-        if (i.startsAt) out.push({ kind: 'event', startsAt: i.startsAt, endsAt: i.endsAt, title: i.title });
+        if (i.startsAt) {
+          out.push({
+            kind: 'event',
+            startsAt: i.startsAt,
+            endsAt: i.endsAt,
+            title: i.title,
+            ...(i.target.screen === 'EventDetail' ? { groupId: i.target.params.eventId } : {}),
+          });
+        }
         break;
       case 'tournament':
-        if (i.startsAt) out.push({ kind: 'tournament', startsAt: i.startsAt, endsAt: i.endsAt, title: i.title });
+        if (i.startsAt) {
+          // Only one I'm in (approved): a request or an invite isn't the group yet.
+          const mine = i.status === 'in progress' || i.status === 'registered';
+          out.push({
+            kind: 'tournament',
+            startsAt: i.startsAt,
+            endsAt: i.endsAt,
+            title: i.title,
+            ...(mine && i.target.screen === 'TournamentDetail' ? { groupId: i.target.params.tournamentId } : {}),
+          });
+        }
         break;
       case 'drill':
         if (i.startsAt) out.push({ kind: 'drill', startsAt: i.startsAt, endsAt: i.endsAt, title: i.title });
@@ -338,4 +358,15 @@ export function playedFor(ms: number): string {
 export function playCompleteLine(p: { startedAtMs: number; endedAtMs: number; venueName?: string | null }): string {
   const where = p.venueName ? ` at ${p.venueName}` : '';
   return `Play complete · ${playedFor(p.endedAtMs - p.startedAtMs)}${where}`;
+}
+
+/** "Group session: Ladder Night": the event or tournament I'm in that is around now (nearest first). */
+export type GroupOffer = { kind: 'event' | 'tournament'; id: string; title: string };
+
+export function pickGroupOffer(schedule: readonly ChipScheduleItem[], nowMs: number): GroupOffer | null {
+  const hit = schedule
+    .filter((i): i is ChipScheduleItem & { kind: 'event' | 'tournament'; groupId: string } =>
+      (i.kind === 'event' || i.kind === 'tournament') && !!i.groupId && aroundNow(i, nowMs))
+    .sort((a, b) => Math.abs(Date.parse(a.startsAt) - nowMs) - Math.abs(Date.parse(b.startsAt) - nowMs))[0];
+  return hit ? { kind: hit.kind, id: hit.groupId, title: hit.title } : null;
 }
