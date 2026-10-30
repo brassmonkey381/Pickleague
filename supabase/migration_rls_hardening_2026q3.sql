@@ -202,7 +202,11 @@ begin
         'equip_shop_item','unequip_cosmetic',
         -- My Place (migration_my_place.sql, which grants them too).
         'buy_home_item','claim_my_place_starter','clear_home_slot','equip_home_item','get_home',
-        'save_room_layout','set_my_place_visibility'
+        'save_room_layout','set_my_place_visibility',
+        -- Event and tournament photo albums (migration_event_tournament_albums.sql,
+        -- which grants them too). The two helpers run inside the album_photos
+        -- and storage.objects policies, so authenticated keeps EXECUTE.
+        '_pl_album_member','_pl_album_manager','album_access'
         -- Deliberately NOT listed (no client caller; a re-run revokes them):
         -- backfill_venue_cities (a full-table venues UPDATE, maintenance only),
         -- send_test_push, venue_containing_point, list_venues_in_radius.
