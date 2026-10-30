@@ -15,7 +15,7 @@
 --     photo. Everyone can remove their own.
 --   * Blocks hide photos both ways (blocked_between), in the table and in
 --     storage, so a blocked player's photo can't even be fetched.
---   * 20 photos per person per album (album.full), 300 per album (album.album_full).
+--   * 4 photos per person per album (album.full); no cap on the album.
 --
 -- Files live in the private `album-photos` bucket at
 --   <kind>/<event or tournament id>/<uploader id>/<photo id>.<ext>
@@ -223,13 +223,9 @@ begin
     coalesce(new.event_id, new.tournament_id)::text || ':' || new.uploader_id::text, 0));
   select c.mine, c.total into v_mine, v_total
     from public._pl_album_photo_count(new.event_id, new.tournament_id, new.uploader_id) c;
-  if v_mine >= 20 then
-    raise exception 'You can add up to 20 photos to this album.'
+  if v_mine >= 4 then
+    raise exception 'You can add up to 4 photos to this album.'
       using hint = 'pl:album.full', errcode = 'P0001';
-  end if;
-  if v_total >= 300 then
-    raise exception 'This album is full (300 photos).'
-      using hint = 'pl:album.album_full', errcode = 'P0001';
   end if;
   return new;
 end $$;
@@ -256,7 +252,7 @@ declare
   v_mine   integer := 0;
 begin
   if v_uid is null then
-    return jsonb_build_object('can_view', false, 'can_add', false, 'can_manage', false, 'mine', 0, 'cap', 20);
+    return jsonb_build_object('can_view', false, 'can_add', false, 'can_manage', false, 'mine', 0, 'cap', 4);
   end if;
   v_member := public._pl_album_member(p_kind, p_id::text);
   if v_member then
@@ -271,7 +267,7 @@ begin
     'can_add',    v_member,
     'can_manage', v_member and public._pl_album_manager(p_kind, p_id::text),
     'mine',       coalesce(v_mine, 0),
-    'cap',        20);
+    'cap',        4);
 end $$;
 revoke all on function public.album_access(text, uuid) from public, anon;
 grant execute on function public.album_access(text, uuid) to authenticated, service_role;

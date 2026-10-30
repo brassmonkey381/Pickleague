@@ -1,5 +1,5 @@
 // An event's or tournament's shared photo album (data/albums.ts). Everyone in
-// it sees every photo (with who added it) and can add up to 20 of their own,
+// it sees every photo (with who added it) and can add up to 4 of their own,
 // several at a time; you remove your own, organizers remove anyone's, and
 // anyone can report one. Hidden from everyone who isn't in it, and while the
 // album SQL isn't live yet.

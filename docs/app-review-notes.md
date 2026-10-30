@@ -181,7 +181,7 @@ join code rather than open to the public.
 
 Event and tournament albums: the Photos section on an event or tournament
 page. Only the people in it (league members for an event; approved players
-and organizers for a tournament) can see or add photos, up to 20 each; files
+and organizers for a tournament) can see or add photos, up to 4 each; files
 are stored privately and served through short-lived links. The person who
 added a photo, and the event's or tournament's organizers, can remove it;
 anyone who can see it can report it (the lightbox's Report), and photos from

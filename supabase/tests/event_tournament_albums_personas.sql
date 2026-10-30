@@ -226,9 +226,9 @@ declare
   j jsonb;
 begin
   j := pg_temp.json_as('MB', format('select public.album_access(%L, %L)', 'event', pg_temp.i('E')));
-  perform pg_temp.ok('A4 a member: can view and add, not manage, 1 of 20 added',
+  perform pg_temp.ok('A4 a member: can view and add, not manage, 1 of 4 added',
     (j ->> 'can_view')::boolean and (j ->> 'can_add')::boolean and not (j ->> 'can_manage')::boolean
-    and (j ->> 'mine')::int = 1 and (j ->> 'cap')::int = 20, j::text);
+    and (j ->> 'mine')::int = 1 and (j ->> 'cap')::int = 4, j::text);
   j := pg_temp.json_as('AD', format('select public.album_access(%L, %L)', 'event', pg_temp.i('E')));
   perform pg_temp.ok('A4 the organizer manages', (j ->> 'can_manage')::boolean, j::text);
   j := pg_temp.json_as('OUT', format('select public.album_access(%L, %L)', 'tournament', pg_temp.i('T')));
@@ -266,14 +266,14 @@ declare
   j jsonb;
   n int := 0;
 begin
-  -- MB has 1 tournament photo; 19 more fill the 20.
-  for i in 1..19 loop
+  -- MB has 1 tournament photo; 3 more fill the 4.
+  for i in 1..3 loop
     j := pg_temp.add('MB', 'tournament', pg_temp.i('T'));
     if not (j ? 'error') then n := n + 1; end if;
   end loop;
-  perform pg_temp.ok('A6 up to 20 photos each', n = 19, n::text);
+  perform pg_temp.ok('A6 up to 4 photos each', n = 3, n::text);
   j := pg_temp.add('MB', 'tournament', pg_temp.i('T'));
-  perform pg_temp.ok('A6 the 21st: album.full', j ->> 'hint' = 'pl:album.full', j::text);
+  perform pg_temp.ok('A6 the 5th: album.full', j ->> 'hint' = 'pl:album.full', j::text);
   j := pg_temp.add('M2', 'tournament', pg_temp.i('T'));
   perform pg_temp.ok('A6 someone else still adds', j ? 'error' = false, j::text);
 exception when others then

@@ -101,7 +101,7 @@ export type AddResult = { added: number; error: unknown | null };
 
 /**
  * Add picked photos, one at a time: the row first (the server checks I'm in
- * the album and under my 20), then the file at the row's path. A file that
+ * the album and under my 4), then the file at the row's path. A file that
  * fails takes its row back out. Stops at the first refusal (album full).
  */
 export async function addAlbumPhotos(

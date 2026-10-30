@@ -27,11 +27,12 @@ describe('album paths', () => {
 });
 
 describe('room left', () => {
-  it('counts down from 20 and picks at most 10 at a time', () => {
-    expect(albumRoom(0)).toEqual({ left: 20, pick: 10 });
-    expect(albumRoom(15)).toEqual({ left: 5, pick: 5 });
-    expect(albumRoom(20)).toEqual({ left: 0, pick: 0 });
-    expect(albumRoom(25)).toEqual({ left: 0, pick: 0 });
+  it('counts down from 4', () => {
+    expect(albumRoom(0)).toEqual({ left: 4, pick: 4 });
+    expect(albumRoom(3)).toEqual({ left: 1, pick: 1 });
+    expect(albumRoom(4)).toEqual({ left: 0, pick: 0 });
+    expect(albumRoom(6)).toEqual({ left: 0, pick: 0 });
+    expect(albumRoom(0, 20)).toEqual({ left: 20, pick: 4 });
   });
   it('words the result', () => {
     expect(addedLine(1, 1)).toBe('1 photo added');

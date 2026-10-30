@@ -8,10 +8,10 @@
 
 export type AlbumKind = 'event' | 'tournament';
 
-/** 20 photos per person per album (the server's album.full). */
-export const ALBUM_CAP_PER_PERSON = 20;
+/** 4 photos per person per album (the server's album.full); no cap on the album. */
+export const ALBUM_CAP_PER_PERSON = 4;
 /** Most photos picked in one go: base64 copies of each sit in memory until uploaded. */
-export const ALBUM_PICK_MAX = 10;
+export const ALBUM_PICK_MAX = 4;
 /** The picker re-encodes at this quality (a phone photo comes out around 1 MB). */
 export const ALBUM_JPEG_QUALITY = 0.6;
 /** Signed URLs last an hour; the album refetches well before. */
