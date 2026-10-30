@@ -33,6 +33,7 @@ import ConfirmModal from '../components/ConfirmModal';
 import StatusBanner from '../components/StatusBanner';
 import FlairName from '../components/FlairName';
 import DrillReviewModal from '../components/DrillReviewModal';
+import { loadDrillReviewDrafts } from '../lib/drillReviewDraft';
 import EmptyState from '../components/EmptyState';
 import PlayerModerationMenu from '../components/PlayerModerationMenu';
 import { SkeletonList } from '../components/Skeleton';
@@ -64,6 +65,7 @@ export default function DrillRequestsScreen({ route }: Props) {
   // From a push: a drill request or session to show (and maybe open its chat).
   const focusId = route.params?.focusId;
   const openChat = !!route.params?.openChat;
+  const reviewId = route.params?.reviewId;
   const chatOpenedFor = useRef<string | null>(null);
   // Same once-per-push guard for auto-opening the Closed section.
   const closedOpenedFor = useRef<string | null>(null);
@@ -118,6 +120,18 @@ export default function DrillRequestsScreen({ route }: Props) {
   // Past drill sessions the current user hasn't reviewed yet (+ the review modal target).
   const [reviewable, setReviewable] = useState<ReviewableSession[]>([]);
   const [reviewTarget, setReviewTarget] = useState<ReviewableSession | null>(null);
+  // Drills with a saved review draft on this device (their button reads Finish).
+  const [draftIds, setDraftIds] = useState<Set<string>>(new Set());
+  // The island's Review / the end sheet's Review drill: open that drill's
+  // review once the list has it (once per reviewId).
+  const reviewOpenedFor = useRef<string | null>(null);
+  useEffect(() => {
+    if (!reviewId || reviewOpenedFor.current === reviewId) return;
+    const target = reviewable.find(r => r.id === reviewId);
+    if (!target) return;
+    reviewOpenedFor.current = reviewId;
+    setReviewTarget(target);
+  }, [reviewId, reviewable]);
 
   // Card-level location picker: which request is choosing, and the cached court list.
   const [locationPickerReq, setLocationPickerReq] = useState<DrillRequest | null>(null);
@@ -237,12 +251,15 @@ export default function DrillRequestsScreen({ route }: Props) {
         partner_name: r.player1_id === uid ? r.p2?.full_name ?? 'your partner' : r.p1?.full_name ?? 'your partner',
       }));
     setReviewable(list);
+    const drafts = await loadDrillReviewDrafts();
+    setDraftIds(new Set(Object.keys(drafts)));
   }
 
   function onReviewSubmitted(sessionId: string, earned: number | null) {
     // Drop the reviewed session from the list, close the modal, and confirm the haul
     // (null: an earlier try saved it and its answer was lost, so the amount is unknown).
     setReviewable(prev => prev.filter(s => s.id !== sessionId));
+    setDraftIds(prev => { const next = new Set(prev); next.delete(sessionId); return next; });
     setReviewTarget(null);
     status.success(earned != null ? `+${earned} pickles earned!` : 'Your review was saved.');
   }
@@ -649,8 +666,8 @@ export default function DrillRequestsScreen({ route }: Props) {
                   variant="row"
                   lastRow={i === reviewable.length - 1}
                   title={`Drill with ${s.partner_name}`}
-                  subtitle={`${drillWhenLabel(s.starts_at, { date: s.session_date, slot: s.session_slot })} · ${durationLabel(s.length_minutes ?? 60)}`}
-                  trailing={<Button size="sm" iconName="edit" title="Review" onPress={() => setReviewTarget(s)} />}
+                  subtitle={`${drillWhenLabel(s.starts_at, { date: s.session_date, slot: s.session_slot })} · ${durationLabel(s.length_minutes ?? 60)}${draftIds.has(s.id) ? ' · Draft saved' : ''}`}
+                  trailing={<Button size="sm" iconName="edit" title={draftIds.has(s.id) ? 'Finish' : 'Review'} onPress={() => setReviewTarget(s)} />}
                   style={S.actionRow}
                 />
               ))}
@@ -737,6 +754,7 @@ export default function DrillRequestsScreen({ route }: Props) {
       <DrillReviewModal
         session={reviewTarget}
         onSubmitted={onReviewSubmitted}
+        onDraftSaved={(id) => setDraftIds(prev => new Set(prev).add(id))}
         onClose={() => setReviewTarget(null)}
       />
     </View>

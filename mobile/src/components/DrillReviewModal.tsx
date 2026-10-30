@@ -15,6 +15,13 @@ import { useToast } from '../lib/useToast';
 import { noteDrillReviewed } from '../lib/playSession';
 import { explainRefusal } from '../lib/refusalNotices';
 import { drillReviewRefusal, isAlreadyReviewedMessage } from '../lib/refusals';
+import {
+  clearDrillReviewDraft,
+  draftHasContent,
+  emptyRatings,
+  loadDrillReviewDraft,
+  saveDrillReviewDraft,
+} from '../lib/drillReviewDraft';
 
 // The minimal session shape both DrillScreen and DrillRequestsScreen can supply.
 export type ReviewableDrill = { id: string; partner_name: string };
@@ -41,11 +48,16 @@ const TEXT_PICKLE_CAP = 50;
  * dropped connection) may still have saved, so the copy never says it
  * wasn't; when the next try answers "already reviewed", that earlier try
  * saved: it reads as saved (earned unknown: `onSubmitted(id, null)`).
+ *
+ * Save draft keeps the ratings and text on this device (lib/drillReviewDraft)
+ * and closes; the review reopens with them. Sending it drops the draft.
  */
 export default function DrillReviewModal({
-  session, onSubmitted, onClose,
+  session, onSubmitted, onClose, onDraftSaved,
 }: {
   session: ReviewableDrill | null;
+  /** Save draft kept it (a list can mark the drill as having a draft). */
+  onDraftSaved?: (sessionId: string) => void;
   /** `earned` null: saved by an earlier try whose answer was lost, so the amount isn't known here. */
   onSubmitted: (sessionId: string, earned: number | null) => void;
   onClose: () => void;
@@ -55,26 +67,40 @@ export default function DrillReviewModal({
   const t = textStyles(c);
   const toast = useToast();
 
-  const [ratings, setRatings] = useState<Record<FacetKey, number>>({
-    consistency: 0, effort: 0, organization: 0, intentionality: 0, fun: 0,
-  });
+  const [ratings, setRatings] = useState<Record<FacetKey, number>>(emptyRatings);
   const [notes, setNotes]           = useState('');
   const [submitting, setSubmitting] = useState(false);
   const [error, setError]           = useState<string | null>(null);
   // Saved: the pickles earned, or null when an earlier try saved it and its answer was lost.
   const [done, setDone]             = useState<{ earned: number | null } | null>(null);
+  // The review reopened from a saved draft.
+  const [fromDraft, setFromDraft]   = useState(false);
+  const [savingDraft, setSavingDraft] = useState(false);
   // A try whose answer never came back (it may have saved).
   const lostAnswer = useRef(false);
 
   useEffect(() => {
-    if (session) {
-      setRatings({ consistency: 0, effort: 0, organization: 0, intentionality: 0, fun: 0 });
-      setNotes('');
-      setSubmitting(false);
-      setError(null);
-      setDone(null);
-      lostAnswer.current = false;
-    }
+    if (!session) return;
+    setRatings(emptyRatings());
+    setNotes('');
+    setSubmitting(false);
+    setError(null);
+    setDone(null);
+    setFromDraft(false);
+    setSavingDraft(false);
+    lostAnswer.current = false;
+    // Pick up a saved draft, unless something was already typed meanwhile.
+    let live = true;
+    const id = session.id;
+    void loadDrillReviewDraft(id).then((d) => {
+      if (!live || !d) return;
+      setRatings((prev) => (Object.values(prev).some((v) => v >= 1) ? prev : d.ratings));
+      setNotes((prev) => (prev.trim() ? prev : d.notes));
+      setFromDraft(true);
+    });
+    return () => {
+      live = false;
+    };
   }, [session?.id]);
 
   if (!session) return null;
@@ -123,6 +149,8 @@ export default function DrillReviewModal({
     if (!row?.success) {
       // The try whose answer was lost had saved it.
       if (lostAnswer.current && isAlreadyReviewedMessage(row?.message)) { finish(null); return; }
+      // Reviewed already (another device): the draft has nothing left to finish.
+      if (isAlreadyReviewedMessage(row?.message)) void clearDrillReviewDraft(session.id);
       // Why the server didn't take it, then what to do.
       setError(drillReviewRefusal(row?.message));
       return;
@@ -130,9 +158,24 @@ export default function DrillReviewModal({
     finish(row.pickles_granted ?? preview);
   }
 
+  async function saveDraft() {
+    if (!session || savingDraft) return;
+    setSavingDraft(true);
+    const ok = await saveDrillReviewDraft(session.id, { ratings, notes });
+    setSavingDraft(false);
+    if (!ok) {
+      setError("Couldn't save your draft on this phone. Try again.");
+      return;
+    }
+    toast.success('Draft saved. Finish it from Review your drills.');
+    onDraftSaved?.(session.id);
+    onClose();
+  }
+
   function finish(earned: number | null) {
     if (!session) return;
     setDone({ earned });
+    void clearDrillReviewDraft(session.id);
     // A drill held during my running (or just-ended) play session makes it
     // count: say so, or why this drill doesn't count for it. A toast, so it
     // outlives this sheet.
@@ -175,6 +218,7 @@ export default function DrillReviewModal({
             <ScrollView contentContainerStyle={S.body} keyboardShouldPersistTaps="handled">
               <Text style={t.title}>Drill with {session.partner_name}</Text>
               <Text style={[t.hint, S.hint]}>Rate each aspect (5 pickles each) and add a review (1 pickle per 10 characters, up to 50).</Text>
+              {fromDraft ? <Text style={[t.caption, S.draftNote]}>Picked up from your saved draft.</Text> : null}
 
               {FACETS.map(f => (
                 <View key={f.key} style={S.facetRow}>
@@ -232,6 +276,15 @@ export default function DrillReviewModal({
                 accessibilityLabel={`Submit and claim ${preview} pickles`}
               />
               {answered < 1 && <Text style={[t.hint, S.hint]}>Rate at least one aspect to claim your bonus.</Text>}
+              <Button
+                title="Save draft"
+                variant="outline"
+                onPress={() => void saveDraft()}
+                loading={savingDraft}
+                disabled={submitting || savingDraft || !draftHasContent({ ratings, notes })}
+                accessibilityLabel="Save draft and finish later"
+                style={S.draftBtn}
+              />
             </ScrollView>
           )}
         </View>
@@ -254,6 +307,8 @@ function makeStyles(c: ReturnType<typeof useTheme>['colors']) {
     body:         { padding: SPACE.lg },
     center:       { textAlign: 'center' },
     hint:         { marginTop: SPACE.xs, marginBottom: SPACE.md },
+    draftNote:    { marginTop: -SPACE.sm, marginBottom: SPACE.md, color: c.primary },
+    draftBtn:     { marginTop: SPACE.sm },
     facetRow:     { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: SPACE.sm },
     facetLabel:   { fontSize: FONT.size.md, fontWeight: FONT.weight.semibold, color: c.text, flex: 1, minWidth: 0 },
     starsRow:     { flexDirection: 'row' },

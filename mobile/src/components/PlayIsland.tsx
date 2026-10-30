@@ -20,7 +20,7 @@ import { LiveStatusIsland, type IslandAction } from '@just-messin-around/expo-fo
 import { useResumeLiveSession } from '@just-messin-around/expo-foundation/session';
 import { useElapsed, useSignal } from '@just-messin-around/expo-foundation/hooks';
 import { useToast } from '../lib/useToast';
-import { openMatchEntryForSession } from '../lib/navigationRef';
+import { navigateWhenReady, openMatchEntryForSession } from '../lib/navigationRef';
 // Every check-in starts the timer, a check-out ends it (side effects: once).
 import { checkOutAndEnd } from '../lib/checkinPlay';
 import { endActionLabel } from '../lib/checkinPlayRules';
@@ -117,13 +117,23 @@ export default function PlayIsland({ signedIn }: { signedIn: boolean }) {
   const planCheckin = PLAY_NAV_ENABLED && checkin && !checkin.queued ? checkin : null;
 
   const actions: IslandAction[] = [
-    {
-      label: 'Enter score',
-      timeoutMessage: STILL_WORKING,
-      // Linked to this session: a match recorded from it makes it count. A
-      // MatchEntry already open (from an event, say) keeps its form and gains the link.
-      onPress: () => openMatchEntryForSession(s.id ?? undefined),
-    },
+    meta?.kind === 'drill'
+      ? {
+          // A drill: Review, not a score. The drill it started from opens its
+          // review (a saved draft fills it in); otherwise Review your drills.
+          label: 'Review',
+          onPress: () => {
+            setExpanded(false);
+            navigateWhenReady('DrillRequests', meta.sourceId ? { reviewId: meta.sourceId } : undefined);
+          },
+        }
+      : {
+          label: 'Enter score',
+          timeoutMessage: STILL_WORKING,
+          // Linked to this session: a match recorded from it makes it count. A
+          // MatchEntry already open (from an event, say) keeps its form and gains the link.
+          onPress: () => openMatchEntryForSession(s.id ?? undefined),
+        },
     // Open play · Closed group · Drill, and how long: the ▶ Play sheet over
     // this session; its Start replaces it (the part played so far stays).
     ...(PLAY_NAV_ENABLED

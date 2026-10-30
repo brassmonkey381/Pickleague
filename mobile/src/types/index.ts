@@ -630,7 +630,8 @@ export type RootStackParamList = {
   // partnerId: "Find a new time" with this partner (opens the request form).
   DrillSearch: { partnerId?: string } | undefined;
   // focusId: a drill request or session id from a push; openChat opens its chat.
-  DrillRequests: { focusId?: string; openChat?: boolean } | undefined;
+  /** reviewId: a drill_sessions.id whose review opens once the list has it (the island's Review, the end sheet). */
+  DrillRequests: { focusId?: string; openChat?: boolean; reviewId?: string } | undefined;
   Shop: undefined;
   // My Place (docs/my-place.md): mine with no userId; another player's room,
   // read-only, with one. userName: the title until their profile loads.

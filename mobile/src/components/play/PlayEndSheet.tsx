@@ -130,10 +130,12 @@ export default function PlayEndSheetHost({ signedIn }: { signedIn: boolean }) {
     );
   };
   const reviewDrill = () => {
+    const sourceId = shown?.ended.kind === 'drill' ? shown.ended.sourceId : null;
     setShown(null);
     // "Review your drills" lists every started, unreviewed drill, today's
     // included (Drill's own Review button shows only from tomorrow, too late).
-    navigateWhenReady('DrillRequests');
+    // A session started from a drill opens that drill's review (and its draft).
+    navigateWhenReady('DrillRequests', sourceId ? { reviewId: sourceId } : undefined);
   };
 
   return (
