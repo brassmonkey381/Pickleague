@@ -13,6 +13,7 @@ import { DrillSession, RootStackParamList } from '../types';
 import DrillAvailabilityGrid from '../components/DrillAvailabilityGrid';
 import StatusBanner from '../components/StatusBanner';
 import DrillReviewModal from '../components/DrillReviewModal';
+import DrillShareStudio, { type DrillShareTarget } from '../components/share/DrillShareStudio';
 import { useStatusMessage } from '../lib/useStatusMessage';
 import { isoDate, rollingDates, durationLabel, spanToDailyOverlays, toWeeklyTemplate, WEEKLY_CELLS } from '../lib/drillTime';
 import { drillWhenRangeLabel } from '../lib/drillWhen';
@@ -57,6 +58,8 @@ export default function DrillScreen({ navigation }: Props) {
   const [sessionFilter, setSessionFilter]     = useState<'upcoming' | 'past'>('upcoming');
   const [scheduledMatches, setScheduledMatches] = useState<{ date: string; slot: number; length_minutes: number }[]>([]);
   const [reviewTarget, setReviewTarget]       = useState<SessionWithPartner | null>(null);
+  // Share your drill, from the review's thanks (PKL-013).
+  const [drillShare, setDrillShare]           = useState<DrillShareTarget | null>(null);
 
   const status = useStatusMessage();
   const refresh = useRefresh(load);
@@ -503,7 +506,10 @@ export default function DrillScreen({ navigation }: Props) {
         status.success(earned != null ? `+${earned} pickles earned!` : 'Your review was saved.');
       }}
       onClose={() => setReviewTarget(null)}
+      // After the review sheet has closed (two sheets at once misbehave on iOS).
+      onShare={(id) => setTimeout(() => setDrillShare({ drillSessionId: id }), 450)}
     />
+    <DrillShareStudio target={drillShare} onClose={() => setDrillShare(null)} />
     </>
   );
 }

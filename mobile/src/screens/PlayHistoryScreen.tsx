@@ -18,15 +18,15 @@ import { useRefresh } from '../lib/useRefresh';
 import AppRefreshControl from '../components/AppRefreshControl';
 import { SkeletonList } from '../components/Skeleton';
 import { refusalMessage } from '../lib/refusals';
-import { discardPlaySession, listMyPlaySessions, listSessionShareMatches, PLAY_HISTORY_PAGE, type PlayHistoryRow } from '../data/playSessions';
+import { discardPlaySession, getSessionPlayWindows, listMyPlaySessions, listSessionShareMatches, PLAY_HISTORY_PAGE, type PlayHistoryRow } from '../data/playSessions';
 import { currentUserId } from '@just-messin-around/expo-foundation/supabase';
 import { isImageShareAvailable } from '@just-messin-around/expo-foundation/platform';
 import { supabase } from '../lib/supabase';
 import PickleShareStudio from '../components/share/PickleShareStudio';
-import { sessionCardModel, sessionTally, type ShareCardModel } from '../lib/shareCards';
+import DrillShareStudio, { type DrillShareTarget } from '../components/share/DrillShareStudio';
+import { minutesBetween, playMix, sessionCardModel, sessionTally, type ShareCardModel } from '../lib/shareCards';
 import { cardPlayer } from '../lib/finishShare';
 import { useBlockedIds } from '../lib/moderation';
-import { playedFor } from '../lib/playStartRules';
 import {
   PLAY_KIND_LABEL,
   playHistoryDay,
@@ -58,12 +58,21 @@ export default function PlayHistoryScreen(_props: Props) {
   const [shareModel, setShareModel] = useState<ShareCardModel | null>(null);
   const [shareOpen, setShareOpen] = useState(false);
   const [sharing, setSharing] = useState<string | null>(null);
+  // A drill session gets the drill card (its review, focus, weeks of work).
+  const [drillShare, setDrillShare] = useState<DrillShareTarget | null>(null);
   const openShare = async (r: PlayHistoryRow) => {
     if (sharing) return;
+    if (r.kind === 'drill') {
+      setDrillShare({ playSessionId: r.id });
+      return;
+    }
     setSharing(r.id);
     try {
       const me = await currentUserId(supabase);
-      const rows = me ? await listSessionShareMatches(r) : [];
+      const [rows, windows] = await Promise.all([
+        me ? listSessionShareMatches(r) : Promise.resolve([]),
+        getSessionPlayWindows(r.id),
+      ]);
       const tally = me ? sessionTally(rows, me, r) : { games: 0, wins: 0, losses: 0, people: [] as string[] };
       const profiles = new Map<string, { id: string; full_name: string | null; deleted_at?: string | null }>();
       for (const m of rows) for (const p of [m.player1, m.partner1, m.player2, m.partner2]) if (p) profiles.set(p.id, p);
@@ -71,7 +80,8 @@ export default function PlayHistoryScreen(_props: Props) {
         court: r.venueName,
         kindLabel: PLAY_KIND_LABEL[r.kind] ?? 'Play',
         date: playHistoryDay(new Date(r.startedAt), new Date()),
-        duration: playedFor(Date.parse(r.endedAt) - Date.parse(r.startedAt)),
+        minutes: minutesBetween(r.startedAt, r.endedAt),
+        mix: playMix(windows, r.startedAt, r.endedAt),
         games: tally.games,
         wins: tally.games > 0 ? tally.wins : null,
         losses: tally.games > 0 ? tally.losses : null,
@@ -248,6 +258,7 @@ export default function PlayHistoryScreen(_props: Props) {
           model={shareModel}
         />
       ) : null}
+      <DrillShareStudio target={drillShare} onClose={() => setDrillShare(null)} />
       <ConfirmModal
         visible={!!discarding}
         title="Discard this session?"

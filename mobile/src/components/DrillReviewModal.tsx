@@ -2,7 +2,7 @@ import React, { useEffect, useRef, useState } from 'react';
 import {
   View, Text, Modal, TouchableOpacity, TextInput, ScrollView, StyleSheet,
 } from 'react-native';
-import { isNetworkError } from '@just-messin-around/expo-foundation/platform';
+import { isImageShareAvailable, isNetworkError } from '@just-messin-around/expo-foundation/platform';
 import { sbCall } from '@just-messin-around/expo-foundation/supabase';
 import { Button } from '@just-messin-around/expo-foundation/forms';
 import { Icon } from '@just-messin-around/expo-foundation/icons';
@@ -51,10 +51,16 @@ const TEXT_PICKLE_CAP = 50;
  *
  * Save draft keeps the ratings and text on this device (lib/drillReviewDraft)
  * and closes; the review reopens with them. Sending it drops the draft.
+ *
+ * With `onShare` (and image sharing on this binary), the thanks stays up with
+ * "Share your drill" and Done instead of closing by itself: either one calls
+ * onSubmitted, and Share then hands the drill to the caller's share card.
  */
 export default function DrillReviewModal({
-  session, onSubmitted, onClose, onDraftSaved,
+  session, onSubmitted, onClose, onDraftSaved, onShare,
 }: {
+  /** After the review: the caller opens the drill share card (PKL-013). */
+  onShare?: (sessionId: string) => void;
   session: ReviewableDrill | null;
   /** Save draft kept it (a list can mark the drill as having a draft). */
   onDraftSaved?: (sessionId: string) => void;
@@ -78,6 +84,9 @@ export default function DrillReviewModal({
   const [savingDraft, setSavingDraft] = useState(false);
   // A try whose answer never came back (it may have saved).
   const lostAnswer = useRef(false);
+  const shareable = !!onShare && isImageShareAvailable();
+  // onSubmitted runs once per review, whichever way the thanks closes.
+  const left = useRef(false);
 
   useEffect(() => {
     if (!session) return;
@@ -89,6 +98,7 @@ export default function DrillReviewModal({
     setFromDraft(false);
     setSavingDraft(false);
     lostAnswer.current = false;
+    left.current = false;
     // Pick up a saved draft, unless something was already typed meanwhile.
     let live = true;
     const id = session.id;
@@ -182,19 +192,29 @@ export default function DrillReviewModal({
     void noteDrillReviewed().then((note) => {
       if (note) toast.info(note);
     });
+    if (shareable) return; // the thanks stays up with Share / Done
     const sid = session.id;
     setTimeout(() => onSubmitted(sid, earned), 1300);
   }
 
+  /** Close the thanks (shareable mode): the caller's bookkeeping, then maybe the share card. */
+  function leave(share: boolean) {
+    if (!session || !done || left.current) return;
+    left.current = true;
+    onSubmitted(session.id, done.earned);
+    if (share) onShare?.(session.id);
+  }
+  const closeNow = () => (done && shareable ? leave(false) : onClose());
+
 
   return (
-    <Modal visible={!!session} transparent animationType="fade" onRequestClose={onClose}>
+    <Modal visible={!!session} transparent animationType="fade" onRequestClose={closeNow}>
       <View style={S.overlay}>
         <View style={S.panel}>
           <View style={S.header}>
             <Icon name="edit" size={16} color={c.textSub} />
             <Text style={[t.title, S.title]} numberOfLines={1}>Review your drill</Text>
-            <TouchableOpacity onPress={onClose} style={S.closeBox} accessibilityRole="button" accessibilityLabel="Close">
+            <TouchableOpacity onPress={closeNow} style={S.closeBox} accessibilityRole="button" accessibilityLabel="Close">
               <Icon name="close" size={20} color={c.textSub} />
             </TouchableOpacity>
           </View>
@@ -213,6 +233,13 @@ export default function DrillReviewModal({
                   <Text style={[t.sub, S.center]}>It went through before the connection dropped. Thanks for reviewing your drill.</Text>
                 </>
               )}
+              {shareable ? (
+                <View style={S.shareActions}>
+                  <Text style={[t.sub, S.center]}>Put in the work? Show it off.</Text>
+                  <Button title="Share your drill" iconName="share" onPress={() => leave(true)} style={S.shareBtn} />
+                  <Button title="Done" variant="outline" onPress={() => leave(false)} style={S.shareBtn} />
+                </View>
+              ) : null}
             </View>
           ) : (
             <ScrollView contentContainerStyle={S.body} keyboardShouldPersistTaps="handled">
@@ -323,6 +350,8 @@ function makeStyles(c: ReturnType<typeof useTheme>['colors']) {
     counter:      { flexDirection: 'row', alignItems: 'center', justifyContent: 'flex-end', gap: SPACE.xs, marginTop: SPACE.xs, marginBottom: SPACE.md },
     errorText:    { fontSize: FONT.size.sm, fontWeight: FONT.weight.semibold, color: c.danger, marginBottom: SPACE.sm },
     successWrap:  { alignItems: 'center', paddingVertical: SPACE.xl + SPACE.lg, paddingHorizontal: SPACE.xl },
+    shareActions: { alignSelf: 'stretch', gap: SPACE.sm, marginTop: SPACE.lg },
+    shareBtn:     { alignSelf: 'stretch' },
     successGlyph: { marginBottom: SPACE.md },
     successText:  { color: c.primary, marginBottom: SPACE.xs, textAlign: 'center' },
   });

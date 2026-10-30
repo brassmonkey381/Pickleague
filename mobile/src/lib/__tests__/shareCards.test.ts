@@ -109,11 +109,24 @@ describe('play session card', () => {
     ], 'me', session);
     expect(t).toEqual({ games: 2, wins: 1, losses: 1, people: ['a', 'b', 'c'] });
   });
-  it('reads the duration big and hides empty stats', () => {
-    const m = sessionCardModel({ court: 'Lakeside', kindLabel: 'Open play', date: 'Today', duration: '1h 55m', games: 0, wins: null, losses: null, people: [] });
-    expect(m.hero.big).toBe('1h 55m');
-    expect(shareDetailOptions(m).map((o) => o.id)).toEqual(['date']);
+  it('reads the length big and hides empty stats', () => {
+    const m = sessionCardModel({ court: 'Lakeside', kindLabel: 'Open play', date: 'Today', minutes: 115, mix: [], games: 0, wins: null, losses: null, people: [] });
+    expect(m.hero.big).toBe('1 h 55 min');
+    expect(m.hero.small).toBe('on the court');
+    expect(shareDetailOptions(m).map((o) => o.id)).toEqual(['type', 'court', 'date']);
+    expect(m.stats.find((s) => s.id === 'type')?.value).toBe('Open play');
+    expect(shareDefaultDetails(m)).toEqual({ type: true, court: false, date: true });
     expect(m.showsScores).toBe(false);
+  });
+  it('says the type of play from the windows, games and record', () => {
+    const m = sessionCardModel({
+      court: null, kindLabel: 'Open play', date: 'Oct 27', minutes: 105,
+      mix: [{ mode: 'open', minutes: 30 }, { mode: 'closed', minutes: 75 }],
+      games: 5, wins: 3, losses: 2, people: [],
+    });
+    expect(m.title).toBe('Pickleball');
+    expect(m.hero.small).toBe('on the court · 5 games');
+    expect(m.stats.map((s) => s.value)).toEqual(['30 min open play · 1 h 15 min closed group', '5 games', 'Record 3-2', 'Oct 27']);
   });
 });
 

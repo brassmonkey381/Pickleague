@@ -52,6 +52,7 @@ import {
   shareCardMessage,
   shareDefaultDetails,
   shareDetailOptions,
+  shareStudioKey,
   shareTemplatesFor,
   shareToastText,
   type ShareCardModel,
@@ -59,7 +60,6 @@ import {
 import ShareCardArt from './ShareCardArt';
 
 const LOOK_OPTIONS: ShareLook[] = SHARE_LOOK_IDS.map((id) => ({ id, label: SHARE_LOOKS[id].label, ground: SHARE_LOOKS[id].ground }));
-const templatesFor = (n: number) => shareTemplatesFor(n).map((id) => ({ id, label: SHARE_TEMPLATE_LABEL[id] }));
 
 type Props = {
   visible: boolean;
@@ -69,6 +69,8 @@ type Props = {
   model: ShareCardModel;
   /** Extra analytics props. */
   trackProps?: Record<string, unknown>;
+  /** Photos the studio opens with (Godmode's Share card lab). */
+  initialPhotos?: readonly string[];
 };
 
 /** Saved accounts can refer; a guest shares the plain site link. */
@@ -86,7 +88,7 @@ function useCanRefer(visible: boolean): boolean {
   return can;
 }
 
-export default function PickleShareStudio({ visible, onClose, title, model, trackProps }: Props) {
+export default function PickleShareStudio({ visible, onClose, title, model, trackProps, initialPhotos }: Props) {
   const { colors: c } = useTheme();
   const t = textStyles(c);
   const canRefer = useCanRefer(visible);
@@ -108,6 +110,10 @@ export default function PickleShareStudio({ visible, onClose, title, model, trac
   // Read once at mount by the studio: keep every key the card could offer.
   const defaultDetails = React.useMemo(() => shareDefaultDetails(model), [model]);
   const details = shareDetailOptions(model);
+  const templatesFor = React.useCallback(
+    (n: number) => shareTemplatesFor(n, model.kind).map((id) => ({ id, label: SHARE_TEMPLATE_LABEL[id] })),
+    [model.kind],
+  );
 
   const prepareShare = async (s: { template: string; aspect: string; photos: string[] }) => {
     track(`share.${model.kind}`, { ...trackProps, invite, template: s.template, aspect: s.aspect, photos: s.photos.length });
@@ -149,6 +155,8 @@ export default function PickleShareStudio({ visible, onClose, title, model, trac
 
   return (
     <ShareStudio
+      // The studio reads its SHOW defaults once: a card with other toggles gets a fresh one.
+      key={shareStudioKey(model)}
       visible={visible}
       onClose={onClose}
       title={title}
@@ -163,6 +171,7 @@ export default function PickleShareStudio({ visible, onClose, title, model, trac
       defaultDetails={defaultDetails}
       templatesFor={templatesFor}
       maxPhotos={MAX_SHARE_PHOTOS}
+      initialPhotos={initialPhotos}
       strings={{ photoHint: (n) => (n === 0 ? 'Add photos from the court for photo layouts.' : n === 1 ? 'Add another photo for collages.' : `${n} photos`) }}
       renderCard={(s) => <ShareCardArt s={s} model={model} />}
       prepareShare={prepareShare}
@@ -176,7 +185,7 @@ export default function PickleShareStudio({ visible, onClose, title, model, trac
         </View>
       ) : undefined}
       renderExtraCta={invite ? ({ openGuide }) => (
-        <ShareCtaChip label={`Share and Earn ${REFERRAL_REWARD_PICKLES} Pickles!`} onPress={openGuide} />
+        <ShareCtaChip label={`Share and Earn ${reward} Pickles!`} onPress={openGuide} />
       ) : undefined}
     />
   );

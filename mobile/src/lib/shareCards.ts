@@ -41,12 +41,14 @@ export const SHARE_LOOKS: Record<ShareLookId, ShareLookDef> = {
   court: { label: 'Court', ground: '#1f6f4a', ink: '#ffffff', muted: 'rgba(255,255,255,0.75)', accent: '#c6f36b', chip: 'rgba(255,255,255,0.16)', pattern: 'lines', patternInk: 'rgba(255,255,255,0.14)' },
   night: { label: 'Night', ground: '#14213d', ink: '#ffffff', muted: 'rgba(255,255,255,0.72)', accent: '#ffd166', chip: 'rgba(255,255,255,0.14)', pattern: 'net', patternInk: 'rgba(255,255,255,0.08)' },
   ball: { label: 'Ball', ground: '#e4f04a', ink: '#1d2b22', muted: 'rgba(29,43,34,0.7)', accent: '#1f6f4a', chip: 'rgba(29,43,34,0.09)', pattern: 'balls', patternInk: 'rgba(29,43,34,0.10)' },
-  clay: { label: 'Clay', ground: '#c8553d', ink: '#ffffff', muted: 'rgba(255,255,255,0.78)', accent: '#ffe8a3', chip: 'rgba(255,255,255,0.16)', pattern: 'lines', patternInk: 'rgba(255,255,255,0.16)' },
+  // #b4472f, not a brighter clay: white small text needs the 5:1 step.
+  clay: { label: 'Clay', ground: '#b4472f', ink: '#ffffff', muted: 'rgba(255,255,255,0.82)', accent: '#ffe8a3', chip: 'rgba(255,255,255,0.16)', pattern: 'lines', patternInk: 'rgba(255,255,255,0.16)' },
   cream: { label: 'Cream', ground: '#f6f1e3', ink: '#1d2b22', muted: 'rgba(29,43,34,0.68)', accent: '#2e8b57', chip: 'rgba(29,43,34,0.08)', pattern: 'balls', patternInk: 'rgba(29,43,34,0.07)' },
 };
 
 // ── Layouts, by how many photos there are ───────────────────────────────
 export type ShareTemplateId =
+  | 'grind'
   | 'poster'
   | 'big'
   | 'scorecard'
@@ -57,6 +59,7 @@ export type ShareTemplateId =
   | 'grid'
   | 'duo';
 export const SHARE_TEMPLATE_LABEL: Record<ShareTemplateId, string> = {
+  grind: 'Put in the work',
   poster: 'Poster',
   big: 'Big number',
   scorecard: 'Scorecard',
@@ -67,8 +70,9 @@ export const SHARE_TEMPLATE_LABEL: Record<ShareTemplateId, string> = {
   grid: 'Grid',
   duo: 'Two + stats',
 };
-export function shareTemplatesFor(n: number): ShareTemplateId[] {
-  if (n <= 0) return ['poster', 'big', 'scorecard'];
+/** A drill leads with its own photo-less layout: the hours, the weeks, the work. */
+export function shareTemplatesFor(n: number, kind?: ShareKind): ShareTemplateId[] {
+  if (n <= 0) return kind === 'drill' ? ['grind', 'poster', 'big', 'scorecard'] : ['poster', 'big', 'scorecard'];
   if (n === 1) return ['photo-full', 'photo-panel', 'polaroid'];
   return ['strip', 'grid', 'duo', 'polaroid', 'photo-full'];
 }
@@ -95,7 +99,8 @@ export function bannerColors(id: string, look: ShareLookDef): { bg: string; ink:
     case 'light':
       return { bg: 'rgba(255,255,255,0.86)', ink: '#1d2b22', muted: 'rgba(29,43,34,0.7)', accent: '#1f6f4a' };
     case 'see':
-      return { bg: 'rgba(0,0,0,0.32)', ink: '#ffffff', muted: 'rgba(255,255,255,0.8)', accent: '#c6f36b' };
+      // 0.42: at 0.32 white text washed out over a bright court photo.
+      return { bg: 'rgba(0,0,0,0.42)', ink: '#ffffff', muted: 'rgba(255,255,255,0.8)', accent: '#c6f36b' };
     case 'dark':
       return { bg: 'rgba(0,0,0,0.62)', ink: '#ffffff', muted: 'rgba(255,255,255,0.78)', accent: '#c6f36b' };
     case 'solid':
@@ -128,13 +133,17 @@ export function shareToastText(p: { invite: boolean; aspect: 'post' | 'story'; r
 }
 
 // ── The card model ──────────────────────────────────────────────────────
-export type ShareKind = 'finish' | 'match' | 'session' | 'event' | 'bracket';
+export type ShareKind = 'finish' | 'match' | 'session' | 'drill' | 'event' | 'bracket';
 
 /** A row's lead mark: a medal for a podium place, W / L for a result. */
 export type ShareRowLead = { medal: number } | { won: boolean | null } | null;
 export type ShareRowItem = { lead: ShareRowLead; people?: FinishPlayer[]; text?: string; trailing?: string };
 export type ShareRows = { id: string; label: string; heading?: string; items: ShareRowItem[] };
 export type ShareStat = { id: string; label: string; value: string };
+/** A SHOW toggle that puts a quote on the card (my drill notes). */
+export type ShareQuote = { id: string; label: string; text: string };
+/** A SHOW toggle that puts a small bar chart on the card (minutes drilled per week, oldest first). */
+export type ShareBars = { id: string; label: string; heading: string; values: number[]; caption: string | null };
 
 export type ShareCardModel = {
   kind: ShareKind;
@@ -149,6 +158,10 @@ export type ShareCardModel = {
   stats: ShareStat[];
   /** SHOW toggles, each a list on the card (the podium, the players, my path). */
   rows: ShareRows[];
+  /** SHOW toggle: a quote (null: none). */
+  quote?: ShareQuote | null;
+  /** SHOW toggle: a bar chart (null: none). */
+  bars?: ShareBars | null;
   /** The SHOW toggles that start off. */
   offByDefault: string[];
   /** The look a card opens on. */
@@ -164,7 +177,18 @@ export function shareDetailOptions(m: ShareCardModel): { id: string; label: stri
   return [
     ...m.stats.map((s) => ({ id: s.id, label: s.label })),
     ...m.rows.filter((r) => r.items.length > 0).map((r) => ({ id: r.id, label: r.label })),
+    ...(m.bars && m.bars.values.some((v) => v > 0) ? [{ id: m.bars.id, label: m.bars.label }] : []),
+    ...(m.quote && m.quote.text.trim() ? [{ id: m.quote.id, label: m.quote.label }] : []),
   ];
+}
+
+/**
+ * The studio's identity for a card: the toggles it offers. The studio reads its
+ * SHOW defaults once, so a card offering other toggles needs a fresh studio
+ * (else a toggle that wasn't offered before reads as off and its chip hides).
+ */
+export function shareStudioKey(m: ShareCardModel): string {
+  return `${m.kind}|${shareDetailOptions(m).map((o) => o.id).join(',')}`;
 }
 
 /** Every toggle's starting value. */
@@ -277,15 +301,91 @@ export function initialsFromShort(name: string): string {
   return ((parts[0][0] ?? '') + (parts.length > 1 ? parts[parts.length - 1][0] ?? '' : '')).toUpperCase();
 }
 
+// ── Lengths and the type of play ────────────────────────────────────────
+
+/** "45 min", "1 h", "1 h 45 min" (whole minutes; under a minute is "1 min"). */
+export function lengthLabel(minutes: number): string {
+  const m = Math.max(0, Math.round(minutes));
+  if (m < 60) return `${Math.max(1, m)} min`;
+  const h = Math.floor(m / 60);
+  const r = m % 60;
+  return r === 0 ? `${h} h` : `${h} h ${r} min`;
+}
+
+/** Minutes between two ISO instants (0 when either is missing or they're backwards). */
+export function minutesBetween(fromIso: string | null | undefined, toIso: string | null | undefined): number {
+  const a = fromIso ? Date.parse(fromIso) : NaN;
+  const b = toIso ? Date.parse(toIso) : NaN;
+  if (!Number.isFinite(a) || !Number.isFinite(b) || b <= a) return 0;
+  return (b - a) / 60_000;
+}
+
+/** Closed group, open play or drill: a check-in's windows (lib/courtRoutineRules PlayMode). */
+export type SharePlayMode = 'closed' | 'open' | 'drill';
+const MODE_WORDS: Record<SharePlayMode, { label: string; short: string }> = {
+  open: { label: 'Open play', short: 'open play' },
+  closed: { label: 'Closed group', short: 'closed group' },
+  drill: { label: 'Drill', short: 'drilling' },
+};
+export type ShareWindowIn = { startsAt: string; endsAt: string; mode: SharePlayMode | null };
+
+/**
+ * How a session's time split by mode: its check-in's windows clipped to when it
+ * really ran, merged per mode in the order each first came. Windows with no
+ * mode said are left out. Parts under a minute are dropped.
+ */
+export function playMix(
+  windows: readonly ShareWindowIn[] | null | undefined,
+  startedAt: string,
+  endedAt: string,
+): { mode: SharePlayMode; minutes: number }[] {
+  const s = Date.parse(startedAt);
+  const e = Date.parse(endedAt);
+  if (!windows?.length || !Number.isFinite(s) || !Number.isFinite(e) || e <= s) return [];
+  const out: { mode: SharePlayMode; minutes: number }[] = [];
+  const sorted = [...windows].sort((a, b) => Date.parse(a.startsAt) - Date.parse(b.startsAt));
+  for (const w of sorted) {
+    if (!w.mode || !(w.mode in MODE_WORDS)) continue;
+    const from = Math.max(s, Date.parse(w.startsAt));
+    const to = Math.min(e, Date.parse(w.endsAt));
+    if (!Number.isFinite(from) || !Number.isFinite(to) || to <= from) continue;
+    const min = (to - from) / 60_000;
+    const have = out.find((p) => p.mode === w.mode);
+    if (have) have.minutes += min;
+    else out.push({ mode: w.mode, minutes: min });
+  }
+  return out.filter((p) => Math.round(p.minutes) >= 1);
+}
+
+/**
+ * The type of play in a few words: "Open play" (one mode, or one with 90% of
+ * the time), else the split, "30 min open play · 1 h 15 min closed group".
+ * No mode said: the session's own kind ("Open play", "Drill").
+ */
+export function playTypeLabel(mix: readonly { mode: SharePlayMode; minutes: number }[], fallback: string): string {
+  if (mix.length === 0) return fallback;
+  const total = mix.reduce((n, p) => n + p.minutes, 0);
+  const lead = [...mix].sort((a, b) => b.minutes - a.minutes)[0];
+  if (mix.length === 1 || lead.minutes >= total * 0.9) return MODE_WORDS[lead.mode].label;
+  return mix.map((p) => `${lengthLabel(p.minutes)} ${MODE_WORDS[p.mode].short}`).join(' · ');
+}
+
+/** "5 games", "1 game". */
+export function gamesLabel(n: number): string {
+  return n === 1 ? '1 game' : `${n} games`;
+}
+
 // ── Play session ────────────────────────────────────────────────────────
 export type SessionShareData = {
   court: string | null;
-  /** "Open play", "Drill". */
+  /** The session's kind: "Open play", "Drill". */
   kindLabel: string;
   /** "Oct 27". */
   date: string;
-  /** "1h 55m". */
-  duration: string;
+  /** How long it ran. */
+  minutes: number;
+  /** playMix of its check-in's windows (empty: none said). */
+  mix: { mode: SharePlayMode; minutes: number }[];
   games: number;
   wins: number | null;
   losses: number | null;
@@ -295,24 +395,167 @@ export type SessionShareData = {
 
 export function sessionCardModel(d: SessionShareData): ShareCardModel {
   const record = recordLabel(d.wins, d.losses);
-  const stats: ShareStat[] = [];
-  if (d.games > 0) stats.push({ id: 'games', label: 'Games', value: d.games === 1 ? '1 game' : `${d.games} games` });
+  const length = lengthLabel(d.minutes);
+  const type = playTypeLabel(d.mix, d.kindLabel);
+  const stats: ShareStat[] = [{ id: 'type', label: 'Type of play', value: type }];
+  if (d.court) stats.push({ id: 'court', label: 'Court', value: d.court });
+  if (d.games > 0) stats.push({ id: 'games', label: 'Games', value: gamesLabel(d.games) });
   if (record && d.games > 0) stats.push({ id: 'record', label: 'Record', value: `Record ${record}` });
   stats.push({ id: 'date', label: 'Date', value: d.date });
   return {
     kind: 'session',
     eyebrow: 'PLAY SESSION',
-    title: d.court ?? d.kindLabel,
-    over: d.court ? d.kindLabel : null,
-    hero: { big: d.duration, small: 'on the court', medal: null },
+    title: d.court ?? (d.mix.length > 1 ? 'Pickleball' : type),
+    over: d.court ? 'Played at' : null,
+    hero: { big: length, small: d.games > 0 ? `on the court · ${gamesLabel(d.games)}` : 'on the court', medal: null },
     stats,
     rows: d.people.length
       ? [{ id: 'people', label: 'Players', heading: 'Played with', items: d.people.slice(0, 6).map((p) => ({ lead: null, people: [p] })) }]
       : [],
-    offByDefault: [],
+    // The court is already the title; its chip is there for photo layouts' captions.
+    offByDefault: ['court'],
     defaultLook: 'court',
     showsScores: false,
-    message: `${d.duration} of pickleball${d.court ? ` at ${d.court}` : ''} on Pickleague 🥒`,
+    message: `${length} of pickleball${d.court ? ` at ${d.court}` : ''} on Pickleague 🥒`,
+  };
+}
+
+// ── Drill ───────────────────────────────────────────────────────────────
+/** A drill session of mine for the drill stats (play_sessions of kind drill). */
+export type DrillPlayIn = { startedAt: string; endedAt: string };
+
+/** Monday 00:00 local of the week `d` is in. */
+function weekStart(d: Date): number {
+  const x = new Date(d.getFullYear(), d.getMonth(), d.getDate());
+  const dow = (x.getDay() + 6) % 7; // Monday = 0
+  x.setDate(x.getDate() - dow);
+  return x.getTime();
+}
+
+export const DRILL_WEEKS = 8;
+
+/**
+ * My drilling lately: this calendar month's drills and minutes, the minutes in
+ * each of the last DRILL_WEEKS weeks (oldest first, this week last), and the
+ * streak: weeks in a row with a drill, counting back from this week (or from
+ * last week while this one has none yet, so a streak doesn't break on Monday).
+ */
+export function drillStats(
+  sessions: readonly DrillPlayIn[],
+  now: Date,
+): { monthCount: number; monthMinutes: number; weeks: number[]; weekStreak: number } {
+  const monthStart = new Date(now.getFullYear(), now.getMonth(), 1).getTime();
+  const thisWeek = weekStart(now);
+  const WEEK = 7 * 86_400_000;
+  const weeks = new Array<number>(DRILL_WEEKS).fill(0);
+  const byWeek = new Map<number, number>();
+  let monthCount = 0;
+  let monthMinutes = 0;
+  for (const s of sessions) {
+    const min = minutesBetween(s.startedAt, s.endedAt);
+    const at = new Date(s.startedAt);
+    const t = at.getTime();
+    if (!Number.isFinite(t) || t > now.getTime()) continue;
+    if (t >= monthStart) {
+      monthCount += 1;
+      monthMinutes += min;
+    }
+    const wk = weekStart(at);
+    byWeek.set(wk, (byWeek.get(wk) ?? 0) + Math.max(min, 1));
+    const ago = Math.round((thisWeek - wk) / WEEK);
+    if (ago >= 0 && ago < DRILL_WEEKS) weeks[DRILL_WEEKS - 1 - ago] += min;
+  }
+  // Week starts step by 7 days except across DST, so walk them by date.
+  const back = (wk: number) => {
+    const d = new Date(wk);
+    d.setDate(d.getDate() - 7);
+    return d.getTime();
+  };
+  let cursor = byWeek.has(thisWeek) ? thisWeek : back(thisWeek);
+  let weekStreak = 0;
+  while (byWeek.has(cursor)) {
+    weekStreak += 1;
+    cursor = back(cursor);
+  }
+  return { monthCount, monthMinutes, weeks, weekStreak };
+}
+
+/** "★★★★☆" for 4 of 5. */
+export function starsLabel(n: number): string {
+  const k = Math.max(0, Math.min(5, Math.round(n)));
+  return '★'.repeat(k) + '☆'.repeat(5 - k);
+}
+
+/** Cut at a word near `max` characters, with an ellipsis. */
+export function clipText(s: string, max: number): string {
+  const t = s.replace(/\s+/g, ' ').trim();
+  if (t.length <= max) return t;
+  const cut = t.slice(0, max);
+  const sp = cut.lastIndexOf(' ');
+  return `${(sp > max * 0.6 ? cut.slice(0, sp) : cut).replace(/[\s,.;:–-]+$/, '')}…`;
+}
+
+export type DrillShareData = {
+  /** My drill partner ("First L."), or null. */
+  partner: FinishPlayer | null;
+  court: string | null;
+  /** "Oct 27". */
+  date: string;
+  /** Time drilled (the play session's length), or null when there was no timer. */
+  minutes: number | null;
+  /** The shots I'm working on (my drill preferences' labels). */
+  focus: string[];
+  /** My review of this drill, when sent. */
+  review: { rating: number | null; facets: { label: string; stars: number }[]; notes: string | null } | null;
+  stats: { monthCount: number; monthMinutes: number; weeks: number[]; weekStreak: number };
+};
+
+export function drillCardModel(d: DrillShareData): ShareCardModel {
+  const length = d.minutes != null && d.minutes >= 1 ? lengthLabel(d.minutes) : null;
+  const rating = d.review?.rating ?? null;
+  const stats: ShareStat[] = [];
+  if (rating != null) stats.push({ id: 'rating', label: 'My rating', value: `${starsLabel(rating)} session` });
+  if (d.stats.monthCount > 0) {
+    stats.push({
+      id: 'month',
+      label: 'This month',
+      value: `${d.stats.monthCount === 1 ? '1 drill' : `${d.stats.monthCount} drills`} · ${lengthLabel(d.stats.monthMinutes)} this month`,
+    });
+  }
+  if (d.stats.weekStreak >= 2) stats.push({ id: 'streak', label: 'Streak', value: `🔥 ${d.stats.weekStreak}-week drill streak` });
+  if (d.court) stats.push({ id: 'court', label: 'Court', value: d.court });
+  stats.push({ id: 'date', label: 'Date', value: d.date });
+  const rows: ShareRows[] = [];
+  if (d.focus.length) {
+    rows.push({ id: 'focus', label: 'Working on', heading: 'Working on', items: d.focus.slice(0, 4).map((f) => ({ lead: null, text: `• ${f}` })) });
+  }
+  const facets = (d.review?.facets ?? []).filter((f) => f.stars >= 1);
+  if (facets.length) {
+    rows.push({ id: 'facets', label: 'My review', heading: 'My review', items: facets.map((f) => ({ lead: null, text: f.label, trailing: starsLabel(f.stars) })) });
+  }
+  const notes = d.review?.notes?.trim() ? clipText(d.review.notes, 140) : null;
+  const withWho = d.partner ? ` with ${d.partner.name}` : '';
+  return {
+    kind: 'drill',
+    eyebrow: 'DRILL SESSION',
+    title: d.partner ? `Drilled with ${d.partner.name}` : 'Drill session',
+    over: d.court,
+    hero: length
+      ? { big: length, small: 'of drilling', medal: null }
+      : rating != null
+        ? { big: starsLabel(rating), small: 'my drill review', medal: null }
+        : { big: 'Put in the work', small: null, medal: null },
+    stats,
+    rows,
+    quote: notes ? { id: 'notes', label: 'My notes', text: notes } : null,
+    bars: { id: 'weeks', label: 'Last 8 weeks', heading: `Last ${DRILL_WEEKS} weeks`, values: d.stats.weeks, caption: d.stats.weekStreak >= 2 ? `${d.stats.weekStreak} weeks in a row` : null },
+    // Notes and the facet stars are personal: off until I turn them on.
+    offByDefault: ['notes', 'facets', 'court'],
+    defaultLook: 'night',
+    showsScores: false,
+    message: length
+      ? `Put in ${length} of drilling${withWho} on Pickleague 🥒💪`
+      : `Drilled${withWho} on Pickleague 🥒💪`,
   };
 }
 

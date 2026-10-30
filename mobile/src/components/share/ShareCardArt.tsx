@@ -37,6 +37,28 @@ export default function ShareCardArt({ s, model }: Props) {
   const aspect = s.width / s.height;
 
   switch (s.template) {
+    case 'grind':
+      return (
+        <Ground look={look} s={s}>
+          <View style={[cs.fill, { padding: 20 * u, paddingVertical: (story ? 48 : 20) * u, gap: 12 * u }]}>
+            <Header model={model} logo={s.logo} c={lookInk} u={u} />
+            <View style={[cs.fill, { justifyContent: 'center', gap: 10 * u }]}>
+              <Text style={[cs.kind, { color: look.muted, fontSize: 11 * u, letterSpacing: 2 * u }]}>PUT IN THE WORK</Text>
+              <Text style={[cs.huge, cs.stretch, { color: look.accent, fontSize: 58 * u, lineHeight: 64 * u }]} numberOfLines={1} adjustsFontSizeToFit>
+                {model.hero.big}
+              </Text>
+              {model.hero.small ? <Text style={[cs.sub, { color: look.ink, fontSize: 15 * u }]} numberOfLines={1}>{model.hero.small}</Text> : null}
+              <Text style={[cs.title, { color: look.ink, fontSize: 17 * u }]} numberOfLines={2}>{model.title}</Text>
+              {model.over ? <Text style={[cs.sub, { color: look.muted, fontSize: 11 * u }]} numberOfLines={1}>{model.over}</Text> : null}
+              <Bars model={model} s={s} c={lookInk} u={u} big />
+              <Chips model={model} s={s} c={lookInk} u={u} />
+              <Rows model={model} s={s} c={lookInk} u={u} max={story ? 5 : 3} />
+              <Quote model={model} s={s} c={lookInk} u={u} />
+            </View>
+            <Footer c={lookInk} u={u} />
+          </View>
+        </Ground>
+      );
     case 'big':
       return (
         <Ground look={look} s={s}>
@@ -44,12 +66,15 @@ export default function ShareCardArt({ s, model }: Props) {
             <Header model={model} logo={s.logo} c={lookInk} u={u} />
             <View style={[cs.fill, cs.center, { gap: 8 * u }]}>
               {model.hero.medal ? <Medal rank={model.hero.medal} size={52 * u} /> : null}
-              <Text style={[cs.huge, { color: look.accent, fontSize: 64 * u }]} numberOfLines={1} adjustsFontSizeToFit>
+              <Text style={[cs.huge, cs.stretch, { color: look.accent, fontSize: 64 * u, textAlign: 'center' }]} numberOfLines={1} adjustsFontSizeToFit>
                 {model.hero.big}
               </Text>
-              {model.hero.small ? <Text style={[cs.sub, { color: look.muted, fontSize: 14 * u }]}>{model.hero.small}</Text> : null}
-              <Text style={[cs.title, { color: look.ink, fontSize: 16 * u, textAlign: 'center' }]} numberOfLines={2}>{model.title}</Text>
+              {model.hero.small ? <Text style={[cs.sub, { color: look.muted, fontSize: 14 * u, textAlign: 'center' }]} numberOfLines={1}>{model.hero.small}</Text> : null}
+              {model.over ? <Text style={[cs.sub, { color: look.muted, fontSize: 11 * u, textAlign: 'center' }]} numberOfLines={1}>{model.over}</Text> : null}
+              <Text style={[cs.title, cs.stretch, { color: look.ink, fontSize: 16 * u, textAlign: 'center' }]} numberOfLines={2}>{model.title}</Text>
               <Chips model={model} s={s} c={lookInk} u={u} center />
+              <Bars model={model} s={s} c={lookInk} u={u} />
+              <Rows model={model} s={s} c={lookInk} u={u} max={story ? 4 : 2} />
             </View>
             <Footer c={lookInk} u={u} />
           </View>
@@ -119,7 +144,7 @@ export default function ShareCardArt({ s, model }: Props) {
                 )}
                 <View style={{ paddingTop: 10 * u, gap: 2 * u }}>
                   <Text style={[cs.huge, { color: '#1d2b22', fontSize: 26 * u }]} numberOfLines={1} adjustsFontSizeToFit>{model.hero.big}</Text>
-                  <Text style={[cs.sub, { color: 'rgba(29,43,34,0.7)', fontSize: 11 * u }]} numberOfLines={1}>{model.title}</Text>
+                  <Text style={[cs.sub, { color: 'rgba(29,43,34,0.7)', fontSize: 11 * u }]} numberOfLines={2}>{model.title}</Text>
                 </View>
               </View>
               {photos.length > 1 ? (
@@ -131,6 +156,7 @@ export default function ShareCardArt({ s, model }: Props) {
               ) : null}
             </View>
             <Chips model={model} s={s} c={lookInk} u={u} center />
+            <Rows model={model} s={s} c={lookInk} u={u} max={story ? 3 : 1} />
             <Footer c={lookInk} u={u} />
           </View>
         </Ground>
@@ -227,11 +253,13 @@ export function CourtPattern({ look, width, height }: { look: ShareLookDef; widt
 
 function Header({ model, logo, c, u }: { model: ShareCardModel; logo: string; c: Ink; u: number }) {
   return (
-    <View style={cs.row}>
-      <Text style={[cs.brand, { color: c.ink, fontSize: (logo === 'small' ? 18 : 13) * u }]}>
+    <View style={[cs.row, { gap: 8 * u }]}>
+      <Text style={[cs.brand, { color: c.ink, fontSize: (logo === 'small' ? 18 : 13) * u }]} numberOfLines={1}>
         {logo === 'small' ? '🥒' : '🥒 Pickleague'}
       </Text>
-      <Text style={[cs.kind, { color: c.muted, fontSize: 9 * u, letterSpacing: 1.5 * u }]}>{model.eyebrow}</Text>
+      <Text style={[cs.kind, { color: c.muted, fontSize: 9 * u, letterSpacing: 1.5 * u, flexShrink: 1, textAlign: 'right' }]} numberOfLines={1}>
+        {model.eyebrow}
+      </Text>
     </View>
   );
 }
@@ -256,7 +284,7 @@ function Chips({ model, s, c, u, center }: { model: ShareCardModel; s: ShareStud
   return (
     <View style={[cs.wrap, { gap: 6 * u, justifyContent: center ? 'center' : 'flex-start' }]}>
       {on.map((x) => (
-        <View key={x.id} style={{ backgroundColor: c.chip, borderRadius: 10 * u, paddingVertical: 5 * u, paddingHorizontal: 10 * u }}>
+        <View key={x.id} style={{ backgroundColor: c.chip, borderRadius: 10 * u, paddingVertical: 5 * u, paddingHorizontal: 10 * u, maxWidth: '100%' }}>
           <Text style={[cs.chipText, { color: c.ink, fontSize: 12 * u }]} numberOfLines={1}>{x.value}</Text>
         </View>
       ))}
@@ -297,11 +325,52 @@ function Rows({ model, s, c, u, max }: { model: ShareCardModel; s: ShareStudioSt
                 ))}
                 {it.text ? <Text style={[cs.sub, { color: c.ink, fontSize: 11 * u, flexShrink: 1 }]} numberOfLines={1}>{it.text}</Text> : null}
               </View>
-              {it.trailing ? <Text style={[cs.title, { color: c.ink, fontSize: 12 * u }]}>{it.trailing}</Text> : null}
+              {it.trailing ? <Text style={[cs.title, { color: it.trailing.includes('★') ? c.accent : c.ink, fontSize: 12 * u }]} numberOfLines={1}>{it.trailing}</Text> : null}
             </View>
           ))}
         </View>
       ))}
+    </View>
+  );
+}
+
+/** The bar chart toggle: minutes per week, oldest first, this week last and brightest. */
+function Bars({ model, s, c, u, big }: { model: ShareCardModel; s: ShareStudioState; c: Ink; u: number; big?: boolean }) {
+  const b = model.bars;
+  if (!b || s.details[b.id] !== true || !b.values.some((v) => v > 0)) return null;
+  const max = Math.max(...b.values, 1);
+  const h = (big ? 54 : 36) * u;
+  return (
+    <View style={{ gap: 4 * u }}>
+      <Text style={[cs.kind, { color: c.muted, fontSize: 9 * u, letterSpacing: 1.2 * u }]}>{b.heading.toUpperCase()}</Text>
+      <View style={[cs.row, { alignItems: 'flex-end', height: h, gap: 4 * u }]}>
+        {b.values.map((v, i) => (
+          <View
+            key={i}
+            style={{
+              flex: 1,
+              height: v > 0 ? Math.max(4 * u, (v / max) * h) : 3 * u,
+              borderRadius: 3 * u,
+              backgroundColor: v > 0 ? c.accent : c.chip,
+              opacity: v > 0 && i < b.values.length - 1 ? 0.75 : 1,
+            }}
+          />
+        ))}
+      </View>
+      {b.caption ? <Text style={[cs.sub, { color: c.ink, fontSize: 11 * u }]} numberOfLines={1}>{b.caption}</Text> : null}
+    </View>
+  );
+}
+
+/** The quote toggle (my drill notes). */
+function Quote({ model, s, c, u }: { model: ShareCardModel; s: ShareStudioState; c: Ink; u: number }) {
+  const q = model.quote;
+  if (!q || s.details[q.id] !== true || !q.text.trim()) return null;
+  return (
+    <View style={{ borderLeftWidth: 3 * u, borderLeftColor: c.accent, paddingLeft: 8 * u }}>
+      <Text style={[cs.sub, { color: c.ink, fontSize: 12 * u, fontStyle: 'italic' }]} numberOfLines={4}>
+        {'\u201C'}{q.text}{'\u201D'}
+      </Text>
     </View>
   );
 }
@@ -320,13 +389,18 @@ function Body({ model, s, c, u, align, compact }: { model: ShareCardModel; s: Sh
       </View>
       <View style={[center ? cs.center : cs.row, { gap: 8 * u, justifyContent: 'flex-start' }]}>
         {model.hero.medal ? <Medal rank={model.hero.medal} size={(compact ? 30 : 44) * u} /> : null}
-        <View style={{ alignItems: center ? 'center' : 'flex-start', flexShrink: 1 }}>
-          <Text style={[cs.huge, { color: c.accent, fontSize: heroSize }]} numberOfLines={1} adjustsFontSizeToFit>{model.hero.big}</Text>
+        {/* Centered, the hero line takes the full width to shrink into. */}
+        <View style={{ alignItems: center ? 'center' : 'flex-start', flexShrink: 1, alignSelf: center ? 'stretch' : 'auto' }}>
+          <Text style={[cs.huge, { color: c.accent, fontSize: heroSize, textAlign: center ? 'center' : 'left', maxWidth: '100%' }]} numberOfLines={1} adjustsFontSizeToFit>
+            {model.hero.big}
+          </Text>
           {model.hero.small ? <Text style={[cs.sub, { color: c.muted, fontSize: 12 * u }]} numberOfLines={1}>{model.hero.small}</Text> : null}
         </View>
       </View>
       <Chips model={model} s={s} c={c} u={u} center={center} />
+      {compact ? null : <Bars model={model} s={s} c={c} u={u} />}
       <Rows model={model} s={s} c={c} u={u} max={compact ? 3 : 6} />
+      {compact ? null : <Quote model={model} s={s} c={c} u={u} />}
     </View>
   );
 }
@@ -339,7 +413,9 @@ function PanelBody({ panel, look, model, s, u }: { panel: CollageRect; look: Sha
       <CourtPattern look={look} width={panel.width} height={panel.height} />
       <View style={[cs.fill, { padding: 14 * u, gap: 8 * u, justifyContent: 'space-between' }]}>
         <Header model={model} logo={s.logo} c={c} u={u} />
-        <Body model={model} s={s} c={c} u={u} align="left" compact />
+        <View style={{ flexShrink: 1, minHeight: 0, overflow: 'hidden' }}>
+          <Body model={model} s={s} c={c} u={u} align="left" compact />
+        </View>
         <Footer c={c} u={u} />
       </View>
     </View>
@@ -351,6 +427,7 @@ const cs = StyleSheet.create({
   row: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
   wrap: { flexDirection: 'row', flexWrap: 'wrap' },
   center: { alignItems: 'center' },
+  stretch: { alignSelf: 'stretch' },
   brand: { fontWeight: '800' },
   kind: { fontWeight: '700' },
   title: { fontWeight: '800' },

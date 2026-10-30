@@ -33,6 +33,7 @@ import ConfirmModal from '../components/ConfirmModal';
 import StatusBanner from '../components/StatusBanner';
 import FlairName from '../components/FlairName';
 import DrillReviewModal from '../components/DrillReviewModal';
+import DrillShareStudio, { type DrillShareTarget } from '../components/share/DrillShareStudio';
 import { rainReward } from '@just-messin-around/expo-foundation/ui/rewardRain';
 import { loadDrillReviewDrafts } from '../lib/drillReviewDraft';
 import EmptyState from '../components/EmptyState';
@@ -121,6 +122,8 @@ export default function DrillRequestsScreen({ route }: Props) {
   // Past drill sessions the current user hasn't reviewed yet (+ the review modal target).
   const [reviewable, setReviewable] = useState<ReviewableSession[]>([]);
   const [reviewTarget, setReviewTarget] = useState<ReviewableSession | null>(null);
+  // Share your drill, from the review's thanks (PKL-013).
+  const [drillShare, setDrillShare] = useState<DrillShareTarget | null>(null);
   // Drills with a saved review draft on this device (their button reads Finish).
   const [draftIds, setDraftIds] = useState<Set<string>>(new Set());
   // The island's Review / the end sheet's Review drill: open that drill's
@@ -758,7 +761,10 @@ export default function DrillRequestsScreen({ route }: Props) {
         onSubmitted={onReviewSubmitted}
         onDraftSaved={(id) => setDraftIds(prev => new Set(prev).add(id))}
         onClose={() => setReviewTarget(null)}
+        // After the review sheet has closed (two sheets at once misbehave on iOS).
+        onShare={(id) => setTimeout(() => setDrillShare({ drillSessionId: id }), 450)}
       />
+      <DrillShareStudio target={drillShare} onClose={() => setDrillShare(null)} />
     </View>
   );
 }

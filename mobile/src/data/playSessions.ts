@@ -13,6 +13,8 @@ import { supabase } from '../lib/supabase';
 import { checkoutFixArgs, fixArgs, type DeviceFix } from '../lib/courtCheckinRules';
 import type { SessionValidity } from '../lib/sessionValidity';
 import { parsePlayHistory, PLAY_HISTORY_PAGE, type PlayHistoryRow } from '../lib/playHistory';
+import { parseAbsoluteWindows, type AbsoluteTimeWindow } from '@just-messin-around/expo-foundation/scheduling/timeWindows';
+import { PLAY_MODES, type PlayMode } from '../lib/courtRoutineRules';
 
 export { PLAY_HISTORY_PAGE };
 
@@ -203,6 +205,26 @@ export async function listMyPlaySessions(before?: string | null): Promise<PlayHi
  */
 export async function discardPlaySession(id: string): Promise<number> {
   return ((await sbCall(() => supabase.rpc('discard_play_session', { p_id: id }), BOUND)) ?? 0) as number;
+}
+
+/**
+ * The closed group / open play / drill windows one of my sessions ran under:
+ * its check-in's play_windows (absolute). Empty when it had no check-in, the
+ * check-in said no windows, or the read fails: the card then says the
+ * session's own kind.
+ */
+export async function getSessionPlayWindows(sessionId: string): Promise<AbsoluteTimeWindow<PlayMode>[]> {
+  try {
+    const checkinId = await getMyPlaySessionCheckinId(sessionId);
+    if (!checkinId) return [];
+    const row = (await sbCall(
+      () => supabase.from('venue_checkins').select('play_windows').eq('id', checkinId).maybeSingle(),
+      BOUND,
+    )) as { play_windows?: unknown } | null;
+    return parseAbsoluteWindows(row?.play_windows ?? null, PLAY_MODES);
+  } catch {
+    return [];
+  }
 }
 
 /** A match row for a play session's share card (lib/shareCards sessionTally), with the players' names. */
