@@ -3,6 +3,9 @@
 -- Prints (test, ok, detail) rows and a SUMMARY row.
 begin;
 
+-- The temp helpers must stay callable after switching to authenticated.
+alter default privileges for role postgres grant execute on functions to public;
+
 create temp table t_results (n serial, test text, ok boolean, detail text) on commit drop;
 grant all on t_results to authenticated;
 grant usage on sequence t_results_n_seq to authenticated;
@@ -14,7 +17,7 @@ begin
 end $$;
 create function pg_temp.as_admin() returns void language plpgsql as $$
 begin
-  perform set_config('role', 'postgres', true);
+  perform set_config('role', 'none', true);
   perform set_config('request.jwt.claims', '', true);
 end $$;
 
