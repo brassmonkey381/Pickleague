@@ -41,6 +41,12 @@
 --      7 days after it ended (was 2 hours), so "Add a match" from Play history
 --      counts. A linked match already counts whenever it was recorded
 --      (_pl_session_validity); only this trigger dropped late links.
+--   4. One pay for one stretch of drilling: reviewing a scheduled drill is
+--      refused when I already logged a drill for a play session that
+--      overlaps it (the other way round, log_session_drill refuses a session
+--      a reviewed drill already counts for). A trigger on
+--      drill_session_reviews, so submit_drill_review is not replaced; its
+--      error reaches the review sheet as the refusal line.
 --
 -- Replaced from their latest files:
 --   _pl_matches_link_session (migration_validity_rules.sql, its only definition).
@@ -202,5 +208,41 @@ begin
   return new;
 end $$;
 revoke all on function public._pl_matches_link_session() from public, anon, authenticated;
+
+-- ── 4. A scheduled drill review doesn't pay for drilling already logged ───────
+create or replace function public._pl_drill_review_not_twice()
+returns trigger
+language plpgsql
+security definer
+set search_path = ''
+as $$
+declare
+  d public.drill_sessions;
+begin
+  select * into d from public.drill_sessions where id = new.session_id;
+  -- A logged drill's own review (log_session_drill), or a drill with no time.
+  if d.id is null or d.play_session_id is not null or d.starts_at is null then
+    return new;
+  end if;
+  if exists (
+    select 1
+      from public.drill_sessions x
+     where x.play_session_id is not null
+       and x.id <> d.id
+       and x.player1_id = new.user_id
+       and x.starts_at < d.starts_at + make_interval(mins => coalesce(d.length_minutes, 60))
+       and x.starts_at + make_interval(mins => coalesce(x.length_minutes, 60)) > d.starts_at) then
+    raise exception using
+      message = 'You already logged a drill for the play session at this time, so this drill can''t be reviewed too.',
+      hint = 'pl:drill.already_logged';
+  end if;
+  return new;
+end $$;
+revoke all on function public._pl_drill_review_not_twice() from public, anon, authenticated;
+
+drop trigger if exists drill_review_not_twice on public.drill_session_reviews;
+create trigger drill_review_not_twice
+  before insert on public.drill_session_reviews
+  for each row execute function public._pl_drill_review_not_twice();
 
 notify pgrst, 'reload schema';

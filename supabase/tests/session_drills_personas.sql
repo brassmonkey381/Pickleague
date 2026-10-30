@@ -104,10 +104,13 @@ begin
   return v;
 end $$;
 
+-- @@MIGRATION@@
+
+-- After the migration: a sql function's body is checked when it is created,
+-- and drill_sessions.play_session_id is new.
 create function pg_temp.drills_for(p_session uuid) returns bigint language sql stable as $$
   select count(*) from public.drill_sessions d where d.play_session_id = p_session $$;
 
--- @@MIGRATION@@
 
 
 -- ════ Setup ══════════════════════════════════════════════════════════════
@@ -322,6 +325,46 @@ begin
 exception when others then
   perform pg_temp.as_admin();
   perform pg_temp.ok('D8 block crashed', false, sqlerrm);
+end $$;
+
+
+-- ════ D9 a scheduled drill at a time I already logged doesn't pay twice ══
+do $$
+declare
+  v_drill uuid;
+  j jsonb;
+begin
+  -- SB has a logged drill (D4). A scheduled drill with DM at the same time.
+  perform pg_temp.as_admin();
+  insert into public.drill_sessions (player1_id, player2_id, session_date, session_slot, starts_at, length_minutes)
+  select pg_temp.p('DO'), pg_temp.p('DM'), ps.started_at::date, 0, ps.started_at, 60
+    from public.play_sessions ps where ps.id = pg_temp.s('SB')
+  returning id into v_drill;
+
+  perform pg_temp.as_user(pg_temp.p('DO'));
+  begin
+    select to_jsonb(r) into j from public.submit_drill_review(v_drill, 4, 4, null, null, null, null) r;
+  exception when others then
+    j := jsonb_build_object('error', sqlerrm);
+  end;
+  perform pg_temp.as_admin();
+  perform pg_temp.ok('D9 reviewing it is refused for me, nothing stored or paid',
+    j ->> 'error' like 'You already logged a drill%'
+    and not exists (select 1 from public.drill_session_reviews r
+                     where r.session_id = v_drill and r.user_id = pg_temp.p('DO')), j::text);
+
+  perform pg_temp.as_user(pg_temp.p('DM'));
+  begin
+    select to_jsonb(r) into j from public.submit_drill_review(v_drill, 4, 4, null, null, null, null) r;
+  exception when others then
+    j := jsonb_build_object('error', sqlerrm);
+  end;
+  perform pg_temp.as_admin();
+  perform pg_temp.ok('D9 my partner, who logged nothing, still reviews it and is paid',
+    (j ->> 'success')::boolean and (j ->> 'pickles_granted')::int = 10, j::text);
+exception when others then
+  perform pg_temp.as_admin();
+  perform pg_temp.ok('D9 block crashed', false, sqlerrm);
 end $$;
 
 
