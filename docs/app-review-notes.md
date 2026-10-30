@@ -169,15 +169,23 @@ USER-GENERATED CONTENT
 User-generated content is deliberately minimal and is not a social feed (Home
 lists court activity, such as who is checked in and planned check-ins; there
 are no posts). It
-consists of: a display name and short tagline, an optional profile photo, the
+consists of: a display name and short tagline, an optional profile photo,
+photos players add to an event's or tournament's shared album, the
 names of leagues, events, and venues created by organizers, and one private
 messaging surface - when a player asks another player to practise ("drill")
 together, the two of them get a private message thread attached to that
-request. There is no public feed, no group chat, no comments, and no photo
-sharing beyond a single profile picture. All of it is visible only to other
-members of leagues the user has joined - or, for a drill thread, only to the
-two players in it - and league membership is by invite or join code rather than
-open to the public.
+request. There is no public feed, no group chat, and no comments. All of it is
+visible only to other members of leagues the user has joined - or, for a drill
+thread, only to the two players in it - and league membership is by invite or
+join code rather than open to the public.
+
+Event and tournament albums: the Photos section on an event or tournament
+page. Only the people in it (league members for an event; approved players
+and organizers for a tournament) can see or add photos, up to 20 each; files
+are stored privately and served through short-lived links. The person who
+added a photo, and the event's or tournament's organizers, can remove it;
+anyone who can see it can report it (the lightbox's Report), and photos from
+a blocked player are hidden on the server.
 
 REPORTING AND BLOCKING
 Both are in the app, on the "..." button that appears on any other player -
@@ -206,7 +214,8 @@ presence above), and Home shows "Friends at the courts". A friendship is
 visible only to the two players in it; either can remove it at any time
 without the other being told, and blocking ends it.
 
-Reports go to a queue we review within 24 hours. We can remove a profile photo,
+Reports go to a queue we review within 24 hours. We can remove a profile photo
+or an album photo,
 remove a display name or tagline, and delete the offending account outright -
 after which they cannot sign back in. Anything can also be reported to
 support@pickleague.club, which is published in the app and on our website.
@@ -292,8 +301,8 @@ PERMISSIONS AND WHY THEY ARE REQUESTED
   an event. The address book is read on-device and is never uploaded; only the
   name and phone number of contacts the player explicitly selects are sent, in
   order to create that invite.
-- Photo library: only to select a profile picture, or to pick a QR code image
-  for the QR wallet. "Share my finish" hands its image to the iOS share sheet;
+- Photo library: only to select a profile picture, to add photos to an event
+  or tournament album, or to pick a QR code image for the QR wallet. "Share my finish" hands its image to the iOS share sheet;
   Pickleague itself never writes to the photo library.
 - Notifications: optional, off by default. Used for match results, event
   reminders, drill requests, tournament updates, court check-ins, planned

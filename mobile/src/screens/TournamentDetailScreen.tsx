@@ -60,6 +60,7 @@ import WagerMarket from '../components/tournament/WagerMarket';
 import GodmodePanel from '../components/tournament/GodmodePanel';
 import EditTournamentModal from '../components/tournament/EditTournamentModal';
 import WagerModals from '../components/tournament/WagerModals';
+import AlbumSection from '../components/AlbumSection';
 
 type Props = {
   navigation: NativeStackNavigationProp<RootStackParamList, 'TournamentDetail'>;
@@ -1024,6 +1025,9 @@ export default function TournamentDetailScreen({ navigation, route }: Props) {
             {wagerSection}
           </>
         )}
+
+        {/* Photos: the tournament's shared album (hidden unless you're in it). */}
+        <AlbumSection kind="tournament" id={tournamentId} />
 
         {/* 6 · Manage (organizers; the developer account's tools) */}
         {manageShown && (

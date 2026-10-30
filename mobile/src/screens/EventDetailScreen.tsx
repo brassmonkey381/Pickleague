@@ -60,6 +60,7 @@ import VoterChips from '../components/event/VoterChips';
 import {
   categorizeEvent, eventStatusLabel, eventStatusTone, timeLeftLabel, LIVE_WINDOW_MS,
 } from '../components/event/eventModel';
+import AlbumSection from '../components/AlbumSection';
 
 type Props = {
   navigation: NativeStackNavigationProp<RootStackParamList, 'EventDetail'>;
@@ -1208,6 +1209,9 @@ export default function EventDetailScreen({ navigation, route }: Props) {
             </CollapsibleSection>
           </View>
         )}
+
+        {/* Photos: the event's shared album (hidden unless you're in it). */}
+        <AlbumSection kind="event" id={eventId} />
 
         {/* Done — a text link at the end. popTo, not navigate: under React
             Navigation 7 navigate('Home') pushes a second Home, and with

@@ -21,7 +21,7 @@ const BLOCKS_TTL_MS     = 60_000;
 const BLOCKS_PERSIST_MS = 7 * 24 * 60 * 60 * 1000;
 
 export type ReportSubjectType =
-  | 'profile' | 'avatar' | 'message' | 'league' | 'event' | 'tournament' | 'other';
+  | 'profile' | 'avatar' | 'message' | 'league' | 'event' | 'tournament' | 'photo' | 'other';
 
 export type ReportReason =
   | 'harassment' | 'hate' | 'sexual' | 'violence' | 'spam'
