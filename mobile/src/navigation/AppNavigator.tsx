@@ -187,9 +187,8 @@ function SavedButton() {
   );
 }
 
-// Brian's tuning: a small payout still rains for about 2.5 s (25 -> 50 pickles
-// spread out, not one burst), slower falls, and more sideways drift.
-const PICKLE_RAIN = { minMs: 1500, perIconMs: 20, fallMs: [1400, 2400] as const, driftMax: 0.25 };
+// Brian's tuning from Rain Lab, the same as Doggle's (the rest are kit 1.89 defaults).
+const PICKLE_RAIN = { sizeRange: [1.1, 2.15] as const, driftMax: 0.54, spinMax: 540, wobble: [0.005, 0.015] as const };
 
 export default function AppNavigator() {
   const { colors, isDark } = useTheme();
