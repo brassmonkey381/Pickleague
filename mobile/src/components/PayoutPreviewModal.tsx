@@ -13,6 +13,7 @@ import { useTheme } from '../lib/ThemeContext';
 import StatusBanner from './StatusBanner';
 import { useStatusMessage } from '../lib/useStatusMessage';
 import { PickleAmount, picklesLabel } from './PickleAmount';
+import { ToastOutlet } from '@just-messin-around/expo-foundation/toast';
 
 type PreviewRow = {
   place:           number;
@@ -172,6 +173,8 @@ export default function PayoutPreviewModal({ visible, tournamentId, prizePool, o
           </View>
         </View>
       </Pressable>
+      {/* Toasts and the pickle rain show above this Modal. */}
+      <ToastOutlet />
     </Modal>
   );
 }

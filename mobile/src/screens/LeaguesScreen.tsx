@@ -94,6 +94,7 @@ import { fixtureLeagues, isFixtureId, usePlayFixtureOn } from '../lib/__dev__/pl
 import { useSearchArea } from '../lib/useSearchArea';
 import { searchAreaKey, widerSearchRadius } from '../lib/searchArea';
 import { listLeaguePreviews, previewAsLeague, type LeaguePreview } from '../data/leaguePreview';
+import { ToastOutlet } from '@just-messin-around/expo-foundation/toast';
 
 type Props = {
   navigation: NativeStackNavigationProp<RootStackParamList, 'Leagues'>;
@@ -942,6 +943,8 @@ export default function LeaguesScreen({ navigation, route, active = true, routeM
             <Text style={[t.sub, { color: c.textMuted }]}>Cancel</Text>
           </Pressable>
         </ScrollView>
+        {/* Toasts and the pickle rain show above this Modal. */}
+        <ToastOutlet />
       </Modal>
 
       {/* Create modal */}
@@ -1014,6 +1017,8 @@ export default function LeaguesScreen({ navigation, route, active = true, routeM
             <Text style={[t.sub, { color: c.textMuted }]}>Cancel</Text>
           </Pressable>
         </ScrollView>
+        {/* Toasts and the pickle rain show above this Modal. */}
+        <ToastOutlet />
       </Modal>
 
       <ConfirmModal

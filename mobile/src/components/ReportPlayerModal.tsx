@@ -14,6 +14,7 @@ import { useTheme } from '../lib/ThemeContext';
 import {
   REPORT_REASONS, ReportReason, ReportSubjectType, submitReport, SUPPORT_EMAIL,
 } from '../lib/moderation';
+import { ToastOutlet } from '@just-messin-around/expo-foundation/toast';
 
 type Props = {
   visible:       boolean;
@@ -149,6 +150,8 @@ export default function ReportPlayerModal({
           )}
         </View>
       </Pressable>
+      {/* Toasts and the pickle rain show above this Modal. */}
+      <ToastOutlet />
     </Modal>
   );
 }

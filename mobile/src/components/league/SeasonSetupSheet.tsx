@@ -20,6 +20,7 @@ import { addDaysIso, localIsoDate } from '../../lib/seasonSummary';
 import { supabase } from '../../lib/supabase';
 import { useTheme } from '../../lib/ThemeContext';
 import AppDateTimePicker from '../AppDateTimePicker';
+import { ToastOutlet } from '@just-messin-around/expo-foundation/toast';
 
 const WEEK_PRESETS = [3, 6, 12] as const;
 const LOCK_PRESETS = [1, 2, 4] as const;
@@ -230,6 +231,8 @@ export default function SeasonSetupSheet({ visible, leagueId, leagueName, onClos
         onChange={(d: Date) => setStart(d)}
         onClose={() => setShowDatePicker(false)}
       />
+      {/* Toasts and the pickle rain show above this Modal. */}
+      <ToastOutlet />
     </Modal>
   );
 }

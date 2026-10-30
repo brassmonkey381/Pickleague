@@ -8,6 +8,7 @@ import { Icon } from '@just-messin-around/expo-foundation/icons';
 import AppDateTimePicker from '../AppDateTimePicker';
 import { useTournamentDetailStyles } from './styles';
 import type { TournamentDetailState } from './useTournamentDetail';
+import { ToastOutlet } from '@just-messin-around/expo-foundation/toast';
 
 type Props = Pick<TournamentDetailState,
   | 'showEditModal' | 'setShowEditModal' | 'saveTournamentEdits' | 'editError' | 'savingEdit'
@@ -203,6 +204,8 @@ export default function EditTournamentModal({
         onChange={d => { setEditStartTime(d); setShowStartPicker(false); }}
         onClose={() => setShowStartPicker(false)}
       />
+      {/* Toasts and the pickle rain show above this Modal. */}
+      <ToastOutlet />
     </Modal>
   );
 }

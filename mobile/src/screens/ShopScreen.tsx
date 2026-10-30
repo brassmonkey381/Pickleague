@@ -43,6 +43,7 @@ import { useRefresh } from '../lib/useRefresh';
 import { PickleAmount, PickleBalance, picklesLabel } from '../components/PickleAmount';
 import { cosmeticColumns, equipShopItem } from '../data/cosmetics';
 import { explainRefusal } from '../lib/refusalNotices';
+import { ToastOutlet } from '@just-messin-around/expo-foundation/toast';
 
 type Props = { navigation: NativeStackNavigationProp<RootStackParamList, 'Shop'> };
 
@@ -554,6 +555,8 @@ export default function ShopScreen({ navigation }: Props) {
             )}
           </View>
         </ModalBackdrop>
+        {/* Toasts and the pickle rain show above this Modal. */}
+        <ToastOutlet />
       </Modal>
 
       {/* Pick a recipient */}
@@ -635,6 +638,8 @@ export default function ShopScreen({ navigation }: Props) {
             )}
           </View>
         </ModalBackdrop>
+        {/* Toasts and the pickle rain show above this Modal. */}
+        <ToastOutlet />
       </Modal>
     </View>
   );

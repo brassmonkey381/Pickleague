@@ -20,6 +20,7 @@ import { supabase } from '../../lib/supabase';
 import { useTheme } from '../../lib/ThemeContext';
 import CourtPicker, { type CourtResult } from '../CourtPicker';
 import type { League } from '../../types';
+import { ToastOutlet } from '@just-messin-around/expo-foundation/toast';
 
 export type LeagueEditSheetProps = {
   visible: boolean;
@@ -162,6 +163,8 @@ export default function LeagueEditSheet({ visible, league, onClose, onSaved }: L
           <Text style={[t.sub, { color: c.textMuted }]}>Cancel</Text>
         </TouchableOpacity>
       </ScrollView>
+      {/* Toasts and the pickle rain show above this Modal. */}
+      <ToastOutlet />
     </Modal>
   );
 }

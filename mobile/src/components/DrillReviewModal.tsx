@@ -26,6 +26,7 @@ import {
   loadDrillReviewDraft,
   saveDrillReviewDraft,
 } from '../lib/drillReviewDraft';
+import { ToastOutlet } from '@just-messin-around/expo-foundation/toast';
 
 // The minimal session shape both DrillScreen and DrillRequestsScreen can supply.
 // `logForPlaySession`: a drill of my own, logged for that play session and
@@ -361,6 +362,8 @@ export default function DrillReviewModal({
           )}
         </View>
       </View>
+      {/* Toasts and the pickle rain show above this Modal. */}
+      <ToastOutlet />
     </Modal>
   );
 }

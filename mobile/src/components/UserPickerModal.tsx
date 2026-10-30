@@ -14,6 +14,7 @@ import { AVATARS } from '../data/profileCustomization';
 import { listEveryone } from '../data/inviteSuggestions';
 import { SEARCH_DEBOUNCE_MS, SHORT_QUERY_HINT, searchEmptyCopy, searchableQuery } from '../lib/playerSearch';
 import EmptyState from './EmptyState';
+import { ToastOutlet } from '@just-messin-around/expo-foundation/toast';
 
 export type PickedUser = {
   id: string;
@@ -294,6 +295,8 @@ export default function UserPickerModal({
       ) : (
         <View style={S.root}>{content}</View>
       )}
+      {/* Toasts and the pickle rain show above this Modal. */}
+      <ToastOutlet />
     </Modal>
   );
 }

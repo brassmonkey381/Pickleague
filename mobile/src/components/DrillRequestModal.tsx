@@ -15,6 +15,7 @@ import { Chip, Panel, SegmentedToggle } from '@just-messin-around/expo-foundatio
 import { Icon } from '@just-messin-around/expo-foundation/icons';
 import { FONT, textStyles } from '@just-messin-around/expo-foundation/typography';
 import { HAIRLINE, RADIUS, SPACE } from '@just-messin-around/expo-foundation/styles';
+import { ToastOutlet } from '@just-messin-around/expo-foundation/toast';
 
 const IS_WEB = Platform.OS === 'web';
 
@@ -210,6 +211,8 @@ export default function DrillRequestModal({
           <View style={S.card}>{content}</View>
         </Pressable>
       ) : content}
+      {/* Toasts and the pickle rain show above this Modal. */}
+      <ToastOutlet />
     </Modal>
   );
 }

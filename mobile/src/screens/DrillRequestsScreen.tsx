@@ -44,6 +44,7 @@ import { useRefresh } from '../lib/useRefresh';
 import { trackSectionToggle } from '../lib/analytics';
 import DrillUpcomingSessions from '../components/DrillUpcomingSessions';
 import { isLoggedDrill } from '../lib/sessionAdds';
+import { ToastOutlet } from '@just-messin-around/expo-foundation/toast';
 
 type Props = {
   navigation: NativeStackNavigationProp<RootStackParamList, 'DrillRequests'>;
@@ -1066,6 +1067,8 @@ function DrillChatModal({
           {sheet}
         </KeyboardAvoidingView>
       )}
+      {/* Toasts and the pickle rain show above this Modal. */}
+      <ToastOutlet />
     </Modal>
   );
 }
@@ -1110,6 +1113,8 @@ function CourtPickerModal({
           )}
         </View>
       </View>
+      {/* Toasts and the pickle rain show above this Modal. */}
+      <ToastOutlet />
     </Modal>
   );
 }

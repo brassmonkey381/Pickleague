@@ -12,6 +12,7 @@ import {
   WagerSubject, fetchOdds, placeWager, subjectLabel,
 } from '../lib/wager';
 import { friendlySbMessage } from '@just-messin-around/expo-foundation/supabase';
+import { ToastOutlet } from '@just-messin-around/expo-foundation/toast';
 
 type Props = {
   visible: boolean;
@@ -215,6 +216,8 @@ export default function WagerProposeModal({ visible, subject, onClose, onPlaced 
       ) : (
         <View style={S.backdrop} {...keyboardDismissTap}>{card}</View>
       )}
+      {/* Toasts and the pickle rain show above this Modal. */}
+      <ToastOutlet />
     </Modal>
   );
 }

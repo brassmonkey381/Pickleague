@@ -17,6 +17,7 @@ import { HAIRLINE, RADIUS, SPACE, webInputFontFloor } from '@just-messin-around/
 import { FONT, textStyles } from '@just-messin-around/expo-foundation/typography';
 import { Button } from '@just-messin-around/expo-foundation/forms';
 import { Icon } from '@just-messin-around/expo-foundation/icons';
+import { ToastOutlet } from '@just-messin-around/expo-foundation/toast';
 
 type Props = {
   tournamentId: string;
@@ -578,6 +579,8 @@ export default function DoublesPairSection({
             </View>
           </View>
         </Pressable>
+        {/* Toasts and the pickle rain show above this Modal. */}
+        <ToastOutlet />
       </Modal>
 
       {/* Invite picker */}

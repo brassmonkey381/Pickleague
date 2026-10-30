@@ -8,6 +8,7 @@ import { FONT, textStyles } from '@just-messin-around/expo-foundation/typography
 import { Icon, type IconName } from '@just-messin-around/expo-foundation/icons';
 import { PLAY_TAGS, TagDef } from '../data/profileCustomization';
 import { useTheme } from '../lib/ThemeContext';
+import { ToastOutlet } from '@just-messin-around/expo-foundation/toast';
 
 const IS_WEB = Platform.OS === 'web';
 
@@ -221,6 +222,8 @@ export default function TagPickerModal({
       ) : (
         content
       )}
+      {/* Toasts and the pickle rain show above this Modal. */}
+      <ToastOutlet />
     </Modal>
   );
 }

@@ -12,6 +12,7 @@ import { AVATARS, AvatarDef } from '../data/profileCustomization';
 import { useTheme } from '../lib/ThemeContext';
 import ConfirmModal from './ConfirmModal';
 import { sbCall, friendlySbMessage } from '@just-messin-around/expo-foundation/supabase';
+import { ToastOutlet } from '@just-messin-around/expo-foundation/toast';
 
 const COLS = 5;
 const WEB_CARD_MAX = 560;
@@ -528,6 +529,8 @@ export default function AvatarPickerModal({
         onConfirm={() => setErrorModal(null)}
         onClose={() => setErrorModal(null)}
       />
+      {/* Toasts and the pickle rain show above this Modal. */}
+      <ToastOutlet />
     </Modal>
   );
 }
