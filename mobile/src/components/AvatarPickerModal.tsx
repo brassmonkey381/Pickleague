@@ -162,7 +162,7 @@ export default function AvatarPickerModal({
     setUploading(false);
   }
 
-  async function uploadBlob(blob: Blob, rawExt: string) {
+  async function uploadBlob(blob: Blob | ArrayBuffer, rawExt: string) {
     if (uploadInFlight.current) return;
     const token = ++uploadToken.current;
     uploadInFlight.current = true;
@@ -182,7 +182,7 @@ export default function AvatarPickerModal({
       // a dead connection can't spin forever.
       await sbCall(() => supabase.storage
         .from('avatars')
-        .upload(fileName, blob, { upsert: true, contentType: `image/${ext}` }),
+        .upload(fileName, blob, { upsert: true, contentType: ext === 'jpg' ? 'image/jpeg' : `image/${ext}` }),
         { retries: 1, timeoutMs: UPLOAD_TIMEOUT_MS });
       if (uploadToken.current !== token) return;
       const { data } = supabase.storage.from('avatars').getPublicUrl(fileName);
@@ -216,15 +216,21 @@ export default function AvatarPickerModal({
       allowsEditing: true,
       aspect: [1, 1],
       quality: 0.8,
+      // The bytes come back as base64: fetch(file://).blob() gives a 0-byte
+      // blob on iOS, which uploaded an empty file (a blank avatar after Save).
+      base64: true,
     });
     if (result.canceled) return;
 
     try {
-      const uri = result.assets[0].uri;
-      const ext = uri.split('.').pop()?.toLowerCase() ?? 'jpg';
-      const response = await fetch(uri);
-      const blob = await response.blob();
-      await uploadBlob(blob, ext);
+      const asset = result.assets[0];
+      const ext = asset.uri.split('.').pop()?.toLowerCase() ?? 'jpg';
+      if (!asset.base64) throw new Error('Could not read image.');
+      const bin = atob(asset.base64);
+      const bytes = new Uint8Array(bin.length);
+      for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
+      if (!bytes.length) throw new Error('That photo is empty. Pick a different one.');
+      await uploadBlob(bytes.buffer, ext);
     } catch (e: any) {
       setErrorModal({ title: 'Upload failed', body: e?.message ?? 'Could not read image.' });
     }
