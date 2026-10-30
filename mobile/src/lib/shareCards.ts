@@ -412,8 +412,9 @@ export function sessionCardModel(d: SessionShareData): ShareCardModel {
     rows: d.people.length
       ? [{ id: 'people', label: 'Players', heading: 'Played with', items: d.people.slice(0, 6).map((p) => ({ lead: null, people: [p] })) }]
       : [],
-    // The court is already the title; its chip is there for photo layouts' captions.
-    offByDefault: ['court'],
+    // The court is already the title (its chip is there for photo layouts'
+    // captions); with no court the type of play is, so its chip starts off too.
+    offByDefault: d.court || d.mix.length > 1 ? ['court'] : ['court', 'type'],
     defaultLook: 'court',
     showsScores: false,
     message: `${length} of pickleball${d.court ? ` at ${d.court}` : ''} on Pickleague 🥒`,

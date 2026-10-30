@@ -128,6 +128,11 @@ describe('play session card', () => {
     expect(m.hero.small).toBe('on the court · 5 games');
     expect(m.stats.map((s) => s.value)).toEqual(['30 min open play · 1 h 15 min closed group', '5 games', 'Record 3-2', 'Oct 27']);
   });
+  it('starts the type chip off when the title already says it (no court, one mode)', () => {
+    const m = sessionCardModel({ court: null, kindLabel: 'Open play', date: 'Today', minutes: 38, mix: [], games: 0, wins: null, losses: null, people: [] });
+    expect(m.title).toBe('Open play');
+    expect(shareDefaultDetails(m)).toEqual({ type: false, date: true });
+  });
 });
 
 describe('event card', () => {
