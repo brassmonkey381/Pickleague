@@ -938,16 +938,14 @@ export default function EventDetailScreen({ navigation, route }: Props) {
           <>
             <View onLayout={heightLayout(youCardH)}>
             <Panel emphasis style={S.youCard}>
-              <Text style={t.label} maxFontSizeMultiplier={SMALL_TEXT_MAX_SCALE}>Your vote</Text>
-              <Text style={[t.title, S.youTitle]}>
+              <Text style={[t.h2, S.youTitle]}>
                 {iDeclined ? "You can't make it"
-                  : myVoteCount > 0 ? `Available for ${myVoteCount} time${myVoteCount === 1 ? '' : 's'}`
-                  : "You haven't voted"}
+                  : !votingIsOpen ? 'Voting closed'
+                  : myVoteCount > 0 ? `You picked ${myVoteCount}`
+                  : 'Tap the times you can play'}
               </Text>
-              <Text style={t.sub} numberOfLines={2}>
-                {votingIsOpen
-                  ? `${timeLeft ?? 'Closing soon'} · tap every time that works for you`
-                  : 'Voting has ended · the organizer is picking the time'}
+              <Text style={t.sub} numberOfLines={1}>
+                {votingIsOpen ? (timeLeft ?? 'Closing soon') : 'The organizer picks the time'}
               </Text>
             </Panel>
             </View>
@@ -982,18 +980,13 @@ export default function EventDetailScreen({ navigation, route }: Props) {
                 ) : (
                   <IconTitle iconName="block" color={iDeclined ? c.danger : c.textSub}>Can't make it</IconTitle>
                 )}
-                <Text style={t.meta} maxFontSizeMultiplier={SMALL_TEXT_MAX_SCALE}>
-                  {decliners.length > 0
-                    ? `${decliners.length} ${decliners.length === 1 ? 'player' : 'players'} can't make any of these times`
-                    : 'None of these times work for you?'}
-                </Text>
-                <VoterChips voters={decliners} />
+                <VoterChips voters={decliners} max={6} />
               </TouchableOpacity>
 
               {/* What the threshold means, while it can still change the outcome. */}
               {event.min_players != null && votingIsOpen && (
                 <Text style={[t.hint, S.note]}>
-                  Needs {event.min_players} players on one time — otherwise this event is cancelled when voting closes.
+                  Needs {event.min_players} players on one time.
                 </Text>
               )}
             </View>
@@ -1116,7 +1109,7 @@ export default function EventDetailScreen({ navigation, route }: Props) {
                 <View style={S.manageRow}>
                   <View style={S.manageText}>
                     <Text style={t.title}>Close voting</Text>
-                    <Text style={t.sub} numberOfLines={2}>Confirms the time with the most votes now.</Text>
+                    <Text style={t.sub} numberOfLines={1}>Picks the top time now.</Text>
                   </View>
                   <Button size="sm" title="Close" onPress={closeVoting} />
                 </View>
@@ -1129,9 +1122,6 @@ export default function EventDetailScreen({ navigation, route }: Props) {
                       : nudgeKind === 'today' ? 'Remind them it’s today'
                       : 'Tell them it’s locked in'}
                   </IconTitle>
-                  <Text style={t.sub} numberOfLines={2}>
-                    Opens your messaging app with the group and the message ready — you tap send.
-                  </Text>
                   <View style={S.btnRow}>
                     <Button size="sm" iconName="chat" title="Text" loading={nudging} onPress={() => sendNudge('sms')} />
                     <Button size="sm" variant="success" title="WhatsApp" disabled={nudging} onPress={() => sendNudge('whatsapp')} />
@@ -1148,9 +1138,7 @@ export default function EventDetailScreen({ navigation, route }: Props) {
                 webhookSetupOpen ? (
                   <View style={S.manageGroup}>
                     <Text style={t.hint}>
-                      Discord: channel → Edit → Integrations → Webhooks → Copy URL.
-                      Anyone with this URL can post to the channel, so it stays
-                      visible only to you.
+                      Discord: channel → Edit → Integrations → Webhooks → Copy URL. Only you see it.
                     </Text>
                     <TextInput
                       style={[S.input, webInputFontFloor(S.input)]}
@@ -1169,7 +1157,7 @@ export default function EventDetailScreen({ navigation, route }: Props) {
                 ) : (
                   <Pressable onPress={() => setWebhookSetupOpen(true)} style={[S.linkBox, S.linkRow]} accessibilityRole="button">
                     <Text style={[t.meta, S.shrink, { color: c.primary }]} maxFontSizeMultiplier={SMALL_TEXT_MAX_SCALE}>
-                      Connect a Discord/Slack webhook to post nudges with one tap
+                      Connect Discord or Slack
                     </Text>
                     <Icon name="chevron-right" size={14} color={c.primary} />
                   </Pressable>
@@ -1180,7 +1168,7 @@ export default function EventDetailScreen({ navigation, route }: Props) {
                 <View style={S.manageRow}>
                   <View style={S.manageText}>
                     <IconTitle iconName="phone">Invite guests to vote</IconTitle>
-                    <Text style={t.sub} numberOfLines={2}>They see the times, then sign up free to vote. The link lasts 7 days.</Text>
+                    <Text style={t.sub} numberOfLines={1}>A 7-day sign-up link.</Text>
                   </View>
                   <Button size="sm" variant="outline" title="Invite" loading={invitingGuests} onPress={onInviteGuests} />
                 </View>
@@ -1229,9 +1217,6 @@ export default function EventDetailScreen({ navigation, route }: Props) {
                     <IconTitle iconName={canRemove ? 'trash' : 'block'} color={c.danger}>
                       {canRemove ? 'Remove from history' : 'Cancel event'}
                     </IconTitle>
-                    <Text style={t.sub} numberOfLines={2}>
-                      {canRemove ? 'Takes it off the events list for everyone.' : 'You choose whether the league is told.'}
-                    </Text>
                   </View>
                   <Button size="sm" variant="danger" title={canRemove ? 'Remove' : 'Cancel'} onPress={openCancel} />
                 </View>

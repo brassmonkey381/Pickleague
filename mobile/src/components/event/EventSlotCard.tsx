@@ -1,12 +1,15 @@
-// One proposed time on EventDetail: "Option 2 · Thu, Oct 16 · 6:00 – 8:00 PM",
-// a 4px availability bar, "3 of 8 available" and the first names of who said
-// yes. While voting is open the whole card is the vote toggle (a 56+ box);
-// afterwards it's read-only inside "Vote results", with the winner marked.
+// One proposed time on EventDetail, built to be read at a glance: the day and
+// the time range each on their own large line (never cut off), a check circle
+// for my vote, and the count on the right ("3/8"), then a thin availability
+// bar and who said yes. While voting is open the whole card is the vote toggle
+// (a 64+ box); afterwards it's read-only inside "Vote results", with the
+// winner marked.
 import React from 'react';
 import { View, Text, TouchableOpacity, StyleSheet, ActivityIndicator } from 'react-native';
+import { Icon } from '@just-messin-around/expo-foundation/icons';
 import { Badge } from '@just-messin-around/expo-foundation/ui';
 import { SPACE, RADIUS, HAIRLINE, SMALL_TEXT_MAX_SCALE } from '@just-messin-around/expo-foundation/styles';
-import { textStyles } from '@just-messin-around/expo-foundation/typography';
+import { FONT, textStyles } from '@just-messin-around/expo-foundation/typography';
 import { useTheme } from '../../lib/ThemeContext';
 import type { EventSlot, SlotVoter } from '../../types';
 import VoterChips from './VoterChips';
@@ -33,7 +36,9 @@ export default function EventSlotCard({ slot, optionNo, memberCount, isWinner, v
   const mine = slot.my_vote ?? false;
   const votes = slot.vote_count ?? 0;
   const pct = memberCount > 0 ? Math.min(votes / memberCount, 1) : 0;
-  const when = `${fmtDay(slot.starts_at)} · ${fmtTime(slot.starts_at)} – ${fmtTime(slot.ends_at)}`;
+  const day = fmtDay(slot.starts_at);
+  const time = `${fmtTime(slot.starts_at)} – ${fmtTime(slot.ends_at)}`;
+  const accent = isWinner ? c.info : c.primary;
 
   return (
     <TouchableOpacity
@@ -43,52 +48,69 @@ export default function EventSlotCard({ slot, optionNo, memberCount, isWinner, v
       activeOpacity={votable ? 0.7 : 1}
       accessibilityRole={votable ? 'checkbox' : undefined}
       accessibilityState={votable ? { checked: mine, busy } : undefined}
-      accessibilityLabel={`${optionNo ? `Option ${optionNo}, ` : ''}${when}, ${votes} of ${memberCount} available${isWinner ? ', confirmed time' : ''}`}
+      accessibilityLabel={`${optionNo ? `Option ${optionNo}, ` : ''}${day}, ${time}, ${votes} of ${memberCount} available${isWinner ? ', confirmed time' : ''}`}
     >
       <View style={S.top}>
-        <View style={S.when}>
-          {optionNo ? (
-            <Text style={t.fieldLabel} maxFontSizeMultiplier={SMALL_TEXT_MAX_SCALE}>Option {optionNo}</Text>
-          ) : null}
-          <Text style={t.title} numberOfLines={1}>{when}</Text>
-        </View>
-        {busy ? (
-          <ActivityIndicator size="small" color={c.primary} />
-        ) : isWinner ? (
-          <Badge iconName="star" label="Confirmed" tone="info" maxFontSizeMultiplier={SMALL_TEXT_MAX_SCALE} />
-        ) : mine ? (
-          <Badge iconName="check-mark" label="Available" tone="success" maxFontSizeMultiplier={SMALL_TEXT_MAX_SCALE} />
+        {votable ? (
+          <View style={[S.check, mine && { backgroundColor: c.primary, borderColor: c.primary }]}>
+            {busy
+              ? <ActivityIndicator size="small" color={mine ? c.textInverse : c.primary} />
+              : mine ? <Icon name="check-mark" size={18} color={c.textInverse} /> : null}
+          </View>
         ) : null}
+        <View style={S.when}>
+          <Text style={S.day}>
+            {optionNo ? <Text style={S.optionNo}>{optionNo}  </Text> : null}
+            {day}
+          </Text>
+          <Text style={[S.time, { color: accent }]}>{time}</Text>
+        </View>
+        <View style={S.count}>
+          <Text style={S.countBig}>
+            {votes}
+            <Text style={S.countOf}>/{memberCount}</Text>
+          </Text>
+          {isWinner ? (
+            <Badge iconName="star" label="Confirmed" tone="info" maxFontSizeMultiplier={SMALL_TEXT_MAX_SCALE} />
+          ) : null}
+        </View>
       </View>
       <View style={S.barBg}>
-        <View style={[S.barFill, { width: `${pct * 100}%` as any }, isWinner && S.barWinner]} />
+        <View style={[S.barFill, { width: `${pct * 100}%` as any, backgroundColor: accent }]} />
       </View>
-      <Text style={t.meta} maxFontSizeMultiplier={SMALL_TEXT_MAX_SCALE}>
-        {votes} of {memberCount} {memberCount === 1 ? 'player' : 'players'} available
-      </Text>
-      <VoterChips voters={(slot.voters ?? []) as SlotVoter[]} />
+      <VoterChips voters={(slot.voters ?? []) as SlotVoter[]} max={6} />
     </TouchableOpacity>
   );
 }
 
 function makeStyles(c: ReturnType<typeof useTheme>['colors']) {
+  const t = textStyles(c);
   return StyleSheet.create({
     card: {
-      minHeight: 56,
+      minHeight: 64,
       padding: SPACE.md,
-      gap: SPACE.xs,
-      borderRadius: RADIUS.md,
-      borderWidth: HAIRLINE,
+      gap: SPACE.sm,
+      borderRadius: RADIUS.lg,
+      borderWidth: 1.5,
       borderColor: c.border,
       backgroundColor: c.surface,
       marginBottom: SPACE.sm,
     },
     cardMine: { borderColor: c.primary, backgroundColor: c.primaryLight },
     cardWinner: { borderColor: c.info, backgroundColor: c.infoLight },
-    top: { flexDirection: 'row', alignItems: 'center', gap: SPACE.sm },
+    top: { flexDirection: 'row', alignItems: 'center', gap: SPACE.md },
+    check: {
+      width: 32, height: 32, borderRadius: RADIUS.pill, borderWidth: 2, borderColor: c.border,
+      alignItems: 'center', justifyContent: 'center', backgroundColor: c.surface,
+    },
     when: { flex: 1, minWidth: 0 },
-    barBg: { height: SPACE.xs, backgroundColor: c.border, borderRadius: RADIUS.pill, overflow: 'hidden', marginTop: SPACE.xs },
-    barFill: { height: SPACE.xs, backgroundColor: c.primary, borderRadius: RADIUS.pill },
-    barWinner: { backgroundColor: c.info },
+    day: { ...t.h2 },
+    optionNo: { ...t.h2, color: c.textMuted },
+    time: { ...t.title, fontSize: FONT.size.xl, marginTop: SPACE.xxs },
+    count: { alignItems: 'flex-end', gap: SPACE.xs },
+    countBig: { ...t.h2 },
+    countOf: { ...t.body, color: c.textSub, fontWeight: FONT.weight.semibold },
+    barBg: { height: SPACE.xs, backgroundColor: c.border, borderRadius: RADIUS.pill, overflow: 'hidden' },
+    barFill: { height: SPACE.xs, borderRadius: RADIUS.pill },
   });
 }

@@ -265,10 +265,7 @@ export default function CreateEventScreen({ navigation, route }: Props) {
         />
 
         <Text style={S.label}>Minimum players (optional)</Text>
-        <Text style={S.hint}>
-          If no single time option gets at least this many players, the event is
-          cancelled when voting closes. Leave blank for no minimum.
-        </Text>
+        <Text style={S.hint}>Fewer on every time: the event is cancelled.</Text>
         <TextField
           placeholder="e.g. 4"
           value={minPlayers}
@@ -280,7 +277,6 @@ export default function CreateEventScreen({ navigation, route }: Props) {
 
         {/* Vote deadline */}
         <Text style={S.sectionHeader}>Vote Deadline</Text>
-        <Text style={S.hint}>Players have until this time to mark their availability.</Text>
 
         <View style={S.presetRow}>
           {DEADLINE_PRESETS.map((p) => {
@@ -318,8 +314,8 @@ export default function CreateEventScreen({ navigation, route }: Props) {
         </TouchableOpacity>
 
         {/* Proposed slots */}
-        <Text style={S.sectionHeader}>Proposed Time Options</Text>
-        <Text style={S.hint}>Add 2–6 options. Players vote for the ones they can attend.</Text>
+        <Text style={S.sectionHeader}>Times to vote on</Text>
+        <Text style={S.hint}>2 to 6 times.</Text>
 
         {slots.map((slot, i) => (
           <View key={i} style={S.slotCard}>
@@ -355,7 +351,7 @@ export default function CreateEventScreen({ navigation, route }: Props) {
         {slots.length < 6 && (
           <TouchableOpacity style={S.addSlotBtn} onPress={addSlot} accessibilityRole="button">
             <Icon name="plus" size={16} color={colors.primary} />
-            <Text style={S.addSlotText}>Add another time option</Text>
+            <Text style={S.addSlotText}>Add a time</Text>
           </TouchableOpacity>
         )}
 
@@ -422,8 +418,8 @@ function makeStyles(c: ReturnType<typeof useTheme>['colors']) {
       padding: SPACE.sm, backgroundColor: c.surface, alignItems: 'center',
     },
     timeBtnLabel: { ...t.fieldLabel, marginBottom: SPACE.xxs },
-    timeBtnDate: { ...t.sub, color: c.text, fontWeight: FONT.weight.semibold },
-    timeBtnTime: { ...t.meta, color: c.primary, marginTop: SPACE.xxs },
+    timeBtnDate: { ...t.title },
+    timeBtnTime: { ...t.h3, color: c.primary, marginTop: SPACE.xxs },
     addSlotBtn: {
       flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: SPACE.xs, minHeight: 44,
       borderWidth: 1.5, borderColor: c.primary, borderRadius: RADIUS.md, padding: SPACE.md, marginBottom: SPACE.sm, borderStyle: 'dashed',
