@@ -212,7 +212,10 @@ begin
         'list_group_session','notify_group_session',
         -- Log a drill for a play session (migration_session_drills.sql, which
         -- grants it too).
-        'log_session_drill'
+        'log_session_drill',
+        -- Guest invites need an account to vote (migration_guest_votes_need_account.sql,
+        -- which grants them too; the slots are anon-callable for the signed-out landing).
+        'join_guest_invite','get_guest_invite_slots'
         -- Deliberately NOT listed (no client caller; a re-run revokes them):
         -- backfill_venue_cities (a full-table venues UPDATE, maintenance only),
         -- send_test_push, venue_containing_point, list_venues_in_radius.
