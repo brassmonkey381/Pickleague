@@ -3,7 +3,7 @@
 // today's time), Pause / Resume, suggestions from my check-ins, and "Check
 // me in at my routine courts". Reached from Profile ("My routine") and from
 // Settings > Check-in automation ("Manage my routine"). Registered only with
-// ROUTINES_ENABLED.
+// ROUTINES_ENABLED. Kept short on purpose: the time first, one line each.
 //
 // A routine at a court no longer starred stays, dormant (no occurrences, no
 // arrival check-in), and says so: star the court again to turn it back on.
@@ -14,7 +14,7 @@ import { useFocusEffect } from '@react-navigation/native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useCachedQuery } from '@just-messin-around/expo-foundation/cache';
 import { Button } from '@just-messin-around/expo-foundation/forms';
-import { LoadingState, Panel, SingleSelectModal, ThemedSwitch } from '@just-messin-around/expo-foundation/ui';
+import { LoadingState, Panel, SectionHeader, SettingSwitchRow, SingleSelectModal } from '@just-messin-around/expo-foundation/ui';
 import { textStyles } from '@just-messin-around/expo-foundation/typography';
 import { HAIRLINE, RADIUS, SPACE } from '@just-messin-around/expo-foundation/styles';
 import { Icon } from '@just-messin-around/expo-foundation/icons';
@@ -188,7 +188,7 @@ export default function CourtRoutinesScreen({ route, navigation }: Props) {
       // Fitted to the length, same modes joined; nothing said is the same as none.
       await saveCourtRoutine({ ...draft, windows: routineWindowsToSave(draft.windows, draft.lengthMin) });
       setEditing(null);
-      toast.success(draft.id ? 'Routine updated' : 'Added to your routine. Friends see it as a planned check-in.');
+      toast.success(draft.id ? 'Routine updated' : 'Routine added');
     } catch (e) {
       toast.error(explainRefusal(e, "Couldn't save that routine. Try again.", { venueName: draft.venueName }));
     } finally {
@@ -245,7 +245,7 @@ export default function CourtRoutinesScreen({ route, navigation }: Props) {
     try {
       await setRoutineAutoCheckin(on);
       void settingsQ.refresh().catch(() => {});
-      toast.success(on ? "We'll check you in when you arrive" : 'Routine check-ins off');
+      toast.success(on ? 'Auto check-in on' : 'Auto check-in off');
     } catch (e) {
       toast.error(explainRefusal(e, "Couldn't update that setting. Try again."));
     } finally {
@@ -284,36 +284,27 @@ export default function CourtRoutinesScreen({ route, navigation }: Props) {
   return (
     <View style={S.fill}>
       <ScrollView contentContainerStyle={S.content}>
-        <Text style={[t.bodySub, S.sub]}>
-          The courts you play at the same time most weeks. Pickleague plans each one for you: you get a nudge at its time,
-          arriving checks you in for as long as you play
-          {sharing
-            ? ". Friends see a stop as a planned check-in once you confirm it that day, or straight away with automatic sharing below."
-            : ', and friends see it as a planned check-in.'}
-        </Text>
-
         {shownSuggestions.length > 0 ? (
           <View style={S.block}>
-            <Text style={[t.label, S.label]}>FROM YOUR CHECK-INS</Text>
+            <SectionHeader title="Suggested" style={S.label} />
             {shownSuggestions.map((s) => {
               const key = routineSuggestionKey(s);
               return (
                 <Panel key={key} padded={false} style={[S.card, { borderColor: c.primary }]}>
-                  <Text style={t.title} numberOfLines={2}>
-                    {formatWeekdayMask(s.days)} around {formatClockTime(s.localTime)} at {s.venueName}
-                  </Text>
-                  <Text style={[t.meta, S.cardMeta]}>
-                    You checked in there on {s.visits} different days in the last 6 weeks, for about{' '}
-                    {formatDurationMinutes(s.lengthMin)}.
+                  <Text style={[S.time, { color: c.text }]}>{formatClockTime(s.localTime)}</Text>
+                  <Text style={t.title} numberOfLines={1}>{s.venueName}</Text>
+                  <Text style={[t.meta, S.cardMeta]} numberOfLines={1}>
+                    {formatWeekdayMask(s.days)} · {s.visits} visits in 6 weeks
                   </Text>
                   <View style={S.cardActions}>
                     <Button
-                      title="Make it a routine"
+                      title="Add"
                       iconName="plus"
                       size="sm"
                       loading={busyId === key}
                       disabled={busyId != null}
                       onPress={() => void addSuggestion(s)}
+                      accessibilityLabel={`Add ${s.venueName} to my routine`}
                     />
                     <TouchableOpacity onPress={() => dismissSuggestion(s)} style={S.textBtn} accessibilityRole="button">
                       <Text style={[t.sub, { color: c.textSub }]}>Not now</Text>
@@ -326,12 +317,10 @@ export default function CourtRoutinesScreen({ route, navigation }: Props) {
         ) : null}
 
         <View style={S.block}>
-          <Text style={[t.label, S.label]}>MY ROUTINE</Text>
+          <SectionHeader title="My routine" count={routines.length || undefined} style={S.label} />
           {routines.length === 0 ? (
             <Panel padded={false} style={S.card}>
-              <Text style={[t.bodySub, { color: c.textMuted }]}>
-                Nothing yet. Add the starred court you play at the same time most weeks, like Tuesday and Thursday at 9.
-              </Text>
+              <Text style={[t.bodySub, { color: c.textMuted }]}>No routines yet.</Text>
             </Panel>
           ) : (
             routines.map((r) => {
@@ -341,15 +330,16 @@ export default function CourtRoutinesScreen({ route, navigation }: Props) {
                 <Panel key={r.id} padded={false} style={[S.card, (!r.active || dormant) && S.paused]}>
                   <View style={S.cardTop}>
                     <View style={S.cardBody}>
-                      <Text style={t.title} numberOfLines={1}>
+                      <Text style={[S.time, { color: c.text }]} numberOfLines={1}>
                         {formatClockTime(r.localTime)}
-                        {zoneSuffix(r.tz)} · {r.venueName}
+                        {zoneSuffix(r.tz)}
                       </Text>
+                      <Text style={t.title} numberOfLines={1}>{r.venueName}</Text>
                       <Text style={[t.meta, S.cardMeta]} numberOfLines={1}>
                         {routineTimeLine(r)}
                       </Text>
                       {windowsLine ? (
-                        <Text style={[t.meta, S.cardMeta]} numberOfLines={2}>
+                        <Text style={[t.meta, S.cardMeta]} numberOfLines={1}>
                           {windowsLine}
                         </Text>
                       ) : null}
@@ -376,8 +366,8 @@ export default function CourtRoutinesScreen({ route, navigation }: Props) {
                   </View>
 
                   {dormant ? (
-                    <Text style={[t.sub, S.status, { color: c.textSub }]}>
-                      {r.venueName} isn't starred any more, so this routine is off. Star it again to turn it back on.
+                    <Text style={[t.sub, S.status, { color: c.textSub }]} numberOfLines={1}>
+                      Off: star this court to turn it back on
                     </Text>
                   ) : r.active && occurrencesOf(r).length > 0 ? (
                     occurrencesOf(r).map((o) => {
@@ -405,7 +395,7 @@ export default function CourtRoutinesScreen({ route, navigation }: Props) {
                                 accessibilityRole="button"
                                 accessibilityLabel={`Change ${day.toLowerCase()}'s time`}
                               >
-                                <Text style={[t.sub, { color: c.textSub }]}>Change time</Text>
+                                <Text style={[t.sub, { color: c.textSub }]}>Move</Text>
                               </TouchableOpacity>
                               <TouchableOpacity
                                 disabled={busyId != null}
@@ -416,7 +406,7 @@ export default function CourtRoutinesScreen({ route, navigation }: Props) {
                                 accessibilityRole="button"
                                 accessibilityLabel={`Skip ${day}`}
                               >
-                                <Text style={[t.sub, { color: c.textSub }]}>{busy ? 'Skipping…' : `Skip ${day.toLowerCase()}`}</Text>
+                                <Text style={[t.sub, { color: c.textSub }]}>{busy ? 'Skipping…' : 'Skip'}</Text>
                               </TouchableOpacity>
                             </>
                           ) : null}
@@ -448,8 +438,9 @@ export default function CourtRoutinesScreen({ route, navigation }: Props) {
                         }
                         style={[S.pill, { borderColor: c.border }]}
                         accessibilityRole="button"
+                        accessibilityLabel={r.active ? `Pause ${r.venueName}` : `Resume ${r.venueName}`}
                       >
-                        <Text style={[t.sub, { color: c.textSub }]}>{r.active ? 'Pause this routine' : 'Resume'}</Text>
+                        <Text style={[t.sub, { color: c.textSub }]}>{r.active ? 'Pause' : 'Resume'}</Text>
                       </TouchableOpacity>
                     </View>
                   ) : null}
@@ -462,38 +453,23 @@ export default function CourtRoutinesScreen({ route, navigation }: Props) {
 
         {settingsQ.data ? (
           <View style={S.block}>
-            <Text style={[t.label, S.label]}>WHEN YOU ARRIVE</Text>
-            <Panel padded={false} style={S.card}>
-              <View style={S.switchRow}>
-                <View style={S.cardBody}>
-                  <Text style={t.title}>Check me in at my routine courts</Text>
-                  <Text style={[t.meta, S.cardMeta]}>
-                    Arriving between 30 minutes before and 30 minutes after a routine's time checks you in for as long as
-                    you play, even with "Check me in when I arrive" off. A court switched off in Check-in automation still
-                    asks first. Needs Location set to Always (on your phone).
-                  </Text>
-                </View>
-                <ThemedSwitch
-                  value={autoOn}
-                  onValueChange={(on) => void setAutoCheckin(on)}
-                  disabled={prefBusy}
-                  accessibilityLabel="Check me in at my routine courts"
-                />
-              </View>
-            </Panel>
-          </View>
-        ) : null}
-
-        {sharing && settingsQ.data ? (
-          <View style={S.block}>
-            <Text style={[t.label, S.label]}>WHO SEES YOUR STOPS</Text>
+            <SectionHeader title="Settings" style={S.label} />
             <Panel padded={false} style={S.shareCard}>
-              <AutoShareSettingRow
-                value={autoShareOf(settingsQ.data) === true}
-                onChange={(on) => void setAutoShare(on)}
-                disabled={shareBusy}
-                copy={PL_AUTO_SHARE_COPY}
+              <SettingSwitchRow
+                label="Auto check-in at routine courts"
+                hint="Within 30 min of the time. Needs Location: Always."
+                value={autoOn}
+                onChange={(on) => void setAutoCheckin(on)}
+                disabled={prefBusy}
               />
+              {sharing ? (
+                <AutoShareSettingRow
+                  value={autoShareOf(settingsQ.data) === true}
+                  onChange={(on) => void setAutoShare(on)}
+                  disabled={shareBusy}
+                  copy={PL_AUTO_SHARE_COPY}
+                />
+              ) : null}
             </Panel>
           </View>
         ) : null}
@@ -534,8 +510,7 @@ function timeLabelClock(iso: string, tz: string): string {
 const S = StyleSheet.create({
   fill: { flex: 1 },
   content: { padding: SPACE.lg, paddingBottom: SPACE.xl + SPACE.sm, width: '100%', maxWidth: 720, alignSelf: 'center' },
-  sub: { marginTop: SPACE.xs },
-  block: { marginTop: SPACE.lg },
+  block: { marginTop: SPACE.md },
   label: { marginBottom: SPACE.sm },
   card: { borderWidth: HAIRLINE, borderRadius: RADIUS.lg, padding: SPACE.md, marginBottom: SPACE.sm },
   // SettingSwitchRow brings its own padding.
@@ -552,7 +527,8 @@ const S = StyleSheet.create({
   statusText: { flex: 1, minWidth: 120 },
   inline: { flexDirection: 'row', alignItems: 'center', gap: SPACE.xs },
   shrink: { flexShrink: 1 },
-  pill: { borderWidth: 1.5, borderRadius: RADIUS.pill, minHeight: 36, justifyContent: 'center', paddingHorizontal: SPACE.md },
-  add: { marginTop: SPACE.xs },
-  switchRow: { flexDirection: 'row', alignItems: 'center', gap: SPACE.md },
+  pill: { borderWidth: 1.5, borderRadius: RADIUS.pill, minHeight: 44, minWidth: 64, alignItems: 'center', justifyContent: 'center', paddingHorizontal: SPACE.md },
+  add: { marginTop: SPACE.xs, minHeight: 48 },
+  // The routine's time: the one thing to read at a glance.
+  time: { fontSize: 22, lineHeight: 28, fontWeight: '800' },
 });

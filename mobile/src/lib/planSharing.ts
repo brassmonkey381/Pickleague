@@ -158,8 +158,7 @@ export const PL_DAILY_CONFIRM_COPY: Partial<DailyPlanConfirmCopy> = {
 /** Settings > Check-in automation and My routine. */
 export const PL_AUTO_SHARE_COPY: AutoShareCopy = {
   label: 'Share my routine stops automatically',
-  hint:
-    "On: friends who can see your plans see each routine stop as soon as it's planned. Off: you confirm each day's stops first, the first time you open Pickleague that day.",
+  hint: "On: friends see each stop once it's planned. Off: you confirm each day first.",
 };
 
 /** The plan sheet's line under the time (plans shared or not). */

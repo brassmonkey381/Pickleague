@@ -70,10 +70,7 @@ export default function RoutineEditSheet({
       <ScrollView style={S.scroll} contentContainerStyle={S.body} keyboardShouldPersistTaps="handled">
         <Text style={[t.label, S.label]}>COURT</Text>
         {courts.length === 0 ? (
-          <Text style={t.hint}>
-            Routines are for your starred courts. Star a court (the star on Home's court card or a court's page), then add it
-            here.
-          </Text>
+          <Text style={t.hint}>Star a court first.</Text>
         ) : (
           <View style={S.chipRow}>
             {courts.map((f) => {
@@ -115,13 +112,8 @@ export default function RoutineEditSheet({
           friends={friends}
         />
 
-        <Text style={[t.hint, S.hint]}>
-          Pickleague plans this for today and tomorrow. Arriving between 30 minutes before and 30 minutes after its time
-          checks you in for it, and friends see it as a planned check-in on your profile.
-        </Text>
-
         <Button
-          title={initial?.id ? 'Save changes' : 'Add to my routine'}
+          title={initial?.id ? 'Save' : 'Add routine'}
           iconName="check-mark"
           loading={saving}
           disabled={!canSave}
@@ -130,7 +122,7 @@ export default function RoutineEditSheet({
         />
         {onDelete ? (
           <Button
-            title={confirmingDelete ? 'Tap again to delete' : 'Delete this routine'}
+            title={confirmingDelete ? 'Tap again to delete' : 'Delete'}
             variant={confirmingDelete ? 'danger' : 'outline'}
             loading={deleting}
             disabled={saving}
@@ -160,6 +152,5 @@ const S = StyleSheet.create({
     justifyContent: 'center',
   },
   shrink: { flexShrink: 1 },
-  hint: { marginTop: SPACE.lg },
-  save: { marginTop: SPACE.md },
+  save: { marginTop: SPACE.md, minHeight: 48 },
 });
