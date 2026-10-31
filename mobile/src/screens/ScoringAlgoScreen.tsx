@@ -78,16 +78,16 @@ gap 2.0 → +9.6   (blowout)`}</Mono>
         </P>
 
         <Sub S={S}>4 · K factor (decays with experience)</Sub>
-        <Mono S={S}>{`matches < 5  → K = 0.35
-matches < 15 → K = 0.22
-else         → K = 0.15`}</Mono>
+        <Mono S={S}>{`matches < 5  → K = 1.75
+matches < 15 → K = 1.10
+else         → K = 0.75`}</Mono>
         <P S={S}>
           Newer players move faster (their early ratings are noisy);
           established players move slowly (their ratings are confident).
         </P>
 
         <Sub S={S}>5 · The delta</Sub>
-        <Mono S={S}>{`delta = K × surprise`}</Mono>
+        <Mono S={S}>{`delta = K × surprise   (at most ±0.60; ±0.80 under 5 matches)`}</Mono>
         <P S={S}>
           Rounded to 3 decimal places. Ratings are clamped at <B S={S}>2.000</B>{' '}
           floor.
