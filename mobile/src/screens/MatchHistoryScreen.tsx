@@ -52,6 +52,8 @@ import PickleShareStudio from '../components/share/PickleShareStudio';
 import { matchCardModel, type ShareCardModel } from '../lib/shareCards';
 import { cardPlayer, shortName } from '../lib/finishShare';
 import { useBlockedIds } from '../lib/moderation';
+import RatingHistoryChart from '../components/RatingHistoryChart';
+import { ratingSeries } from '../lib/ratingHistory';
 
 type Props = {
   navigation: NativeStackNavigationProp<RootStackParamList, 'MatchHistory'>;
@@ -775,6 +777,13 @@ export default function MatchHistoryScreen({ navigation, route }: Props) {
     return { filtered: rest, upcoming: upcomingList };
   }, [matches, filters, myMatchesOnly, currentUserId]);
 
+  // PLUPR over time for the player this history is about (me, unless a
+  // profile opened it), following the active filters.
+  const ratingPoints = useMemo(
+    () => ratingSeries(filtered, userId ?? currentUserId),
+    [filtered, userId, currentUserId],
+  );
+
   // Keep a live handle on the latest filtered list for deferred scrolls.
   filteredRef.current = filtered;
 
@@ -927,6 +936,9 @@ export default function MatchHistoryScreen({ navigation, route }: Props) {
                 // ListEmptyComponent stands down while Upcoming has rows, so
                 // the filtered-empty way out renders inline here instead.
                 <EmptyState compact iconName="search" title="No matches fit these filters" actionLabel="Clear filters" onAction={clearAllFilters} />
+              )}
+              {showHistoryHeader && ratingPoints.length >= 2 && (
+                <RatingHistoryChart points={ratingPoints} />
               )}
               {showHistoryHeader && (
                 // The old full-width Calendar Analytics button is this header's
