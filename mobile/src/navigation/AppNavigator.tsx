@@ -16,6 +16,7 @@ import ToastProvider from '../lib/ToastProvider';
 import { resetStreakShown } from '../lib/loginStreak';
 import { ensureCourtNicknamesLoaded } from '../lib/courtNickname';
 import { navigationRef, flushPendingNavigation, navigateWhenReady } from '../lib/navigationRef';
+import { deliverGuestVote } from '../lib/guestVote';
 import { endSession, resetSessionUser, trackScreen } from '../lib/analytics';
 import ErrorBoundary from '../components/ErrorBoundary';
 import StartupRetryScreen from '../components/StartupRetryScreen';
@@ -303,6 +304,8 @@ export default function AppNavigator() {
     if (!session) return;
     // Flush a pending guest-join destination once the logged-in stack mounts.
     flushPendingNavigation();
+    // A guest vote link opened signed out: join its league and open the vote.
+    void deliverGuestVote(!!session.user.is_anonymous);
     (async () => {
       // Guest-pass expiry / revocation: sign out if this is a guest whose 7 days
       // have lapsed, or if the profile is gone entirely (the hourly cleanup

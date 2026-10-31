@@ -472,6 +472,9 @@ function voteError(e: unknown): NoticeCopy | null {
   if (/Not a member|guest pass has ended|Not signed in/i.test(raw)) {
     return { title: 'Open Pickleague to vote', body: 'Tap to open the vote.' };
   }
+  if (/free Pickleague account/i.test(raw)) {
+    return { title: 'Voting needs an account', body: 'Tap to create your free account, then vote.' };
+  }
   return mapError(e);
 }
 

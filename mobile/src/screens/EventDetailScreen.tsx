@@ -54,6 +54,8 @@ import { displayCourtName } from '../lib/courtNickname';
 import { entityIcon } from '../lib/entityGlyph';
 import { trackSectionToggle } from '../lib/analytics';
 import { sbCall, friendlySbMessage, insertIgnoringDuplicate, currentUserId as localUserId } from '@just-messin-around/expo-foundation/supabase';
+import { explainRefusal } from '../lib/refusalNotices';
+import { isServerRefusal } from '../lib/refusals';
 import EventSlotCard from '../components/event/EventSlotCard';
 import EventTimeCard from '../components/event/EventTimeCard';
 import { isImageShareAvailable } from '@just-messin-around/expo-foundation/platform';
@@ -311,7 +313,8 @@ export default function EventDetailScreen({ navigation, route }: Props) {
     } catch (e) {
       // The result was discarded before, so a dropped vote just silently didn't
       // stick and the user had no idea their availability wasn't recorded.
-      status.error(friendlySbMessage(e, 'Could not save your vote. Tap the time again to retry.'));
+      // A server refusal (a guest session now needs an account) reads as sent.
+      status.error(explainRefusal(e, 'Could not save your vote. Tap the time again to retry.'));
     } finally {
       // In a finally: without it a thrown error left the slot disabled with its
       // spinner up until the screen was left and re-entered.
@@ -345,7 +348,7 @@ export default function EventDetailScreen({ navigation, route }: Props) {
       }
       await load();
     } catch (e) {
-      status.error(friendlySbMessage(e, 'Could not save that. Tap again to retry.'));
+      status.error(explainRefusal(e, 'Could not save that. Tap again to retry.'));
     } finally {
       voteInFlight.current = false;
       setVoting(null);
@@ -379,7 +382,7 @@ export default function EventDetailScreen({ navigation, route }: Props) {
       await load();
     } catch (e) {
       // The only RLS refusal for your own row is an expired guest pass.
-      status.error(friendlySbMessage(e, 'Could not save your RSVP. Tap again to retry.', {
+      status.error(isServerRefusal(e) ? explainRefusal(e, '') : friendlySbMessage(e, 'Could not save your RSVP. Tap again to retry.', {
         permission: "Your guest pass has expired, so you can't RSVP. Ask the organizer for a new invite.",
       }));
     } finally {
@@ -628,7 +631,7 @@ export default function EventDetailScreen({ navigation, route }: Props) {
     const where = leagueName ? ` in ${leagueName}` : '';
     return (
       `You're invited to vote on a time for "${event!.title}"${where} on Pickleague! 🥒\n` +
-      `Tap to join the vote — no account needed (7-day guest pass): ${link}`
+      `Tap to see the times, then sign up free to vote (the link lasts 7 days): ${link}`
     );
   }
 
@@ -1177,7 +1180,7 @@ export default function EventDetailScreen({ navigation, route }: Props) {
                 <View style={S.manageRow}>
                   <View style={S.manageText}>
                     <IconTitle iconName="phone">Invite guests to vote</IconTitle>
-                    <Text style={t.sub} numberOfLines={2}>No account needed — a 7-day guest pass.</Text>
+                    <Text style={t.sub} numberOfLines={2}>They see the times, then sign up free to vote. The link lasts 7 days.</Text>
                   </View>
                   <Button size="sm" variant="outline" title="Invite" loading={invitingGuests} onPress={onInviteGuests} />
                 </View>
