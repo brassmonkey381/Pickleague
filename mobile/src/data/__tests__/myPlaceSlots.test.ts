@@ -76,10 +76,13 @@ describe('My Place slots: app, server and art tools agree', () => {
     expect(seeded.placements).toEqual(fromApp);
   });
 
-  it("backdrop colours match catalog.json's backdrop_opts", () => {
-    const fromCatalog = Object.fromEntries(
-      lib.catalog().items.filter((i) => i.backdrop_opts).map((i) => [i.id, i.backdrop_opts]),
-    );
+  it("backdrop colours match the catalogs' backdrop_opts (evergreen and seasonal market)", () => {
+    const market = require(path.join(root, 'art/seasonal-market/lib.cjs')) as {
+      drops: () => string[];
+      catalog: (drop: string) => { items: { id: string; backdrop_opts?: Record<string, unknown> }[] };
+    };
+    const items = [...lib.catalog().items, ...market.drops().flatMap((d) => market.catalog(d).items)];
+    const fromCatalog = Object.fromEntries(items.filter((i) => i.backdrop_opts).map((i) => [i.id, i.backdrop_opts]));
     expect(MY_PLACE_BACKDROP_COLORS).toEqual(fromCatalog);
   });
 });

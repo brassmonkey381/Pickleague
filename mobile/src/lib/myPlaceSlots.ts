@@ -86,7 +86,8 @@ export const MY_PLACE_BASE_BACKDROP: RoomBackdropOptions = {
 };
 
 /**
- * Each wallpaper / floor item's colours (catalog.json backdrop_opts), painted
+ * Each wallpaper / floor item's colours (catalog.json backdrop_opts, the evergreen
+ * catalog's and the seasonal market drops'), painted
  * under its tiles: the room keeps the right colours while the tile art loads,
  * or if it never does. An item missing here (a newer catalog) uses the base.
  */
@@ -97,6 +98,9 @@ export const MY_PLACE_BACKDROP_COLORS: Readonly<Record<string, Partial<RoomBackd
   floor_maple: { floorFill: '#d9b07a', floorAccent: '#b88a5a', floorPattern: 'boards' },
   floor_court_blue: { floorFill: '#5b8fd4', floorAccent: '#ffffff', floorPattern: 'plain' },
   floor_herringbone: { floorFill: '#a9794d', floorAccent: '#8a6f55', floorPattern: 'boards' },
+  // Seasonal market (art/seasonal-market/<drop>/catalog.json backdrop_opts).
+  sm2611_wall_falling_leaves: { wallTop: '#f6ecd9', wallBottom: '#efe0c6' },
+  sm2612_wall_fair_isle: { wallTop: '#eef3f8', wallBottom: '#e2eaf2' },
 };
 
 /** The backdrop under the tiles for what is on the wall and the floor. */

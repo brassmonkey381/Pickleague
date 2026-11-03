@@ -1,0 +1,87 @@
+{
+  "version": 1,
+  "drop": "harvest_market",
+  "title": "Harvest Market",
+  "season": "2026-11",
+  "available_from": null,
+  "available_until": { "local": "2026-12-01 00:00", "time_zone": "America/Los_Angeles" },
+  "about": "Six My Place decor items sold for pickles from the day the migration runs (November 3, 2026) until December 1, 2026 at Pacific midnight. Separate from the Court Pass: these are bought, never earned, and the Court Pass's November items (cornucopia, pumpkin stack, autumn window, gratitude poster, leaf garland, plaid pillow, harvest rug, harvest hall paddle wall) are not repeated. Theme: a Thanksgiving harvest market, no religious imagery. SVGs are in svg/<id>.svg, drawn by draw.mjs in viewBox \"0 0 100 H\" with H = 100 / aspect, and run through the kit's tools/room-art/import.mjs by ../build.mjs. Prices follow the evergreen catalog (art/my-place/catalog.json): commons 900 to 1,500, the one rare showpiece 3,500 like the velvet sofa.",
+  "style": {
+    "base": "art/my-place/catalog.json style: flat, front-on, rounded shapes, no outlines on most shapes, shading by tints, no gradients in item art, light from the top left.",
+    "palette": "Court Pass November's harvest palette (art/court-pass/2026-11/catalog.json style.palette_added) plus My Place's.",
+    "rules": [
+      "Every item has one pickleball in it, so the set reads as Pickleague's.",
+      "Leaves come in leaf red, harvest gold, pumpkin and rust only, drawn with ../shapes.mjs like the Court Pass's.",
+      "No religious imagery, no faces on objects."
+    ]
+  },
+  "items": [
+    {
+      "id": "sm2611_wall_falling_leaves",
+      "name": "Falling Leaves Wallpaper",
+      "slot_group": "wallpaper",
+      "aspect": 1,
+      "rarity": "common",
+      "cost": 900,
+      "icon": "🍂",
+      "sort": 600,
+      "backdrop_opts": { "wallTop": "#f6ecd9", "wallBottom": "#efe0c6" },
+      "brief": "A seamless 100 x 100 tile on warm cream #f6ecd9 with two maple and three oak leaves drifting in leaf red, harvest gold, pumpkin and rust, and one small pickleball. Faint breeze curls and dots in the cream darkened 7 to 10% keep it from reading flat. Nothing crosses the tile's edge, so the tiles meet cleanly on the wall."
+    },
+    {
+      "id": "sm2611_art_market_board",
+      "name": "Market Chalkboard",
+      "slot_group": "wall_art",
+      "aspect": 0.8,
+      "rarity": "common",
+      "cost": 1200,
+      "icon": "🖼️",
+      "sort": 601,
+      "brief": "A farm-stand chalkboard hanging from a nail at the top edge by a twine cord: a warm-wood frame around a slate board that reads MARKET in chalk with a wheat underline. Three rows price a pumpkin at three pickles, an apple at two and a pickleball at one, each with a dotted chalk leader. A chalk tray with two sticks runs along the bottom and a red maple and a gold oak leaf are tucked into the top-left corner."
+    },
+    {
+      "id": "sm2611_ceiling_lanterns",
+      "name": "Harvest Lantern Line",
+      "slot_group": "ceiling",
+      "aspect": 4,
+      "rarity": "common",
+      "cost": 1200,
+      "icon": "🏮",
+      "sort": 602,
+      "brief": "A twine line swagged twice across the top, held by three bark pegs that touch y = 0. Seven round paper lanterns hang from it at two drop heights, in rust, harvest gold and pumpkin with ribs and a lit left face, and the middle lantern is a pickleball. Small leaves are tucked along the twine between them."
+    },
+    {
+      "id": "sm2611_item_lattice_pie",
+      "name": "Lattice Pie Stand",
+      "slot_group": "shelf_item",
+      "aspect": 1,
+      "rarity": "common",
+      "cost": 900,
+      "icon": "🥧",
+      "sort": 603,
+      "brief": "A domed apple pie with a golden lattice crust, a crimped rim and a maple-leaf crust cut-out on top, in a court-green pie dish with a cream band. It sits on a cream cake stand whose foot stands on the bottom edge. A pickleball rests on the stand beside it and a red leaf has fallen on the other side."
+    },
+    {
+      "id": "sm2611_accent_cider_barrel",
+      "name": "Cider Barrel",
+      "slot_group": "accent",
+      "aspect": 0.75,
+      "rarity": "common",
+      "cost": 1500,
+      "icon": "🍎",
+      "sort": 604,
+      "brief": "An oak barrel with bulging staves, four iron hoops, a cream CIDER label and a brass tap, lying on a dark-wood cradle that touches the bottom edge. On top stand a cream mug of cider with a cinnamon stick, a pickleball and an apple, with a red leaf at the left. A twine-tied wheat bundle rises behind it to give the corner its height."
+    },
+    {
+      "id": "sm2611_couch_quilt",
+      "name": "Harvest Quilt Sofa",
+      "slot_group": "couch",
+      "aspect": 2,
+      "rarity": "rare",
+      "cost": 3500,
+      "icon": "🛋️",
+      "sort": 605,
+      "brief": "The drop's showpiece: couch_velvet_green's shape in caramel #b8743f, with tufted buttons, rolled arms and dark-wood legs, the seat cushions' top kept at y = 27.5 so pillows sit on it. A patchwork quilt in pumpkin, cream, harvest gold, court green, rust, wheat and leaf red is thrown over the back, with dashed white stitching, a rust binding, a pickleball patch and a folded corner hanging down the front. A harvest-gold piping line runs under the seat."
+    }
+  ]
+}

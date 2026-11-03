@@ -1,0 +1,87 @@
+{
+  "version": 1,
+  "drop": "winter_market",
+  "title": "Winter Market",
+  "season": "2026-12",
+  "available_from": { "local": "2026-12-01 00:00", "time_zone": "America/Los_Angeles" },
+  "available_until": { "local": "2027-01-01 00:00", "time_zone": "America/Los_Angeles" },
+  "about": "Six My Place decor items sold for pickles from December 1, 2026 to January 1, 2027, Pacific midnight to Pacific midnight. Until December 1 buy_home_item refuses them as not on sale yet and the decor sheet leaves them out. Separate from the Court Pass: bought, never earned, and none of the Court Pass's December items (snow globe, ornament tree, snowy window, first frost poster, icicle lights, knit pillow, snowflake rug, ice palace paddle wall) is repeated. Theme: a winter holiday market, no religious imagery. SVGs are in svg/<id>.svg, drawn by draw.mjs in viewBox \"0 0 100 H\" with H = 100 / aspect, and run through the kit's tools/room-art/import.mjs by ../build.mjs. Prices follow the evergreen catalog (art/my-place/catalog.json): commons 900 to 1,500, the one rare showpiece 3,000 like the glass trophy case.",
+  "style": {
+    "base": "art/my-place/catalog.json style: flat, front-on, rounded shapes, no outlines on most shapes, shading by tints, no gradients in item art, light from the top left.",
+    "palette": "Court Pass December's winter palette (art/court-pass/2026-12/catalog.json style.palette_added) plus holly red #c94a3a and berry red #c62f2f.",
+    "rules": [
+      "Every item has one pickleball or paddle in it, so the set reads as Pickleague's.",
+      "Snowflakes have six arms, drawn with ../shapes.mjs like the Court Pass's.",
+      "No religious imagery, no faces on objects."
+    ]
+  },
+  "items": [
+    {
+      "id": "sm2612_wall_fair_isle",
+      "name": "Fair Isle Knit Wallpaper",
+      "slot_group": "wallpaper",
+      "aspect": 1,
+      "rarity": "common",
+      "cost": 900,
+      "icon": "🧶",
+      "sort": 620,
+      "backdrop_opts": { "wallTop": "#eef3f8", "wallBottom": "#e2eaf2" },
+      "brief": "A seamless 100 x 100 tile on frost #eef3f8 with a soft ice-blue knitted band across the middle (deep ice lightened 50%, kept quiet so the decor stays in front), edged with deep-ice rules and rows of V stitches. In the band, two white snowflakes, a pickleball in a white ring and white diamonds that join across the tile edges. Small ice-blue stitch crosses dot the frost above and below, staggered so the tiles make a lattice."
+    },
+    {
+      "id": "sm2612_rug_braided",
+      "name": "Braided Cabin Rug",
+      "slot_group": "rug",
+      "aspect": 3,
+      "rarity": "common",
+      "cost": 1200,
+      "icon": "🔴",
+      "sort": 621,
+      "brief": "An oval braided rug filling the box: eight rings of holly red, cream, pine and deep ice, each with a dashed braid texture in its own lighter or darker tint. The centre is a snow-white oval. A pickleball, squashed to lie flat, sits in the middle."
+    },
+    {
+      "id": "sm2612_ceiling_mittens",
+      "name": "Mitten Clothesline",
+      "slot_group": "ceiling",
+      "aspect": 4,
+      "rarity": "common",
+      "cost": 1200,
+      "icon": "🧤",
+      "sort": 622,
+      "brief": "A twine clothesline sagging between two bark pegs that touch y = 0. Wooden clothespins hold a pair of red mittens, a pine bobble hat, a striped red scarf folded over the line, a pickleball in a cream net bag, a pair of deep-ice mittens and a pine stocking with a red toe. Each mitten has a white cuff and a small white snowflake."
+    },
+    {
+      "id": "sm2612_item_gingerbread",
+      "name": "Gingerbread Clubhouse",
+      "slot_group": "shelf_item",
+      "aspect": 1,
+      "rarity": "common",
+      "cost": 900,
+      "icon": "🍪",
+      "sort": 623,
+      "brief": "A gingerbread house on a deep-ice board that touches the bottom edge: lit yellow windows with icing crosses, an arched door with an icing outline, icing squiggles and gumdrops along the base. The roof is shingled with red, ice and pine candies under thick icing snow with drips, and a chimney wears an icing cap. A pickleball sits on the peak like a gumdrop and a small red candy paddle leans by the right wall."
+    },
+    {
+      "id": "sm2612_accent_sled",
+      "name": "Winter Sled",
+      "slot_group": "accent",
+      "aspect": 0.75,
+      "rarity": "common",
+      "cost": 1500,
+      "icon": "🛷",
+      "sort": 624,
+      "brief": "A wooden sled stood on its tail in a snowdrift that touches the bottom edge: four lengthwise warm-wood slats, a dark steering bar and a back bar, and holly-red runners whose front ends scroll over at the top. A pine-and-white striped scarf is knotted on the steering bar's left end and a pair of white skates hangs from its right end by their laces. A deep-ice paddle leans behind on the right, and a pickleball and a pine sprig with berries sit in the snow."
+    },
+    {
+      "id": "sm2612_shelf_hutch",
+      "name": "Holiday Hutch",
+      "slot_group": "shelf",
+      "aspect": 0.9,
+      "rarity": "rare",
+      "cost": 3000,
+      "icon": "🍽️",
+      "sort": 625,
+      "brief": "The drop's showpiece: shelf_oak's frame in cream paint, with the top plank still the top 6 units (the shelf-item surface) and dark-wood feet on the bottom edge. Two open shelves with holly-red backs hold snowflake plates on a rail and two mugs above, and wrapped presents with a pickleball below; two cupboard doors carry deep-ice snowflakes. A pine garland with red berries swags under the top plank."
+    }
+  ]
+}
