@@ -661,6 +661,10 @@ function SeasonStandingsBody({ navigation, route, seasonId, leagueId }: Props & 
   }
 
   const mine = myUserId ? tableRows.find(r => r.userId === myUserId) : undefined;
+  // Season bonus: the top 5's bonus also added to my overall PLUPR at completion.
+  const myOverallBonus = activeTab === 'final' && season.status === 'completed' && myUserId
+    ? Number(finals.find(r => r.user_id === myUserId)?.overall_bonus ?? 0)
+    : 0;
 
   // ── Manage summary ──
   const manageIsOpen = manageOpen ?? lockDue;
@@ -789,6 +793,11 @@ function SeasonStandingsBody({ navigation, route, seasonId, leagueId }: Props & 
         ) : (
           <>
             {caption ? <Text style={[t.meta, S.caption]} numberOfLines={1} maxFontSizeMultiplier={SMALL_TEXT_MAX_SCALE}>{caption}</Text> : null}
+            {myOverallBonus > 0 ? (
+              <Text style={[t.meta, S.caption]} numberOfLines={1} maxFontSizeMultiplier={SMALL_TEXT_MAX_SCALE}>
+                Season bonus: {formatPluprChange(myOverallBonus)} overall PLUPR
+              </Text>
+            ) : null}
             <View
               onLayout={(e: LayoutChangeEvent) => { innerY.current = e.nativeEvent.layout.y; recomputeJump(); }}
             >

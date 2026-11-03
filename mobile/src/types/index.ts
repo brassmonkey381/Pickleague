@@ -466,6 +466,8 @@ export type SeasonFinalStanding = {
   median_rank: number;
   elo_bonus: number;
   new_elo: number;
+  /** The season bonus also added to overall PLUPR (8+ players, 10+ matches); 0 when not paid. */
+  overall_bonus?: number;
   profile?: {
     full_name: string;
     avatar_id?: number;
