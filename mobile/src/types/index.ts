@@ -641,6 +641,8 @@ export type RootStackParamList = {
   MyPlace: { userId?: string; userName?: string } | undefined;
   // God mode only: where each My Place slot is drawn, for every room.
   MyPlaceLayout: undefined;
+  // Court Pass (docs/court-pass.md): this month's reward track. Link: court-pass
+  CourtPass: undefined;
   // The pickles viewer's Calendar (Home balance): a month of daily pickle totals.
   PicklesCalendar: undefined;
   PlayHistory: undefined;

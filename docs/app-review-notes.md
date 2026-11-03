@@ -120,6 +120,11 @@ SUGGESTED WALKTHROUGH
 17. Play sessions: after a session ends it can be discarded, past sessions
    are listed in a session history, and Record Match offers the players
    checked in at the same court.
+18. Court Pass: Home -> the "Court Pass" line under the greeting. A monthly
+   reward track: playing earns "pickleballs", and each tier reached pays
+   pickles or a cosmetic on its own. "How to earn pickleballs" lists every
+   way to earn. The premium track is not purchasable yet (it shows coming
+   soon); all free-track rewards are earnable.
 
 5. EXTERNAL SERVICES USED
 - Supabase (hosted PostgreSQL, Auth, Storage) - user accounts, all league and

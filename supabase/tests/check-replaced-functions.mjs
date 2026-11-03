@@ -103,7 +103,10 @@ const REPLACED = [
   // write the phone to profile_private, generate_playoff_bracket gains its
   // admin check, get_wagers_on_player keeps closed leagues' bettors private.
   ['public.complete_guest_upgrade(text,text,text)', 'migration_guest_upgrade.sql', 'migration_anon_audit_fixes.sql'],
-  ['public.redeem_guest_invite(text,text)', 'migration_guest_upgrade.sql', 'migration_anon_audit_fixes.sql'],
+  // ...and redeem_guest_invite again by migration_guest_votes_need_account.sql
+  // (live since 2026-10-31: it only refuses now), so that body counts too.
+  ['public.redeem_guest_invite(text,text)', 'migration_guest_upgrade.sql', 'migration_anon_audit_fixes.sql',
+    'migration_guest_votes_need_account.sql'],
   ['public.generate_playoff_bracket(uuid)', 'migration_prod_reconcile_2026q3.sql', 'migration_anon_audit_fixes.sql'],
   ['public.get_wagers_on_player(uuid,text,uuid)', 'migration_prod_reconcile_2026q3.sql',
     'migration_anon_audit_fixes.sql'],
@@ -147,6 +150,9 @@ const REPLACED = [
   ['public._pl_match_session(uuid,uuid,timestamptz)', 'migration_validity_rules.sql', 'migration_play_session_history.sql'],
   ['public._pl_drill_session(uuid,uuid,timestamptz,timestamptz,integer)', 'migration_validity_rules.sql',
     'migration_play_session_history.sql'],
+  // Court Pass (migration_court_pass_tables.sql): buy_home_item refuses a
+  // track-only item (pl:home.track_only) before the drop-window checks.
+  ['public.buy_home_item(text)', 'migration_my_place.sql', 'migration_court_pass_tables.sql'],
 ];
 const TAG = '$pl_expect$';
 

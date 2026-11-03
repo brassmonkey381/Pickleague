@@ -3,6 +3,8 @@
 //
 //   top bar ...... PICKLEAGUE            [Saved] [Bell] [Gear]   fixed, 44
 //   greeting ..... (avatar) Hi, Brian ›          🔥 5  🥒 1,240 ›   44
+//   court pass ... (ball) Court Pass · Tier 7 · 22 to next ›  (docs/court-pass.md;
+//                  nothing while loading, on an error or with no pass seeded)
 //   NOW .......... check-in / prompt / play session / live event (when any)
 //   GET STARTED .. starter quests + guest / DUPR offers (until all claimed)
 //   UP NEXT ...... votes, RSVPs, tournaments, drills, and the requests waiting
@@ -94,6 +96,8 @@ import CourtCheckinCard, { type CourtCardMode } from '../components/CourtCheckin
 import ClosestUnlocksCard from '../components/ClosestUnlocksCard';
 import { EMPTY_HOME, HOME_KEY, loadHome, type HomeData } from '../components/home/homeData';
 import HomeGreeting from '../components/home/HomeGreeting';
+import CourtPassChip from '../components/home/CourtPassChip';
+import { useCourtPass } from '../lib/useCourtPass';
 import PicklesViewer from '../components/home/PicklesViewer';
 import GetStartedPanel from '../components/home/GetStartedPanel';
 import NowPanel from '../components/home/NowPanel';
@@ -203,6 +207,10 @@ export default function HomeScreen({ navigation }: Props) {
   const tap = useCallback((section: HomeSection, target: string, position?: number) => {
     trackHomeTap({ section, target, position });
   }, []);
+
+  // The Court Pass chip (lib/useCourtPass). Its read also pays any tier
+  // reached since the last open, and rains those pickles.
+  const courtPass = useCourtPass();
 
   // ── Modal queue ──
   // Welcome pickles (first launch only: the RPC grants once per account) and
@@ -618,6 +626,15 @@ export default function HomeScreen({ navigation }: Props) {
       onStreak={() => { tap('greeting', 'streak'); void openStreak(); }}
     />,
   );
+  if (courtPass.summary) {
+    sections.push(
+      <CourtPassChip
+        key="court-pass"
+        summary={courtPass.summary}
+        onPress={() => { tap('greeting', 'court_pass'); navigation.navigate('CourtPass'); }}
+      />,
+    );
+  }
 
   // A label-height header (24, not the 32 default) so NOW sits close to its
   // panel without a negative margin. The NOW blocks stay flat siblings: the

@@ -8,6 +8,7 @@ import {
   SparkleName,
   TypewriterName,
   HolographicName,
+  SnowfallName,
 } from './NameStyleAnimations';
 
 type Props = {
@@ -120,6 +121,15 @@ export default function FlairName({
             <HolographicName
               name={name}
               baseColor={effective.base}
+              style={style}
+              numberOfLines={numberOfLines}
+            />
+          );
+        case 'snowfall':
+          return (
+            <SnowfallName
+              name={name}
+              color={effective.base}
               style={style}
               numberOfLines={numberOfLines}
             />

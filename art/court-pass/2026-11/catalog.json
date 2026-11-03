@@ -1,0 +1,190 @@
+{
+  "version": 1,
+  "cycle": "2026-11",
+  "title": "November Court Pass: art catalog",
+  "about": "The 12 November 2026 Court Pass items, laid out like December's (docs/court-pass.md, December's 12 items). Theme: a harvest court, Thanksgiving and late autumn, with no religious imagery. 6 free-lane rewards at tiers 5, 10, 15 (rare), 20, 25 and 30 (the finale), and 6 display-only premium items. The 8 decor items are SVGs in svg/<id>.svg, drawn in viewBox \"0 0 100 H\" with H = 100 / aspect and run through the kit's tools/room-art/import.mjs by ../build.mjs. The 4 shop items (2 avatars, 2 name styles) have no SVG: their look is the payload below, which must equal the cycles SQL and mobile/src/lib/nameStyles.ts. Each item also has a one-line `description` in the Shop's voice for SERVER's shop_items / home_items rows (December's catalog has none; build.mjs ignores the field).",
+  "style": {
+    "base": "art/my-place/catalog.json style: flat, front-on, rounded shapes, no outlines on most shapes, shading by tints, no gradients in item art, light from the top left.",
+    "palette_added": {
+      "pumpkin": "#e8772e",
+      "rust": "#b5451b",
+      "harvest_gold": "#e8a33d",
+      "wheat": "#f2d58a",
+      "leaf_red": "#c8432b",
+      "bark": "#6d4c33"
+    },
+    "palette_kept": {
+      "court_green": "#2e7d32",
+      "ball_yellow": "#f2dd4b",
+      "warm_wood": "#b88a5a"
+    },
+    "harvest_rules": [
+      "Leaves come in four colours only: leaf red, harvest gold, pumpkin and rust; the left half of a leaf is its colour lightened 12% (the lit face) and its veins are its colour darkened 25%.",
+      "Maple leaves are the seven-point star from draw.mjs; small ones (radius under 3) drop their veins. Oak leaves are an almond with a midrib.",
+      "Pumpkins have three lobes: the left lobe lit, the centre in the base colour, the right and back darker, with a brown stem and an optional green vine curl.",
+      "Every item has one pickleball or paddle in it, so the set reads as Pickleague's, not a generic autumn pack. No religious imagery, no pilgrims' buckles or crosses."
+    ]
+  },
+  "items": [
+    {
+      "id": "cp2611-avatar-turkey",
+      "title": "Gobble Gobble",
+      "tier": 5,
+      "lane": "free",
+      "table": "shop_items",
+      "category": "avatar",
+      "aspect": null,
+      "rarity": "common",
+      "icon": "🦃",
+      "payload": { "emoji": "🦃", "bgColor": "#fbe3c4" },
+      "description": "Strutting onto the courts just in time for the feast.",
+      "brief": "An avatar: the turkey emoji on a round warm-squash background #fbe3c4. No SVG; the app draws the emoji in the player's avatar circle as HomeGreeting does. The background is light enough that the turkey's brown and red feathers still read."
+    },
+    {
+      "id": "cp2611_cornucopia",
+      "title": "Pickleball Cornucopia",
+      "tier": 10,
+      "lane": "free",
+      "table": "home_items",
+      "slot_group": "shelf_item",
+      "aspect": 1,
+      "rarity": "common",
+      "icon": "🌽",
+      "description": "A horn of plenty, spilling over with pickleballs.",
+      "brief": "A woven wicker horn (#c8955a, darker woven bands, a lighter dashed weave and a lit top edge) curling up to a tail on the left, its dark opening facing right. Out of it spill two wheat stalks, a red maple leaf, a gold oak leaf, a red apple, a big pickleball, a pumpkin, a small pickleball and an acorn. It stands on a dark-wood shelf base that touches the bottom edge and both sides, with a gold leaf lying on the base at the left."
+    },
+    {
+      "id": "cp2611_pumpkin_stack",
+      "title": "Harvest Pumpkin Stack",
+      "tier": 15,
+      "lane": "free",
+      "table": "home_items",
+      "slot_group": "accent",
+      "aspect": 0.75,
+      "rarity": "rare",
+      "icon": "🍂",
+      "description": "Three pumpkins, one hay bale and a paddle that's seen a season.",
+      "brief": "Three pumpkins stacked on a hay bale: a big pumpkin-orange one, a cream heirloom one in the middle and a harvest-gold one on top with a green vine curl. The straw bale (#e6c36a, lighter top, darker foot, short straw strokes, two bark-brown twine bands) spans the full width and touches the bottom edge. A court-green paddle leans on the right of the stack, a pickleball rests on the bale's left corner, and three fallen leaves lie on the straw."
+    },
+    {
+      "id": "cp2611_window_autumn",
+      "title": "Autumn Court Window",
+      "tier": 20,
+      "lane": "free",
+      "table": "home_items",
+      "slot_group": "window",
+      "aspect": 0.9,
+      "rarity": "common",
+      "icon": "🪟",
+      "description": "Golden-hour games under the turning trees.",
+      "brief": "window_classic's frame, muntins and sill, looking out on a golden afternoon (#f4b860) with a pale low sun, a terracotta hill and round red, gold, orange and rust trees. Below, golden grass and a court-green court with white lines, a dark net, a pickleball and three fallen leaves on it; small leaves fall across the sky. A ring of autumn leaves with a rust bow hangs where the muntins cross, and the sill carries a row of fallen leaves with a small pumpkin at each end."
+    },
+    {
+      "id": "cp2611-list-harvest",
+      "title": "Harvest",
+      "tier": 25,
+      "lane": "free",
+      "table": "shop_items",
+      "category": "list_name_style",
+      "aspect": null,
+      "rarity": "common",
+      "icon": "🧡",
+      "payload": { "kind": "gradient", "stops": ["#b5451b", "#e8a33d"], "direction": "horizontal" },
+      "description": "Your name in the colours of a late-autumn court.",
+      "brief": "A list name style: a horizontal gradient from rust #b5451b to harvest gold #e8a33d. No SVG; FlairName draws it (today as the first stop, solid, until the app has a gradient text renderer). The rust first stop keeps the name readable on light lists, the way December's deep ice does."
+    },
+    {
+      "id": "cp2611-profile-golden-harvest",
+      "title": "Golden Harvest",
+      "tier": 30,
+      "lane": "free",
+      "table": "shop_items",
+      "category": "profile_name_style",
+      "aspect": null,
+      "rarity": "rare",
+      "icon": "✨",
+      "payload": { "kind": "animated", "effect": "sparkle", "base": "#c2571a" },
+      "description": "The finale: your name in burnt orange, twinkling like a harvest-moon night.",
+      "brief": "The finale: a profile name style with the name in burnt orange #c2571a and three gold sparkles twinkling around it, looping. It reuses the existing sparkle effect (SparkleName in NameStyleAnimations.tsx, as hero-anim-sparkle does with a different base), so the app needs only the nameStyles.ts entry, no new animation. In lists it degrades to the solid base colour, like every animated style."
+    },
+    {
+      "id": "cp2611_poster_gratitude",
+      "title": "Gratitude Court Poster",
+      "tier": 5,
+      "lane": "premium",
+      "table": "home_items",
+      "slot_group": "wall_art",
+      "aspect": 0.8,
+      "rarity": "rare",
+      "icon": "🖼️",
+      "description": "Thankful for every rally.",
+      "brief": "art_tournament_poster's layout on cream paper: a rust panel with a big harvest-gold maple leaf, a pickleball at its heart, two small leaves drifting and rolling pumpkin and wheat hills at the bottom. Under it a court-green band reads GRATITUDE in white with COURT in wheat below, between two white rules. Wheat tape strips at both top corners reach the top edge."
+    },
+    {
+      "id": "cp2611-avatar-pie",
+      "title": "Pie Time",
+      "tier": 10,
+      "lane": "premium",
+      "table": "shop_items",
+      "category": "avatar",
+      "aspect": null,
+      "rarity": "rare",
+      "icon": "🥧",
+      "payload": { "emoji": "🥧", "bgColor": "#f6e1c3" },
+      "description": "Save room for dessert after doubles.",
+      "brief": "An avatar: the pie emoji on a warm pastry background #f6e1c3. No SVG; the app draws it like any shop avatar. Premium preview only: it is shown, never granted or sold."
+    },
+    {
+      "id": "cp2611_leaf_garland",
+      "title": "Autumn Leaf Garland",
+      "tier": 15,
+      "lane": "premium",
+      "table": "home_items",
+      "slot_group": "ceiling",
+      "aspect": 4,
+      "rarity": "rare",
+      "icon": "🍁",
+      "description": "Fallen leaves, strung up for the season.",
+      "brief": "A twine line swagged twice across the top, held by three bark-brown pegs that touch y = 0. Fifteen charms hang from it on short strings at two drop heights: maple and oak leaves in leaf red, harvest gold, pumpkin and rust, three acorns and two pickleballs. Each charm tilts a little, and the lowest one stops well inside the 25-unit box."
+    },
+    {
+      "id": "cp2611_pillow_plaid",
+      "title": "Harvest Plaid Pillow",
+      "tier": 20,
+      "lane": "premium",
+      "table": "home_items",
+      "slot_group": "couch_pillow",
+      "aspect": 1.2,
+      "rarity": "rare",
+      "icon": "🛋️",
+      "description": "Flannel-soft and ready for the post-game nap.",
+      "brief": "A soft pumpkin pillow (rx about 40% of its height) in a harvest plaid: wide rust bands both ways at 45% opacity, thin cream lines and thin bark lines, every stripe cut to the pillow's rounded outline. In the middle a cream oval patch with a dashed rust stitch holds a harvest-gold maple leaf with a pickleball on it. A lighter highlight sits top left and a dashed seam runs just inside the edge."
+    },
+    {
+      "id": "cp2611_rug_harvest",
+      "title": "Woven Harvest Rug",
+      "tier": 25,
+      "lane": "premium",
+      "table": "home_items",
+      "slot_group": "rug",
+      "aspect": 3,
+      "rarity": "rare",
+      "icon": "🧺",
+      "description": "A hand-woven court for the coziest games of the year.",
+      "brief": "rug_court_lines' trapezoid court, woven: a rust border with a dashed wheat stitch, a wheat-gold court, a slightly darker kitchen and cream court lines. A big pumpkin maple leaf with a pickleball, squashed to lie flat on the floor, replaces the net at the centre, and a small flat leaf sits in each service box. Wheat dots finish the four corners."
+    },
+    {
+      "id": "cp2611_rack_harvest_hall",
+      "title": "Harvest Hall Paddle Wall",
+      "tier": 30,
+      "lane": "premium",
+      "table": "home_items",
+      "slot_group": "paddle_rack",
+      "aspect": 1.25,
+      "rarity": "legendary",
+      "icon": "🌾",
+      "description": "The barn where the season's best paddles hang.",
+      "brief": "rack_champion's paddle fan on a red barn: a barn-red wall under a bark-brown roof with a cream eave, a cream-trimmed gable whose peak touches y = 0 and a gold round loft window, and a darker recessed panel with board lines, a faint cream X-brace and a row of small leaves under the eave. Four paddles fan out (two pumpkin, two wheat) behind a gold centre paddle with a rust maple leaf, with a small pumpkin in each bottom corner. A gold plate sits at the bottom, as on the champion rack."
+    }
+  ]
+}

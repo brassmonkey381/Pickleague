@@ -38,9 +38,9 @@ All have RLS on. Clients get `select` only; every write goes through the RPCs be
 | --- | --- | --- |
 | `room_layout` | `id` (`'default'`), `layout` jsonb, `updated_at`, `updated_by` | every signed-in player |
 | `home_slots` | `id`, `label`, `kind`, `fits`, `parent_id`, `sort`: the server's copy of the slot structure | every signed-in player |
-| `home_items` | `id`, `name`, `slot_group`, `cost`, `rarity`, `season`, `available_from`, `available_until`, `art_key`, `art_aspect`, `icon`, `sort`, `is_starter` | every signed-in player |
+| `home_items` | `id`, `name`, `slot_group`, `cost`, `rarity`, `season`, `available_from`, `available_until`, `art_key`, `art_aspect`, `icon`, `sort`, `is_starter`, `track_only` (a Court Pass reward, never sold; `migration_court_pass_tables.sql`) | every signed-in player |
 | `home_item_art` | `item_id`, `art_svg` | every signed-in player |
-| `home_owned_items` | `owner_id`, `item_id`, `acquired_at`, `cost_paid`, `source` (`buy`, `starter`, `grant`) | the owner |
+| `home_owned_items` | `owner_id`, `item_id`, `acquired_at`, `cost_paid`, `source` (`buy`, `starter`, `grant`: a Court Pass tier, cost 0) | the owner |
 | `home_equipped` | `owner_id`, `slot_id`, `item_id` (one item per slot, one slot per item) | the owner |
 | `home_settings` | `owner_id`, `visibility` (`friends`, `only_me`; no row = `friends`) | the owner |
 | `home_starter_claims` | `owner_id`, `claimed_at` | the owner |
@@ -122,6 +122,7 @@ history row reads "My Place: <item>" (kind spend, category shop). Free items wri
 | `home.layout_newer` | a layout version above 1 (any number) | `{version}` |
 | `home.item_gone` | no such item | `{item_id}` |
 | `home.not_yet` | not on sale yet | `{item, available_from}` |
+| `home.track_only` | a Court Pass reward (`track_only`): never sold. The message names the tier and pass that pay it, says the pass has ended, or (premium track) that the premium track is coming soon, pointing to the free rewards. Checked before `home.not_yet` / `home.ended`; an owner's retried buy still returns `already_owned`. | `{item, tier, cycle}` |
 | `home.ended` | its drop has ended (owners keep and can still equip it) | `{item, available_until}` |
 | `home.not_enough` | balance below the price | `{item, cost, balance, short}` |
 | `home.slot_unknown` | a slot the server doesn't know (update the app) | `{slot_id}` |

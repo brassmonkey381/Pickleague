@@ -1,3 +1,6 @@
+import fs from 'node:fs';
+import path from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { describe, it, expect } from 'vitest';
 import {
   QUEUED_CHECKIN_NOTE,
@@ -88,6 +91,8 @@ const SERVER_CODES: RefusalCode[] = [
   // migration_play_session_history.sql
   'session.gone',
   'session.open',
+  // migration_court_pass_tables.sql
+  'home.track_only',
 ];
 
 const GENERIC = /something went wrong|an error occurred|try again later\.?$|^error/i;
@@ -643,5 +648,43 @@ describe('isServerRefusal: the server already said why and what to do', () => {
     expect(isServerRefusal({ message: 'Could not find the function', code: 'PGRST202' })).toBe(false);
     expect(isServerRefusal({ message: '', hint: 'pl:admin.only' })).toBe(false);
     expect(isServerRefusal({ message: 'x', hint: 'Perhaps you meant pl:admin' })).toBe(false);
+  });
+});
+
+describe('Court Pass rewards are not sold in My Place (home.track_only)', () => {
+  const sent =
+    "Court Snow Globe is a Court Pass reward, so it isn't sold in My Place and nothing was spent. Reach tier 10 on the December Court Pass to earn it.";
+
+  it("shows the server's message as sent: it already names the tier", () => {
+    const e = { message: sent, hint: 'pl:home.track_only', details: '{"item":"Court Snow Globe","tier":10,"cycle":"December Court Pass"}', code: 'P0001' };
+    expect(refusalCode(e)).toBe('home.track_only');
+    expect(refusalMessage(e)).toBe(sent);
+    const premium =
+      "Icicle Lights is on the Court Pass premium track, which is coming soon, so it isn't sold in My Place and nothing was spent. Open the Court Pass to see the free rewards you can earn.";
+    expect(refusalMessage({ message: premium, hint: 'pl:home.track_only', code: 'P0001' })).toBe(premium);
+    const ended =
+      "Court Snow Globe was a tier 10 reward on the December Court Pass, which has ended, so it isn't sold in My Place and nothing was spent. Open the Court Pass to see this month's rewards.";
+    expect(refusalMessage({ message: ended, hint: 'pl:home.track_only', code: 'P0001' })).toBe(ended);
+  });
+
+  it('a lost message gets words that promise no tier (DETAIL does not say the lane, and premium is never earnable)', () => {
+    for (const tier of [10, null]) {
+      expect(refusalCopy('home.track_only', {}, { item: 'Icicle Lights', tier, cycle: 'December Court Pass' })).toBe(
+        "Icicle Lights is a Court Pass reward, so it isn't sold in My Place and nothing was spent. Open the Court Pass to see how to earn rewards.",
+      );
+    }
+    expect(refusalCopy('home.track_only', {}, {}, 'Item not available')).toMatch(/^That item is a Court Pass reward/);
+    expect(refusalTitle('home.track_only')).toBe('Court Pass reward');
+  });
+
+  it('every pl: hint in the Court Pass SQL is a known refusal code', () => {
+    const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../../../..');
+    for (const file of ['migration_court_pass_tables.sql', 'migration_court_pass_xp.sql']) {
+      const p = path.join(root, 'supabase', file);
+      if (!fs.existsSync(p)) throw new Error(`supabase/${file} is missing: this test reads its refusal codes.`);
+      const codes = new Set([...fs.readFileSync(p, 'utf8').matchAll(/'pl:([a-z_.]+)'/g)].map((m) => m[1]));
+      expect(codes.size, file).toBeGreaterThan(0);
+      for (const code of codes) expect(REFUSAL_CODES, `${file}: ${code}`).toContain(code);
+    }
   });
 });

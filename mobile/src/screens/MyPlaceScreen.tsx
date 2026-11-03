@@ -7,6 +7,8 @@
 // Remove empties the spot. Tapping a row previews it in the room. The first
 // visit claims the free starter set (claim_my_place_starter) on its own,
 // with a button if that fails. Who can visit: Friends (default) or Only me.
+// Under the room, the Court Pass chip (docs/court-pass.md): its decor tiers
+// land here, owned, and are put in from the spot's sheet like any other.
 //
 // Someone else's (userId): the same room, read-only. A refused visit (Only
 // me, friends only, unavailable, a guest pass) is a friendly state that says
@@ -37,6 +39,8 @@ import { SkeletonList } from '../components/Skeleton';
 import FriendButton from '../components/FriendButton';
 import MyPlaceRoom from '../components/myPlace/MyPlaceRoom';
 import DecorSheet, { type DecorNotice } from '../components/myPlace/DecorSheet';
+import CourtPassChip from '../components/home/CourtPassChip';
+import { useCourtPass } from '../lib/useCourtPass';
 import { AVATARS } from '../data/profileCustomization';
 import {
   buyHomeItem,
@@ -98,6 +102,8 @@ export default function MyPlaceScreen({ navigation, route }: Props) {
   const catalog = useMyPlaceCatalog();
   const layoutQ = useRoomLayout();
   const myHome = useMyHome(mine && meId !== undefined);
+  // My own place links to the Court Pass, where decor tiers are earned.
+  const courtPass = useCourtPass({ enabled: mine && meId != null });
   const visit = useVisitHome(mine ? null : ownerParam, !mine && meId !== undefined);
   const home = mine ? myHome : visit;
   const owner = usePlaceOwner(ownerId);
@@ -418,6 +424,9 @@ export default function MyPlaceScreen({ navigation, route }: Props) {
               />
             ) : (
               <>
+                {courtPass.summary ? (
+                  <CourtPassChip summary={courtPass.summary} onPress={() => navigation.navigate('CourtPass')} />
+                ) : null}
                 <Text style={[t.sub, styles.block]}>
                   {filled === 0
                     ? 'Your room is empty. Tap a spot in the room, or pick one below, to decorate it.'

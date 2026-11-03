@@ -12,7 +12,7 @@ export type NameStyle =
   | { kind: 'gradient'; stops: string[]; direction?: 'horizontal' | 'vertical' }
   | { kind: 'glow';     color: string; radius: number }
   | { kind: 'metallic'; base: string; shineColor: string }
-  | { kind: 'animated'; effect: 'pulse' | 'rainbow' | 'sparkle' | 'typewriter' | 'holographic'; base: string };
+  | { kind: 'animated'; effect: 'pulse' | 'rainbow' | 'sparkle' | 'typewriter' | 'holographic' | 'snowfall'; base: string };
 
 // Library of presets. Keys must match shop_items.slug.
 export const NAME_STYLES: Record<string, NameStyle> = {
@@ -61,6 +61,16 @@ export const NAME_STYLES: Record<string, NameStyle> = {
   'style-singles-specialist-solo': { kind: 'solid',    color: '#059669' },
   'style-doubles-dynamo-duo':      { kind: 'gradient', stops: ['#2193b0', '#6dd5ed'], direction: 'horizontal' },
   'style-champion-gold':           { kind: 'metallic', base: '#d4af37', shineColor: '#fff8dc' },
+
+  // ── Court Pass rewards (never sold; granted by the track) ────────
+  // courtArt.test.ts checks these equal the seeded payloads.
+  // November 2026 (supabase/migration_court_pass_cycles_2026_11.sql). Golden
+  // Harvest reuses the sparkle effect (SparkleName), with a burnt-orange base.
+  'cp2611-list-harvest':           { kind: 'gradient', stops: ['#b5451b', '#e8a33d'], direction: 'horizontal' },
+  'cp2611-profile-golden-harvest': { kind: 'animated', effect: 'sparkle', base: '#c2571a' },
+  // December 2026 (supabase/migration_court_pass_cycles_2026_12_2027_01.sql).
+  'cp2612-list-frost':       { kind: 'gradient', stops: ['#2f7fc1', '#7cc7ff'], direction: 'horizontal' },
+  'cp2612-profile-snowfall': { kind: 'animated', effect: 'snowfall', base: '#2f7fc1' },
 };
 
 /** Resolve a slug to its preset recipe. Returns null for null/unknown slugs. */

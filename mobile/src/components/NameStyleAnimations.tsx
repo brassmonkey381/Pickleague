@@ -9,11 +9,12 @@
 // - Sparkle uses 2-3 small ✨ glyphs at low max opacity around the name.
 // - Typewriter reveals at ~50ms/letter, then locks at full text.
 // - Holographic shifts through cyan → magenta → yellow → cyan over ~3s.
+// - Snowfall drifts 4 small ❄ flakes down across the name, max opacity 0.85.
 //
 // All timers and Animated loops are cleaned up on unmount.
 
 import React, { useEffect, useRef, useState } from 'react';
-import { Animated, Easing, StyleProp, Text, TextStyle, View } from 'react-native';
+import { Animated, Easing, LayoutChangeEvent, StyleProp, Text, TextStyle, View } from 'react-native';
 
 type CommonProps = {
   name: string;
@@ -261,5 +262,91 @@ export function HolographicName({
     >
       {name}
     </Text>
+  );
+}
+
+// ── Snowfall ───────────────────────────────────────────────────────────
+// The Court Pass finale (December 2026). Static name in the recipe's base
+// colour + 4 small ❄ flakes, each falling from just above the name to just
+// below it while it drifts sideways and fades in and out, on its own phase
+// (~2.6-3.4s per fall). Transform + opacity only, so it runs on the native
+// driver, and on web through the JS fallback, like SparkleName.
+// The flakes use the text form of ❄ (U+FE0E) so they take the ice colour
+// instead of an emoji's own; they are decorative and ignore touches.
+type SnowPhase = { left: string; delay: number; duration: number; size: number; drift: number };
+const SNOW_PHASES: SnowPhase[] = [
+  { left: '8%',  delay: 0,    duration: 2800, size: 8,  drift: 4 },
+  { left: '34%', delay: 900,  duration: 3400, size: 7,  drift: -3 },
+  { left: '60%', delay: 400,  duration: 3000, size: 9,  drift: 3 },
+  { left: '86%', delay: 1500, duration: 2600, size: 7,  drift: -4 },
+];
+const SNOW_COLOR = '#7cc7ff';
+
+function SnowFlake({ phase, fall }: { phase: SnowPhase; fall: number }) {
+  const t = useRef(new Animated.Value(0)).current;
+
+  useEffect(() => {
+    const loop = Animated.loop(
+      Animated.sequence([
+        Animated.delay(phase.delay),
+        Animated.timing(t, {
+          toValue: 1,
+          duration: phase.duration,
+          easing: Easing.linear,
+          useNativeDriver: true,
+        }),
+        Animated.timing(t, { toValue: 0, duration: 0, useNativeDriver: true }),
+      ]),
+    );
+    loop.start();
+    return () => {
+      loop.stop();
+    };
+  }, [t, phase.delay, phase.duration]);
+
+  const translateY = t.interpolate({ inputRange: [0, 1], outputRange: [-phase.size, fall] });
+  const translateX = t.interpolate({ inputRange: [0, 0.5, 1], outputRange: [0, phase.drift, 0] });
+  const opacity = t.interpolate({ inputRange: [0, 0.15, 0.8, 1], outputRange: [0, 0.85, 0.85, 0] });
+
+  return (
+    <Animated.Text
+      style={{
+        position: 'absolute',
+        top: 0,
+        left: phase.left as any,
+        fontSize: phase.size,
+        lineHeight: phase.size + 2,
+        color: SNOW_COLOR,
+        opacity,
+        transform: [{ translateY }, { translateX }],
+        pointerEvents: 'none',
+      }}
+    >
+      {'❄︎'}
+    </Animated.Text>
+  );
+}
+
+export function SnowfallName({
+  name,
+  color,
+  style,
+  numberOfLines,
+}: CommonProps & { color: string }) {
+  // The flakes fall the name's own height (measured), 24 until it is laid out.
+  const [height, setHeight] = useState(24);
+  const onLayout = (e: LayoutChangeEvent) => {
+    const h = Math.round(e.nativeEvent.layout.height);
+    if (h > 0 && h !== height) setHeight(h);
+  };
+  return (
+    <View style={{ position: 'relative', alignSelf: 'flex-start' }} onLayout={onLayout}>
+      <Text style={[style, { color }]} numberOfLines={numberOfLines}>
+        {name}
+      </Text>
+      {SNOW_PHASES.map((p, i) => (
+        <SnowFlake key={i} phase={p} fall={height} />
+      ))}
+    </View>
   );
 }

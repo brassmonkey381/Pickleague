@@ -1,0 +1,177 @@
+{
+  "version": 1,
+  "cycle": "2026-12",
+  "title": "December Court Pass: art catalog",
+  "about": "The 12 December 2026 Court Pass items (docs/court-pass.md, December's 12 items). Theme: a winter court. 6 free-lane rewards at tiers 5, 10, 15 (rare), 20, 25 and 30 (the finale), and 6 display-only premium items. The 8 decor items are SVGs in svg/<id>.svg, drawn in viewBox \"0 0 100 H\" with H = 100 / aspect and run through the kit's tools/room-art/import.mjs by ../build.mjs. The 4 shop items (2 avatars, 2 name styles) have no SVG: their look is the payload below, which must equal the cycles SQL and mobile/src/lib/nameStyles.ts.",
+  "style": {
+    "base": "art/my-place/catalog.json style: flat, front-on, rounded shapes, no outlines on most shapes, shading by tints, no gradients in item art, light from the top left.",
+    "palette_added": {
+      "ice": "#7cc7ff",
+      "deep_ice": "#2f7fc1",
+      "snow": "#f7fbff",
+      "holiday_red": "#e0533f",
+      "pine": "#1b5e20"
+    },
+    "palette_kept": {
+      "court_green": "#2e7d32",
+      "ball_yellow": "#f2dd4b",
+      "warm_wood": "#b88a5a"
+    },
+    "winter_rules": [
+      "Snow is snow #f7fbff, never pure grey; a shaded snow face is snow darkened 5%.",
+      "Snowflakes have six arms (stroked lines, round caps), white on blue or pine on snow; small ones drop the side branches.",
+      "Ice shapes are glass #bfe3f5 with a white streak on the left face; a glow is a flat ice ellipse at opacity 0.25, never a blur.",
+      "Every item has one pickleball or paddle in it, so the set reads as Pickleague's, not a generic holiday pack."
+    ]
+  },
+  "items": [
+    {
+      "id": "cp2612-avatar-snowman",
+      "title": "Snow Day",
+      "tier": 5,
+      "lane": "free",
+      "table": "shop_items",
+      "category": "avatar",
+      "aspect": null,
+      "rarity": "common",
+      "icon": "⛄",
+      "payload": { "emoji": "⛄", "bgColor": "#dceefb" },
+      "brief": "An avatar: the snowman emoji on a round pale-ice background #dceefb. No SVG; the app draws the emoji in the player's avatar circle as HomeGreeting does. The background is a winter sky, light enough that the white snowman still reads."
+    },
+    {
+      "id": "cp2612_snow_globe",
+      "title": "Court Snow Globe",
+      "tier": 10,
+      "lane": "free",
+      "table": "home_items",
+      "slot_group": "shelf_item",
+      "aspect": 1,
+      "rarity": "common",
+      "icon": "❄️",
+      "brief": "A glass globe (glass #bfe3f5 at 55% fill, #9cc8e0 rim, a white highlight arc top left) on a warm-wood base with a holiday-red band, a small gold plate and a dark-wood foot that touches the bottom edge and both sides. Inside: a snow mound with a tiny court-green court (white lines, dashed net), a pickleball on it, two little pines with snow caps, white snow dots and two snowflakes. It sits on the shelf, so the base stands on y = 100."
+    },
+    {
+      "id": "cp2612_ornament_tree",
+      "title": "Pickleball Ornament Tree",
+      "tier": 15,
+      "lane": "free",
+      "table": "home_items",
+      "slot_group": "accent",
+      "aspect": 0.75,
+      "rarity": "rare",
+      "icon": "🎄",
+      "brief": "A small three-tier pine (pine #1b5e20, the left half of each tier court green #2e7d32 as its lit face) with a snow scallop under each tier and two ice-blue garlands. The ornaments are pickleballs in ball yellow, ice and holiday red, each on a tiny gold cap, and the topper is a gold paddle with a white snowflake on its face. It stands in a holiday-red pot with a snow band; the pot touches the bottom edge and the lowest tier spans the full width."
+    },
+    {
+      "id": "cp2612_window_snow",
+      "title": "Snowy Court Window",
+      "tier": 20,
+      "lane": "free",
+      "table": "home_items",
+      "slot_group": "window",
+      "aspect": 0.9,
+      "rarity": "common",
+      "icon": "🌨️",
+      "brief": "window_classic's frame, muntins and sill, looking out on a deep-ice #2f7fc1 evening: a snow moon top right, snow-capped pines, white falling snow and two snowflakes. Below, snowy ground and a court-green court with white lines, a dark net and snow drifts on it; frost in the glass corners, snow along the muntin and the pane bottoms, a scalloped snow drift on the sill. A pine wreath with red berries and a red bow hangs where the muntins cross."
+    },
+    {
+      "id": "cp2612-list-frost",
+      "title": "Frost",
+      "tier": 25,
+      "lane": "free",
+      "table": "shop_items",
+      "category": "list_name_style",
+      "aspect": null,
+      "rarity": "common",
+      "icon": "🧊",
+      "payload": { "kind": "gradient", "stops": ["#2f7fc1", "#7cc7ff"], "direction": "horizontal" },
+      "brief": "A list name style: a horizontal gradient from deep ice #2f7fc1 to ice #7cc7ff. No SVG; FlairName draws it (today as the first stop, solid, until the app has a gradient text renderer). It is the cold blue of the whole set, readable on light and dark lists."
+    },
+    {
+      "id": "cp2612-profile-snowfall",
+      "title": "Snowfall",
+      "tier": 30,
+      "lane": "free",
+      "table": "shop_items",
+      "category": "profile_name_style",
+      "aspect": null,
+      "rarity": "rare",
+      "icon": "🌨️",
+      "payload": { "kind": "animated", "effect": "snowfall", "base": "#2f7fc1" },
+      "brief": "The finale: a profile name style with the name in deep ice #2f7fc1 and small snowflakes drifting down across it, looping (SnowfallName in NameStyleAnimations.tsx). The flakes are faint and few, so the name always reads. In lists it degrades to the solid base colour, like every animated style."
+    },
+    {
+      "id": "cp2612_poster_first_frost",
+      "title": "First Frost Poster",
+      "tier": 5,
+      "lane": "premium",
+      "table": "home_items",
+      "slot_group": "wall_art",
+      "aspect": 0.8,
+      "rarity": "rare",
+      "icon": "🖼️",
+      "brief": "art_tournament_poster's layout on snow paper: a deep-ice panel with a big ice-blue snowflake, a pickleball at its heart with a white frost cap, and rolling ice snowdrifts at the bottom. Under it a holiday-red band reads FROST in white with two white rules. Ice-blue tape strips at both top corners reach the top edge."
+    },
+    {
+      "id": "cp2612-avatar-reindeer",
+      "title": "Reindeer",
+      "tier": 10,
+      "lane": "premium",
+      "table": "shop_items",
+      "category": "avatar",
+      "aspect": null,
+      "rarity": "rare",
+      "icon": "🦌",
+      "payload": { "emoji": "🦌", "bgColor": "#f1e3d3" },
+      "brief": "An avatar: the deer emoji on a warm oatmeal background #f1e3d3. No SVG; the app draws it like any shop avatar. Premium preview only: it is shown, never granted or sold."
+    },
+    {
+      "id": "cp2612_icicle_lights",
+      "title": "Icicle Lights",
+      "tier": 15,
+      "lane": "premium",
+      "table": "home_items",
+      "slot_group": "ceiling",
+      "aspect": 4,
+      "rarity": "rare",
+      "icon": "✨",
+      "brief": "A pale wire swagged twice across the top, held by three deep-ice clips that touch y = 0. Sixteen icicles of uneven length hang from it, glass #bfe3f5 with a #9cc8e0 edge, a white streak and a white bulb near each tip. Each tip sits in a flat ice glow at opacity 0.25; the longest stops inside the 25-unit box."
+    },
+    {
+      "id": "cp2612_pillow_knit",
+      "title": "Holiday Knit Pillow",
+      "tier": 20,
+      "lane": "premium",
+      "table": "home_items",
+      "slot_group": "couch_pillow",
+      "aspect": 1.2,
+      "rarity": "rare",
+      "icon": "🧶",
+      "brief": "A soft holiday-red pillow (rx about 40% of its height) knit all over with darker V stitches and a dashed seam just inside its edge. Across the middle a snow band Fair-Isle style: white zigzag borders, pine snowflakes at both ends, red diamonds and a pickleball in the centre. A lighter red highlight sits top left."
+    },
+    {
+      "id": "cp2612_rug_snowflake",
+      "title": "Snowflake Court Rug",
+      "tier": 25,
+      "lane": "premium",
+      "table": "home_items",
+      "slot_group": "rug",
+      "aspect": 3,
+      "rarity": "rare",
+      "icon": "❄️",
+      "brief": "rug_court_lines' trapezoid court in ice: a deep-ice border, an ice #7cc7ff court, a slightly darker kitchen and white court lines. A big white snowflake, squashed to lie flat on the floor, replaces the net at the centre, and a small snowflake sits in each service box. Snow dots finish the four corners."
+    },
+    {
+      "id": "cp2612_rack_ice_palace",
+      "title": "Ice Palace Paddle Wall",
+      "tier": 30,
+      "lane": "premium",
+      "table": "home_items",
+      "slot_group": "paddle_rack",
+      "aspect": 1.25,
+      "rarity": "legendary",
+      "icon": "🧊",
+      "brief": "rack_champion's paddle fan on an ice palace: a deep-ice wall with crenellations, three towers with ice roofs and snow eaves (the middle spire touches y = 0) and glowing glass arch windows, a darker recessed panel with small icicles along its top and faint ice snowflakes. Four paddles fan out (two ice, two snow white) behind a gold centre paddle with a white snowflake. A gold plate sits at the bottom, as on the champion rack."
+    }
+  ]
+}

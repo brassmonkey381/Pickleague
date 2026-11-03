@@ -120,6 +120,8 @@ export const REFUSAL_CODES = [
   'home.guest',
   'home.private',
   'home.friends_only',
+  // migration_court_pass_tables.sql: buy_home_item on a Court Pass reward.
+  'home.track_only',
   // Only from an older server's message (it couldn't tell these apart).
   'match.not_pending',
   // Only from the server's text: _lock_completed_tournament_match
@@ -577,6 +579,16 @@ export function refusalCopy(
       return `${textOf(detail.name) || person || 'This player'} keeps My Place to themselves right now, so it can't be visited. Visit a friend's place instead.`;
     case 'home.friends_only':
       return `${textOf(detail.name) || person || 'This player'} shares My Place with friends only. Send them a friend request; once they accept, you can visit.`;
+    // ── Court Pass (migration_court_pass_tables.sql) ──
+    case 'home.track_only': {
+      // DETAIL {item, tier, cycle}. The server's message already says which
+      // tier earns it (or that it is on the premium track, coming soon, or
+      // that its pass has ended), so it is shown as sent. DETAIL doesn't say
+      // which lane the tier is on, so a lost message gets words that promise
+      // no tier: a premium item must never read as earnable.
+      if (/Court Pass/.test(message) && /[.!]$/.test(message)) return message;
+      return `${textOf(detail.item) || 'That item'} is a Court Pass reward, so it isn't sold in My Place and nothing was spent. Open the Court Pass to see how to earn rewards.`;
+    }
   }
 }
 
@@ -677,6 +689,8 @@ export function refusalTitle(code: RefusalCode, action?: RefusalAction): string 
       return "Can't visit";
     case 'home.not_enough':
       return 'Not enough pickles';
+    case 'home.track_only':
+      return 'Court Pass reward';
     case 'admin.only':
     case 'home.layout_bad':
     case 'home.layout_newer':

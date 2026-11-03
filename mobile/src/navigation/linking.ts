@@ -130,6 +130,7 @@ export const linking: LinkingOptions<RootStackParamList> = {
       Shop: 'shop',
       MyPlace: 'place/:userId?',
       MyPlaceLayout: 'admin/my-place-layout',
+      CourtPass: 'court-pass',
       PicklesCalendar: 'pickles/calendar',
       PlayHistory: 'play/history',
       GiftPickles: 'gift-pickles',
