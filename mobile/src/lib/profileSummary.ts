@@ -7,6 +7,7 @@
 //
 // PURE (no react-native import) so it is unit-tested.
 import { AVATARS, PLAY_TAGS, TAG_SLOT_UNLOCKS } from '../data/profileCustomization';
+import { badgeDisplayName } from './badgeDisplay';
 
 // ── Next unlock ──────────────────────────────────────────────────────────────
 
@@ -85,7 +86,7 @@ export function nextUnlockTeaser(progress: readonly UnlockProgressInput[]): Next
     : `${Math.min(current, pick.target)} of ${pick.target}`;
   return {
     kind: 'next',
-    reward: rewardForBadge(pick.badge) ?? `${pick.badge} badge`,
+    reward: rewardForBadge(pick.badge) ?? `${badgeDisplayName(pick.badge)} badge`,
     badge: pick.badge,
     pct,
     valueText,

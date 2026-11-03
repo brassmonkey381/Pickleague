@@ -462,7 +462,7 @@ function SeasonStandingsBody({ navigation, route, seasonId, leagueId }: Props & 
     if (error) {
       status.error(error.message);
     } else {
-      status.success(`Period ${n} standings are locked in.`);
+      status.success(`Round ${n} standings are locked in.`);
       load();
     }
   }
@@ -569,8 +569,8 @@ function SeasonStandingsBody({ navigation, route, seasonId, leagueId }: Props & 
   // ── Period strip ──
   const tabOptions: FilterChipOption<string>[] = periods.map(p => (
     p.periodNumber === livePeriodNumber
-      ? { value: `p${p.periodNumber}`, label: `P${p.periodNumber} · Live`, iconName: 'dot' as const }
-      : { value: `p${p.periodNumber}`, label: `P${p.periodNumber}` }
+      ? { value: `p${p.periodNumber}`, label: `R${p.periodNumber} · Live`, iconName: 'dot' as const }
+      : { value: `p${p.periodNumber}`, label: `R${p.periodNumber}` }
   ));
   if (finals.length > 0 || season.status === 'completed') tabOptions.push({ value: 'final', label: 'Final', iconName: 'trophy' });
   const tabValue = activeTab === 'final' ? 'final' : `p${activeTab ?? 1}`;
@@ -593,7 +593,7 @@ function SeasonStandingsBody({ navigation, route, seasonId, leagueId }: Props & 
       const isFuture = !period.locked && pStart > todayDateOnly;
       const isLive = !period.locked && !isFuture && period.periodNumber === livePeriodNumber;
       if (isFuture) {
-        futureNote = `P${period.periodNumber} starts ${fmtDay(pStart)} · locks ${fmtDay(period.date)}`;
+        futureNote = `R${period.periodNumber} starts ${fmtDay(pStart)} · locks ${fmtDay(period.date)}`;
       } else {
         caption = period.locked
           ? `Locked ${fmtDay(period.date)}`
@@ -629,14 +629,14 @@ function SeasonStandingsBody({ navigation, route, seasonId, leagueId }: Props & 
           list_name_style_id: r.profile?.list_name_style_id ?? null,
           plupr: Number(r.elo_at_snapshot ?? baseline),
         }));
-        marketScope = `Period ${period.periodNumber} standings`;
+        marketScope = `Round ${period.periodNumber} standings`;
       }
     }
   } else if (activeTab === 'final') {
     middleLabel = 'Median';
     caption = finalsAreComputed
-      ? `Median rank across ${totalPeriods} period${totalPeriods !== 1 ? 's' : ''} · preview until the season completes`
-      : `Median rank across ${lockedCount} locked period${lockedCount !== 1 ? 's' : ''}`;
+      ? `Median rank across ${totalPeriods} round${totalPeriods !== 1 ? 's' : ''} · preview until the season completes`
+      : `Median rank across ${lockedCount} locked round${lockedCount !== 1 ? 's' : ''}`;
     tableRows = finals.map(r => ({
       userId: r.user_id,
       rank: r.final_rank,
@@ -665,11 +665,11 @@ function SeasonStandingsBody({ navigation, route, seasonId, leagueId }: Props & 
   // ── Manage summary ──
   const manageIsOpen = manageOpen ?? lockDue;
   const manageSummary = lockDue
-    ? `Lock period ${nextPeriod} is due`
+    ? `Lock round ${nextPeriod} is due`
     : canComplete()
       ? 'Complete the season when play ends'
       : season.status !== 'completed' && nextPeriod <= totalPeriods
-        ? `Period ${nextPeriod} locks ${fmtDay(computePeriodDate(season, nextPeriod))}`
+        ? `Round ${nextPeriod} locks ${fmtDay(computePeriodDate(season, nextPeriod))}`
         : pool > 0 ? `Pot: ${picklesLabel(pool)}` : 'Pot and season tools';
 
   return (
@@ -711,17 +711,17 @@ function SeasonStandingsBody({ navigation, route, seasonId, leagueId }: Props & 
             {season.status !== 'completed' && nextPeriod <= totalPeriods && (
               <View style={S.manageRow}>
                 <View style={S.manageText}>
-                  <Text style={t.title} numberOfLines={1}>Lock period {nextPeriod}</Text>
+                  <Text style={t.title} numberOfLines={1}>Lock round {nextPeriod}</Text>
                   <Text style={t.sub} numberOfLines={2}>
                     {lockDue
-                      ? 'Snapshot the current standings as this period, permanently.'
+                      ? 'Snapshot the current standings as this round, permanently.'
                       : `Opens ${fmtDay(computePeriodDate(season, nextPeriod))}.`}
                   </Text>
                 </View>
                 {lockDue && (
                   <Button
                     size="sm"
-                    title={locking ? 'Locking…' : `Lock P${nextPeriod}`}
+                    title={locking ? 'Locking…' : `Lock R${nextPeriod}`}
                     loading={locking}
                     onPress={() => setLockConfirmOpen(true)}
                   />
@@ -844,7 +844,7 @@ function SeasonStandingsBody({ navigation, route, seasonId, leagueId }: Props & 
           <CollapsibleSection
             compact
             title="How scoring works"
-            summary={`Baseline ${baseline.toFixed(2)} PLUPR · ${totalPeriods} periods · top 5 keep a bonus`}
+            summary={`Baseline ${baseline.toFixed(2)} PLUPR · ${totalPeriods} rounds · top 5 keep a bonus`}
             onToggle={(next) => onSectionToggle('scoring', next)}
           >
             <Text style={t.sub}>
@@ -888,8 +888,8 @@ function SeasonStandingsBody({ navigation, route, seasonId, leagueId }: Props & 
 
         <ConfirmModal
           visible={lockConfirmOpen}
-          title={`Lock Period ${nextPeriod}`}
-          body={`This will snapshot current standings as Period ${nextPeriod} and lock them in permanently.\n\nContinue?`}
+          title={`Lock Round ${nextPeriod}`}
+          body={`This will snapshot current standings as Round ${nextPeriod} and lock them in permanently.\n\nContinue?`}
           primaryLabel="Lock In"
           variant="primary"
           busy={locking}
@@ -915,7 +915,7 @@ function SeasonStandingsBody({ navigation, route, seasonId, leagueId }: Props & 
             rowContext
               ? rowContext.periodNumber === null
                 ? `Final rank #${rowContext.rank}`
-                : `Period ${rowContext.periodNumber} · rank #${rowContext.rank}`
+                : `Round ${rowContext.periodNumber} · rank #${rowContext.rank}`
               : undefined
           }
           actions={rowContext ? [

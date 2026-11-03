@@ -194,13 +194,13 @@ export function seasonHeaderLine(args: {
 }): string {
   const { season, livePeriod, nextPeriod, lockDue, todayIso, fmtDay } = args;
   const total = season.total_periods;
-  if (season.status === 'completed') return `Completed · ${total} period${total === 1 ? '' : 's'}`;
+  if (season.status === 'completed') return `Completed · ${total} round${total === 1 ? '' : 's'}`;
   if (season.start_date > todayIso) {
-    return `Starts ${fmtDay(season.start_date)} · ${total} period${total === 1 ? '' : 's'}`;
+    return `Starts ${fmtDay(season.start_date)} · ${total} round${total === 1 ? '' : 's'}`;
   }
-  if (lockDue && nextPeriod <= total) return `P${nextPeriod} of ${total} · lock due`;
-  if (livePeriod != null) return `P${livePeriod} of ${total} · locks ${fmtDay(computePeriodDate(season, livePeriod))}`;
-  return `All ${total} periods played`;
+  if (lockDue && nextPeriod <= total) return `R${nextPeriod} of ${total} · lock due`;
+  if (livePeriod != null) return `R${livePeriod} of ${total} · locks ${fmtDay(computePeriodDate(season, livePeriod))}`;
+  return `All ${total} rounds played`;
 }
 
 /**

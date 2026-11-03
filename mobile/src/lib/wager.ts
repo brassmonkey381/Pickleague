@@ -68,7 +68,7 @@ export function subjectLabel(s: WagerSubject): string {
     case 'tournament_rank':
       return `${s.userName} to finish ${ordinal(s.rank)} in ${s.tournamentName}`;
     case 'period_rank':
-      return `${s.userName} to finish ${ordinal(s.rank)} in Period ${s.periodNumber}`;
+      return `${s.userName} to finish ${ordinal(s.rank)} in Round ${s.periodNumber}`;
     case 'season_rank':
       return `${s.userName} to finish ${ordinal(s.rank)} for the season`;
   }
@@ -95,7 +95,7 @@ export function genericSubjectLabel(
     case 'match_score':      return `Match final score · ${predicate?.team1_score}-${predicate?.team2_score}`;
     case 'tournament_match_score': return `Tournament match final score · ${predicate?.team1_score}-${predicate?.team2_score}`;
     case 'tournament_rank':  return `Tournament rank · ${ordinal(predicate?.rank ?? 1)}`;
-    case 'period_rank':      return `Period ${predicate?.period_number ?? '?'} rank · ${ordinal(predicate?.rank ?? 1)}`;
+    case 'period_rank':      return `Round ${predicate?.period_number ?? '?'} rank · ${ordinal(predicate?.rank ?? 1)}`;
     case 'season_rank':      return `Season rank · ${ordinal(predicate?.rank ?? 1)}`;
     default:                 return 'Wager';
   }

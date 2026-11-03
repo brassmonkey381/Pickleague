@@ -401,7 +401,7 @@ export function seasonDatePart(
 ): string {
   const today = localIsoDate(now);
   const fmt = (iso: string) => (compact ? shortDate(iso, locale) : relativeShortDate(iso, today, locale));
-  const period = compact ? `P${s.nextPeriod}` : `Period ${s.nextPeriod}`;
+  const period = compact ? `R${s.nextPeriod}` : `Round ${s.nextPeriod}`;
   if (s.phase === 'upcoming') {
     return s.startsOn ? `Starts ${fmt(s.startsOn)}` : 'Starts soon';
   }

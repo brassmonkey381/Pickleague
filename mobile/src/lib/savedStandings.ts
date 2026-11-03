@@ -206,7 +206,7 @@ export function savedStandingsParams(
  */
 export function savedStandingLine(s: SavedStanding, opts: { locale?: string } = {}): string | null {
   const name = s.seasonName ?? 'Season';
-  const periodPart = s.period != null && (s.totalPeriods ?? 0) > 1 ? `P${s.period}` : null;
+  const periodPart = s.period != null && (s.totalPeriods ?? 0) > 1 ? `R${s.period}` : null;
   const join = (...parts: Array<string | null>) => parts.filter(Boolean).join(' · ');
   const count = `${s.rankedCount} player${s.rankedCount === 1 ? '' : 's'}`;
   switch (s.kind) {
@@ -236,7 +236,7 @@ export function savedStandingLine(s: SavedStanding, opts: { locale?: string } = 
 export function savedStandingA11y(s: SavedStanding, opts: { locale?: string } = {}): string | null {
   const line = savedStandingLine(s, opts);
   if (!line) return null;
-  return line.replace(/#(\d+) of (\d+)/g, 'ranked $1 of $2').replace(/\bP(\d+)\b/g, 'period $1').replace(/ · /g, ', ');
+  return line.replace(/#(\d+) of (\d+)/g, 'ranked $1 of $2').replace(/\bR(\d+)\b/g, 'round $1').replace(/ · /g, ', ');
 }
 
 /** A completed tournament's finish for me, from tournament_final_ranks rows. */

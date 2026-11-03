@@ -711,7 +711,7 @@ export default function LeagueDetailScreen({ navigation, route }: Props) {
     ...(privileged && activeSeason ? [
       {
         key: 'periods',
-        label: 'Lock periods · complete season',
+        label: 'Lock rounds · complete season',
         meta: lockDue ? 'Lock due' : null,
         attention: lockDue,
         onPress: () => goStandings(activeSeason.id),
@@ -729,7 +729,7 @@ export default function LeagueDetailScreen({ navigation, route }: Props) {
   ];
   const manageSummary = [
     pendingRequests > 0 && privileged ? `${pendingRequests} join request${pendingRequests === 1 ? '' : 's'}` : null,
-    lockDue ? 'Period lock due' : null,
+    lockDue ? 'Round lock due' : null,
   ].filter(Boolean).join(' · ') || (privileged ? 'Edit, invites, seasons' : 'Developer tools');
 
   // The sticky bar repeats the "you" slot's one action once it scrolls away.
@@ -906,7 +906,7 @@ export default function LeagueDetailScreen({ navigation, route }: Props) {
         body={
           <View>
             <Text style={[t.sub, styles.baselineHint]}>
-              Soft-reset target at end of each period. Top-5 finishers keep a small bonus on top
+              Soft-reset target at end of each round. Top-5 finishers keep a small bonus on top
               of this baseline; everyone else snaps clean to it. Allowed: 2.00–6.50.
             </Text>
             <TextField

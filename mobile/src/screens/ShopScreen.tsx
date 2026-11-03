@@ -44,6 +44,7 @@ import { PickleAmount, PickleBalance, picklesLabel } from '../components/PickleA
 import { cosmeticColumns, equipShopItem } from '../data/cosmetics';
 import { explainRefusal } from '../lib/refusalNotices';
 import { ToastOutlet } from '@just-messin-around/expo-foundation/toast';
+import { badgeDisplayName } from '../lib/badgeDisplay';
 
 type Props = { navigation: NativeStackNavigationProp<RootStackParamList, 'Shop'> };
 
@@ -324,7 +325,7 @@ export default function ShopScreen({ navigation }: Props) {
     const canAfford   = pickles == null || pickles >= item.cost;
     const isBuying    = buying?.id === item.id;
     const unlockBadgeName = isUnlockGated
-      ? badgeNames.get(item.unlock_badge_id!) ?? 'a badge'
+      ? badgeDisplayName(badgeNames.get(item.unlock_badge_id!)) ?? 'a badge'
       : null;
     // Edge case: viewer earned the gating badge but the row isn't
     // owned (e.g. trigger wasn't in place when the badge was

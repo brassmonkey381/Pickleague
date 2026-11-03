@@ -9,6 +9,7 @@ import { Icon, type IconName } from '@just-messin-around/expo-foundation/icons';
 import { PLAY_TAGS, TagDef } from '../data/profileCustomization';
 import { useTheme } from '../lib/ThemeContext';
 import { ToastOutlet } from '@just-messin-around/expo-foundation/toast';
+import { badgeDisplayName } from '../lib/badgeDisplay';
 
 const IS_WEB = Platform.OS === 'web';
 
@@ -178,7 +179,7 @@ export default function TagPickerModal({
                   <Text style={[S.hintTitle, S.flexShrink]}>"{lockedHint.label}" is locked</Text>
                 </View>
                 <Text style={S.hintText}>
-                  Earn the <Text style={S.hintBold}>{lockedHint.unlock!.badge}</Text> badge:{'\n'}
+                  Earn the <Text style={S.hintBold}>{badgeDisplayName(lockedHint.unlock!.badge)}</Text> badge:{'\n'}
                   {lockedHint.unlock!.description}
                 </Text>
               </View>

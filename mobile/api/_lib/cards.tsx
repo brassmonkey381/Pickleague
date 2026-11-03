@@ -506,7 +506,7 @@ async function seasonCard(id: string): Promise<Card | null> {
   const statusLine = complete
     ? 'Season complete'
     : currentPeriod
-      ? `Season underway — period ${currentPeriod}${s.total_periods ? ` of ${s.total_periods}` : ''}`
+      ? `Season underway — round ${currentPeriod}${s.total_periods ? ` of ${s.total_periods}` : ''}`
       : 'Season underway';
   const podiumNames = podium.map((p: any) => firstName(p.profile?.full_name));
 
@@ -514,7 +514,7 @@ async function seasonCard(id: string): Promise<Card | null> {
   if (dates) descBits.push(dates);
   if (complete && podiumNames.length) descBits.push(`Champion: ${podiumNames[0]}`);
   if (!complete && standings.length) {
-    descBits.push(`Leading after period ${lastLocked}: ${standings.map(x => `${x.name} (${x.record})`).slice(0, 2).join(', ')}`);
+    descBits.push(`Leading after round ${lastLocked}: ${standings.map(x => `${x.name} (${x.record})`).slice(0, 2).join(', ')}`);
   }
   if (s.prize_pool) descBits.push(`${s.prize_pool} pickle prize pool`);
 
@@ -522,7 +522,7 @@ async function seasonCard(id: string): Promise<Card | null> {
   const strip = complete
     ? podiumNames.map((n: string, i: number) => ({ label: `${i + 1}. ${n}`, sub: '' }))
     : standings.map((x, i) => ({ label: `${i + 1}. ${x.name}`, sub: x.record }));
-  const stripTitle = complete ? 'PODIUM' : lastLocked ? `STANDINGS AFTER PERIOD ${lastLocked}` : '';
+  const stripTitle = complete ? 'PODIUM' : lastLocked ? `STANDINGS AFTER ROUND ${lastLocked}` : '';
 
   return {
     title: `${league?.name ?? 'League'} — ${s.name}`,
@@ -564,14 +564,14 @@ async function seasonCard(id: string): Promise<Card | null> {
 
           {periodWinners.length > 0 && (
             <div style={{ display: 'flex', flexDirection: 'column', marginTop: 20 }}>
-              <div style={{ display: 'flex', fontSize: 20, color: PALETTE.faint, letterSpacing: 1 }}>PERIOD WINNERS</div>
+              <div style={{ display: 'flex', fontSize: 20, color: PALETTE.faint, letterSpacing: 1 }}>ROUND WINNERS</div>
               <div style={{ display: 'flex', marginTop: 8 }}>
                 {periodWinners.slice(-6).map((w) => (
                   <div key={w.period} style={{
                     display: 'flex', backgroundColor: PALETTE.panel, borderRadius: 10,
                     padding: '7px 14px', marginRight: 10, fontSize: 20, color: PALETTE.muted,
                   }}>
-                    {`P${w.period}`}
+                    {`R${w.period}`}
                     <div style={{ display: 'flex', marginLeft: 8, color: PALETTE.text, fontWeight: 700 }}>{w.name}</div>
                   </div>
                 ))}

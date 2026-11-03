@@ -172,7 +172,7 @@ export default function LeagueInfoScreen({ navigation, route }: Props) {
       {/* ── Seasons & lock-in periods ────────────────────────── */}
       <CollapsibleSection
         compact
-        title="Seasons & lock-in periods"
+        title="Seasons & lock-in rounds"
         summary={seasons.length === 0
           ? 'No seasons yet'
           : activeSeason
@@ -183,21 +183,21 @@ export default function LeagueInfoScreen({ navigation, route }: Props) {
         {seasons.length === 0 ? (
           <Text style={S.para}>
             This league has not run any seasons yet. Admins can start one to track standings over discrete
-            lock-in periods, with median-rank scoring and a per-period PLUPR reset.
+            lock-in rounds, with median-rank scoring and a per-round PLUPR reset.
           </Text>
         ) : (
           <>
             <Text style={S.para}>
               Each season runs for a fixed number of weeks with a regular <Text style={S.bold}>lock-in cadence</Text>.
-              At the end of every lock-in period, an admin captures a snapshot of the standings (ranked by season PLUPR, then W-L record).
-              At the end of the season, each player's <Text style={S.bold}>median snapshot rank</Text> across periods becomes
+              At the end of every lock-in round, an admin captures a snapshot of the standings (ranked by season PLUPR, then W-L record).
+              At the end of the season, each player's <Text style={S.bold}>median snapshot rank</Text> across rounds becomes
               their season score: lowest median wins.
             </Text>
             {activeSeason ? (
               <View style={[styles.callout, { backgroundColor: c.primaryLight, borderColor: c.primary }]}>
                 <Text style={[t.sub, { color: c.primary, fontWeight: FONT.weight.bold }]}>Current season: {activeSeason.name}</Text>
                 <Text style={[t.sub, { color: c.text }]}>
-                  {activeSeason.total_weeks} weeks · lock-in every {activeSeason.lock_frequency_weeks}w · {activeSeason.total_periods} periods
+                  {activeSeason.total_weeks} weeks · lock-in every {activeSeason.lock_frequency_weeks}w · {activeSeason.total_periods} rounds
                 </Text>
                 <Text style={[t.sub, { color: c.text }]}>
                   {fmtDate(activeSeason.start_date)} → {fmtDate(activeSeason.end_date)} · {activeSeason.status === 'active' ? 'Active' : 'Upcoming'}

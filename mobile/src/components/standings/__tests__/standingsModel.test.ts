@@ -85,14 +85,14 @@ describe('live period + lock', () => {
 describe('seasonHeaderLine', () => {
   const base = { season, nextPeriod: 1, lockDue: false, todayIso: '2026-09-02', fmtDay };
   it('reads "P1 of 12 · locks <date>" mid-period', () => {
-    expect(seasonHeaderLine({ ...base, livePeriod: 1 })).toBe('P1 of 12 · locks 09-08');
+    expect(seasonHeaderLine({ ...base, livePeriod: 1 })).toBe('R1 of 12 · locks 09-08');
   });
   it('says a lock is due instead of a date that has passed', () => {
-    expect(seasonHeaderLine({ ...base, livePeriod: 2, nextPeriod: 1, lockDue: true })).toBe('P1 of 12 · lock due');
+    expect(seasonHeaderLine({ ...base, livePeriod: 2, nextPeriod: 1, lockDue: true })).toBe('R1 of 12 · lock due');
   });
   it('covers upcoming and completed seasons without TBD', () => {
-    expect(seasonHeaderLine({ ...base, livePeriod: null, todayIso: '2026-08-01' })).toBe('Starts 09-01 · 12 periods');
-    expect(seasonHeaderLine({ ...base, livePeriod: null, season: { ...season, status: 'completed' } })).toBe('Completed · 12 periods');
+    expect(seasonHeaderLine({ ...base, livePeriod: null, todayIso: '2026-08-01' })).toBe('Starts 09-01 · 12 rounds');
+    expect(seasonHeaderLine({ ...base, livePeriod: null, season: { ...season, status: 'completed' } })).toBe('Completed · 12 rounds');
   });
 });
 

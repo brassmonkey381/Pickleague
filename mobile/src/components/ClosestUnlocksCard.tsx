@@ -12,6 +12,7 @@ import { SPACE, RADIUS } from '@just-messin-around/expo-foundation/styles';
 import { Icon } from '@just-messin-around/expo-foundation/icons';
 import { useTheme } from '../lib/ThemeContext';
 import { computeBadgeProgress, BadgeProgress } from '../lib/unlockProgress';
+import { badgeDisplayName } from '../lib/badgeDisplay';
 
 type Props = {
   userId: string | null;
@@ -52,13 +53,13 @@ export default function ClosestUnlocksCard({ userId, navigation, onPressed }: Pr
       activeOpacity={0.85}
       onPress={() => { onPressed?.(); navigation.navigate('Achievements', { focus: next.badge }); }}
       accessibilityRole="button"
-      accessibilityLabel={`Next unlock: ${next.badge}, ${next.current} of ${next.target}. Open achievements`}
+      accessibilityLabel={`Next unlock: ${badgeDisplayName(next.badge)}, ${next.current} of ${next.target}. Open achievements`}
     >
       <Icon name="lock-open" size={16} color={c.primary} />
       <View style={styles.bar}>
         <ProgressBar
           progress={next.pct}
-          label={`Next unlock: ${next.badge}`}
+          label={`Next unlock: ${badgeDisplayName(next.badge)}`}
           valueText={value}
           accessibilityValueText={`${next.current} of ${next.target}`}
           height={SPACE.sm}

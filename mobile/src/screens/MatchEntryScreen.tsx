@@ -36,6 +36,7 @@ import { getMyPlaySession, getMySessionValidity } from '../data/playSessions';
 import { getVenuesByIds } from '../data/venueCheckins';
 import { getCourtPresence } from '../data/courtPresence';
 import { hereChoices, hereFirst, nextEmptySlot } from '../lib/matchPlayersHere';
+import { badgeDisplayName } from '../lib/badgeDisplay';
 
 type Props = {
   navigation: NativeStackNavigationProp<RootStackParamList, 'MatchEntry'>;
@@ -799,7 +800,7 @@ export default function MatchEntryScreen({ navigation, route }: Props) {
       computeBadgeProgress(enteringUid)
         .then(progress => {
           const close = progress.find(p => !p.earned && !p.perLeague && p.pct >= 0.5 && p.pct < 1);
-          if (close) status.success(`${baseMsg}\n\nAlmost there on ${close.label}: keep going to unlock ${close.badge}!`);
+          if (close) status.success(`${baseMsg}\n\nAlmost there on ${close.label}: keep going to unlock ${badgeDisplayName(close.badge)}!`);
         })
         .catch(() => { /* nudge is best-effort */ });
     } catch (e) {

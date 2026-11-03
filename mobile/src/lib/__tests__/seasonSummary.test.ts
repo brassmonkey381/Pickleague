@@ -86,7 +86,7 @@ describe('date helpers', () => {
 describe('live period', () => {
   it('is the first unlocked period whose lock date has not passed', () => {
     expect(livePeriodNumber(SEASON, none, '2026-09-01')).toBe(1);
-    expect(livePeriodNumber(SEASON, new Set([1, 2]), '2026-10-13')).toBe(4); // P3 ended Oct 12
+    expect(livePeriodNumber(SEASON, new Set([1, 2]), '2026-10-13')).toBe(4); // R3 ended Oct 12
   });
 
   it('falls back to the LAST period when every unlocked one is overdue (SeasonStandings\' default tab), and null once all are locked', () => {
@@ -185,7 +185,7 @@ describe('summarizeSeason + status line', () => {
     expect(s).toMatchObject({ phase: 'active', period: 4, nextPeriod: 4, nextLockOn: '2026-10-26', lockDue: false, hasMatches: true, myRank: 2 });
     expect(s.top.map((r) => r.user_id)).toEqual(['a', 'me', 'c']);
     expect(s.me).toBeNull(); // already in the top 3
-    expect(line(s)).toBe('You #2 of 5 · Period 4 locks Oct 26');
+    expect(line(s)).toBe('You #2 of 5 · Round 4 locks Oct 26');
   });
 
   it('adds your row under the top 3 when you rank lower', () => {
@@ -207,7 +207,7 @@ describe('summarizeSeason + status line', () => {
   it('shows no ranks before the first match of the period, and no "You" for a non-member', () => {
     const s = summarizeSeason({ season: SEASON, lockedPeriods: [1, 2, 3], members, matches: [], myUserId: 'me', today });
     expect(s).toMatchObject({ hasMatches: false, myRank: null, top: [], me: null });
-    expect(line(s)).toBe('5 players · Period 4 locks Oct 26');
+    expect(line(s)).toBe('5 players · Round 4 locks Oct 26');
 
     const stranger = summarizeSeason({
       season: SEASON, lockedPeriods: [1, 2, 3], members,
@@ -233,7 +233,7 @@ describe('summarizeSeason + status line', () => {
       myUserId: 'me', today,
     });
     expect(s.lockDue).toBe(true);
-    expect(line(s, OCT13, false)).toBe('You #1 of 5 · Period 3 locking soon');
+    expect(line(s, OCT13, false)).toBe('You #1 of 5 · Round 3 locking soon');
     expect(line(s, OCT13, true)).toBe('You #1 of 5 · Lock due');
     // Only the last period left, due ON the end date (Nov 23): it is the season end.
     const end = summarizeSeason({ season: SEASON, lockedPeriods: [1, 2, 3, 4, 5], members, matches: [], myUserId: 'me', today: '2026-11-23' });
@@ -288,9 +288,9 @@ describe('summarizeSeason + status line', () => {
     });
     expect(at('2026-10-26').lockDue).toBe(true);
     expect(line(at('2026-10-26'), on(2026, 10, 26, 0, 5), true)).toBe('5 players · Lock due');
-    expect(line(at('2026-10-26'), on(2026, 10, 26, 0, 5))).toBe('5 players · Period 4 locking soon');
+    expect(line(at('2026-10-26'), on(2026, 10, 26, 0, 5))).toBe('5 players · Round 4 locking soon');
     expect(at('2026-10-25').lockDue).toBe(false);
-    expect(line(at('2026-10-25'), on(2026, 10, 25, 23, 59))).toBe('5 players · Period 4 locks tomorrow');
+    expect(line(at('2026-10-25'), on(2026, 10, 25, 23, 59))).toBe('5 players · Round 4 locks tomorrow');
   });
 
   it('ranks the last period when every unlocked period is overdue, like the tab it opens', () => {
@@ -344,7 +344,7 @@ describe('seasonStatusLine', () => {
   ) => seasonStatusLine({ summary, myRank, rankedCount, isAdmin, now, locale: L });
 
   it('mid-season: your rank of everyone ranked, then the next lock', () => {
-    expect(status(mid, 2)).toBe('You #2 of 14 · Period 7 locks Oct 20');
+    expect(status(mid, 2)).toBe('You #2 of 14 · Round 7 locks Oct 20');
   });
 
   it('last period: the next lock IS the season end', () => {
@@ -352,7 +352,7 @@ describe('seasonStatusLine', () => {
     expect(status(last, 2)).toBe('You #2 of 14 · Season ends Dec 1');
     expect(status(last, null)).toBe('14 players · Season ends Dec 1');
     // One period earlier is still a lock, not the end.
-    expect(status({ ...last, nextPeriod: 11 }, 2)).toBe('You #2 of 14 · Period 11 locks Dec 1');
+    expect(status({ ...last, nextPeriod: 11 }, 2)).toBe('You #2 of 14 · Round 11 locks Dec 1');
   });
 
   it('last lock before end_date (weeks not divisible by the lock): a lock, not the end', () => {
@@ -363,8 +363,8 @@ describe('seasonStatusLine', () => {
   });
 
   it('a member not ranked yet sees how many are', () => {
-    expect(status(mid, null)).toBe('14 players · Period 7 locks Oct 20');
-    expect(status(mid, null, OCT13, false, 1)).toBe('1 player · Period 7 locks Oct 20');
+    expect(status(mid, null)).toBe('14 players · Round 7 locks Oct 20');
+    expect(status(mid, null, OCT13, false, 1)).toBe('1 player · Round 7 locks Oct 20');
   });
 
   it('upcoming: just the start', () => {
@@ -382,16 +382,16 @@ describe('seasonStatusLine', () => {
   it('a due lock: admins keep "Lock due", members get the date-free form', () => {
     const due = { ...mid, lockDue: true };
     expect(status(due, 2, OCT13, true)).toBe('You #2 of 14 · Lock due');
-    expect(status(due, 2, OCT13, false)).toBe('You #2 of 14 · Period 7 locking soon');
+    expect(status(due, 2, OCT13, false)).toBe('You #2 of 14 · Round 7 locking soon');
     // A cached summary whose lock date has since arrived reads as due, never "locks today".
-    expect(status(mid, 2, on(2026, 10, 20, 8))).toBe('You #2 of 14 · Period 7 locking soon');
+    expect(status(mid, 2, on(2026, 10, 20, 8))).toBe('You #2 of 14 · Round 7 locking soon');
     expect(status(mid, 2, on(2026, 10, 21), true)).toBe('You #2 of 14 · Lock due');
   });
 
   it('dates: "tomorrow", the weekday within 6 days, else month + day', () => {
-    expect(status(mid, 2, on(2026, 10, 19, 23, 59))).toBe('You #2 of 14 · Period 7 locks tomorrow');
-    expect(status(mid, 2, on(2026, 10, 14))).toBe('You #2 of 14 · Period 7 locks Tue Oct 20'); // 6 days
-    expect(status(mid, 2, on(2026, 10, 13))).toBe('You #2 of 14 · Period 7 locks Oct 20'); // 7 days
+    expect(status(mid, 2, on(2026, 10, 19, 23, 59))).toBe('You #2 of 14 · Round 7 locks tomorrow');
+    expect(status(mid, 2, on(2026, 10, 14))).toBe('You #2 of 14 · Round 7 locks Tue Oct 20'); // 6 days
+    expect(status(mid, 2, on(2026, 10, 13))).toBe('You #2 of 14 · Round 7 locks Oct 20'); // 7 days
     expect(relativeShortDate('2026-10-20', '2026-10-20', L)).toBe('today');
     expect(relativeShortDate('2026-10-01', '2026-10-20', L)).toBe('Oct 1');
   });
@@ -400,10 +400,10 @@ describe('seasonStatusLine', () => {
     // A season running into 2027, so the March locks are before its end.
     const lock = (nextLockOn: string) => ({ ...mid, nextLockOn, endsOn: '2027-06-01' });
     // Oct 29 late evening -> Wed Nov 4 is 6 calendar days, though not 6 x 24h.
-    expect(status(lock('2026-11-04'), 2, on(2026, 10, 29, 23, 30))).toBe('You #2 of 14 · Period 7 locks Wed Nov 4');
-    expect(status(lock('2026-11-05'), 2, on(2026, 10, 29, 0, 30))).toBe('You #2 of 14 · Period 7 locks Nov 5');
-    expect(status(lock('2027-03-14'), 2, on(2027, 3, 13, 0, 30))).toBe('You #2 of 14 · Period 7 locks tomorrow');
-    expect(status(lock('2027-03-20'), 2, on(2027, 3, 14, 23, 30))).toBe('You #2 of 14 · Period 7 locks Sat Mar 20');
+    expect(status(lock('2026-11-04'), 2, on(2026, 10, 29, 23, 30))).toBe('You #2 of 14 · Round 7 locks Wed Nov 4');
+    expect(status(lock('2026-11-05'), 2, on(2026, 10, 29, 0, 30))).toBe('You #2 of 14 · Round 7 locks Nov 5');
+    expect(status(lock('2027-03-14'), 2, on(2027, 3, 13, 0, 30))).toBe('You #2 of 14 · Round 7 locks tomorrow');
+    expect(status(lock('2027-03-20'), 2, on(2027, 3, 14, 23, 30))).toBe('You #2 of 14 · Round 7 locks Sat Mar 20');
   });
 });
 
@@ -415,8 +415,8 @@ describe('seasonDateFacts (a list row: dates only, no lock reads)', () => {
 
   it('the next lock is the first period whose date has not passed; past it, due', () => {
     expect(seasonDateFacts(SEASON, '2026-10-13')).toMatchObject({ phase: 'active', nextPeriod: 4, nextLockOn: '2026-10-26', lockDue: false });
-    expect(part('2026-10-13')).toBe('Period 4 locks Oct 26');
-    expect(part('2026-10-26')).toBe('Period 4 locking soon');
+    expect(part('2026-10-13')).toBe('Round 4 locks Oct 26');
+    expect(part('2026-10-26')).toBe('Round 4 locking soon');
     expect(part('2026-11-20')).toBe('Season ends Mon Nov 23');
     expect(part('2026-11-23')).toBe('Season ending soon');
     // Past the end, still not completed (a list row can't see the locks).
@@ -442,9 +442,9 @@ describe('seasonDateFacts (a list row: dates only, no lock reads)', () => {
       const [y, m, d] = today.split('-').map(Number);
       return seasonDatePart(seasonDateFacts(SEASON, today), { now: on(y, m, d), locale: L, compact: true });
     };
-    expect(compact('2026-10-13')).toBe('P4 locks Oct 26');
-    expect(compact('2026-10-25')).toBe('P4 locks Oct 26');
-    expect(compact('2026-10-26')).toBe('P4 locking soon');
+    expect(compact('2026-10-13')).toBe('R4 locks Oct 26');
+    expect(compact('2026-10-25')).toBe('R4 locks Oct 26');
+    expect(compact('2026-10-26')).toBe('R4 locking soon');
     expect(compact('2026-11-20')).toBe('Ends Nov 23');
     expect(compact('2026-11-23')).toBe('Ending soon');
     expect(compact('2026-12-01')).toBe('Ended Nov 23');
@@ -454,7 +454,7 @@ describe('seasonDateFacts (a list row: dates only, no lock reads)', () => {
   it('compact never adds the end (a 1-line list row), even when asked', () => {
     const [y, m, d] = [2026, 10, 13];
     expect(seasonDatePart(seasonDateFacts(SEASON, '2026-10-13'), { now: on(y, m, d), locale: L, compact: true, withEnd: true }))
-      .toBe('P4 locks Oct 26');
+      .toBe('R4 locks Oct 26');
   });
 });
 
@@ -466,12 +466,12 @@ describe('withEnd (LeagueDetail\'s Standings header): the season end, when the l
     seasonStatusLine({ summary, myRank, rankedCount: 14, isAdmin, now, locale: L, withEnd: true });
 
   it('mid-season: the current period\'s lock, then the season end', () => {
-    expect(status(mid, 2)).toBe('You #2 of 14 · Period 7 locks Oct 20 · Ends Dec 1');
-    expect(status(mid, null, on(2026, 10, 14))).toBe('14 players · Period 7 locks Tue Oct 20 · Ends Dec 1');
+    expect(status(mid, 2)).toBe('You #2 of 14 · Round 7 locks Oct 20 · Ends Dec 1');
+    expect(status(mid, null, on(2026, 10, 14))).toBe('14 players · Round 7 locks Tue Oct 20 · Ends Dec 1');
   });
 
   it('a due lock keeps the end too, for members and admins', () => {
-    expect(status({ ...mid, lockDue: true }, 2)).toBe('You #2 of 14 · Period 7 locking soon · Ends Dec 1');
+    expect(status({ ...mid, lockDue: true }, 2)).toBe('You #2 of 14 · Round 7 locking soon · Ends Dec 1');
     expect(status({ ...mid, lockDue: true }, 2, OCT13, true)).toBe('You #2 of 14 · Lock due · Ends Dec 1');
   });
 
@@ -486,7 +486,7 @@ describe('withEnd (LeagueDetail\'s Standings header): the season end, when the l
   });
 
   it('no end_date: nothing added; upcoming: just the start', () => {
-    expect(status({ ...mid, endsOn: null }, 2)).toBe('You #2 of 14 · Period 7 locks Oct 20');
+    expect(status({ ...mid, endsOn: null }, 2)).toBe('You #2 of 14 · Round 7 locks Oct 20');
     expect(status({ ...mid, phase: 'upcoming', startsOn: '2026-11-03', nextPeriod: null, nextLockOn: null }, null))
       .toBe('Starts Nov 3');
   });

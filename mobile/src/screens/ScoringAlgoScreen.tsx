@@ -112,11 +112,11 @@ else         → K = 0.75`}</Mono>
       </Section>
 
       {/* Period reset */}
-      <Section S={S} title="Period & season resets">
+      <Section S={S} title="Round & season resets">
         <P S={S}>
-          Inside a league season, every locked-in <B S={S}>period</B> triggers
+          Inside a league season, every locked-in <B S={S}>round</B> triggers
           a soft PLUPR reset. Top-5 finishers carry a small head start into
-          the next period; everyone else snaps to the base.
+          the next round; everyone else snaps to the base.
         </P>
         <View style={S.resetBox}>
           <Reset S={S} place={1} rank="1st" final={3.65} bonus={0.40} />
@@ -128,7 +128,7 @@ else         → K = 0.75`}</Mono>
         </View>
         <P S={S}>
           Season completion uses the same ladder, applied to a player's{' '}
-          <B S={S}>median rank across all locked periods</B> — so consistency
+          <B S={S}>median rank across all locked rounds</B> — so consistency
           beats one big finish.
         </P>
       </Section>

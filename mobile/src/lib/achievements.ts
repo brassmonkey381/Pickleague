@@ -22,6 +22,7 @@ import type {
 } from '@just-messin-around/expo-foundation/achievements/rules';
 import type { IconName } from '@just-messin-around/expo-foundation/icons';
 import { AVATARS, PLAY_TAGS, TAG_SLOT_UNLOCKS } from '../data/profileCustomization';
+import { badgeDisplayContext, badgeDisplayDescription, badgeDisplayName } from './badgeDisplay';
 
 // ── Groups ───────────────────────────────────────────────────────────────────
 
@@ -98,8 +99,8 @@ export const BADGE_DEFS: ReadonlyArray<BadgeDef> = [
   { name: 'Season Crown', group: 'league', glyph: 'crown', how: "Finish #1 in a season's final standings.", perLeague: true },
   { name: 'Season Silver', group: 'league', glyph: 'medal', how: "Finish #2 in a season's final standings.", perLeague: true },
   { name: 'Season Bronze', group: 'league', glyph: 'medal', how: "Finish #3 in a season's final standings.", perLeague: true },
-  { name: 'Period Sweeper', group: 'league', glyph: 'sparkle', how: 'Finish #1 in every period of one season.', perLeague: true },
-  { name: 'Period Champion', group: 'league', glyph: 'trophy', how: 'Finish #1 when a season period locks in.', perLeague: true },
+  { name: 'Period Sweeper', group: 'league', glyph: 'sparkle', how: 'Finish #1 in every round of one season.', perLeague: true },
+  { name: 'Period Champion', group: 'league', glyph: 'trophy', how: 'Finish #1 when a season round locks in.', perLeague: true },
   { name: 'League Leader', group: 'league', glyph: 'flag', how: "Reach #1 in a league's standings.", perLeague: true },
   { name: 'Hat Trick', group: 'league', glyph: 'celebrate', how: 'Win 3 matches in one day in a league.', perLeague: true },
   { name: 'Dominant', group: 'league', glyph: 'shield', how: 'Win a league match 11-0 or 11-1.', perLeague: true },
@@ -302,8 +303,9 @@ export function buildAchievements(input: BuildAchievementsInput): BuiltAchieveme
     const prog = !earnedAt ? progress?.[name] ?? null : null;
     out.push({
       id: achievementIdForBadge(name),
-      name,
-      description: def?.how ?? row?.description ?? undefined,
+      // Shown names: season periods read as rounds (lib/badgeDisplay).
+      name: badgeDisplayName(name),
+      description: badgeDisplayDescription(name, def?.how ?? row?.description) ?? undefined,
       groupId: group,
       glyph,
       earnedAt,
@@ -465,7 +467,7 @@ export function awardLines(
     const t = Date.parse(a.earnedAt);
     const date = Number.isFinite(t) ? formatDate(new Date(t)) : '';
     const text = [a.leagueName, date].filter(Boolean).join(' · ');
-    return { id: a.id, text, matchId: a.matchId, context: a.context };
+    return { id: a.id, text, matchId: a.matchId, context: badgeDisplayContext(a.context) };
   });
 }
 

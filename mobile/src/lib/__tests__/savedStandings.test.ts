@@ -136,10 +136,10 @@ describe('savedStandingLine', () => {
     totalPeriods: 12, myRank: 3, rankedCount: 16, startsOn: null,
   };
   it('reads as one short line per kind', () => {
-    expect(savedStandingLine(base)).toBe('You #3 of 16 · Fall 2026 · P7');
-    expect(savedStandingLine({ ...base, myRank: null })).toBe('16 players · Fall 2026 · P7');
-    expect(savedStandingLine({ ...base, kind: 'locked', period: 6 })).toBe('You #3 of 16 · Fall 2026 · P6 locked');
-    expect(savedStandingLine({ ...base, kind: 'noMatches', myRank: null })).toBe('Fall 2026 · P7 · no matches yet');
+    expect(savedStandingLine(base)).toBe('You #3 of 16 · Fall 2026 · R7');
+    expect(savedStandingLine({ ...base, myRank: null })).toBe('16 players · Fall 2026 · R7');
+    expect(savedStandingLine({ ...base, kind: 'locked', period: 6 })).toBe('You #3 of 16 · Fall 2026 · R6 locked');
+    expect(savedStandingLine({ ...base, kind: 'noMatches', myRank: null })).toBe('Fall 2026 · R7 · no matches yet');
     expect(savedStandingLine({ ...base, kind: 'upcoming', startsOn: '2026-11-03' }, { locale: 'en-US' }))
       .toBe('Fall 2026 starts Nov 3');
     expect(savedStandingLine({ ...base, kind: 'final', period: null, myRank: 2, rankedCount: 14, seasonName: 'Spring' }))
@@ -151,7 +151,7 @@ describe('savedStandingLine', () => {
     expect(savedStandingLine({ ...base, totalPeriods: 1, period: 1 })).toBe('You #3 of 16 · Fall 2026');
   });
   it('says the rank in words for screen readers', () => {
-    expect(savedStandingA11y(base)).toBe('You ranked 3 of 16, Fall 2026, period 7');
+    expect(savedStandingA11y(base)).toBe('You ranked 3 of 16, Fall 2026, round 7');
   });
 });
 

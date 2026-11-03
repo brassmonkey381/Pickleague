@@ -195,7 +195,7 @@ export default function SeasonSetupSheet({ visible, leagueId, leagueName, onClos
 
         <Text style={[t.fieldLabel, styles.label]}>Baseline PLUPR</Text>
         <Text style={t.hint}>
-          Soft-reset target at end of each period. Top-5 finishers keep small bonuses on top
+          Soft-reset target at end of each round. Top-5 finishers keep small bonuses on top
           of this baseline; everyone else snaps clean to it.
         </Text>
         <TextField value={baseline} onChangeText={setBaseline} keyboardType="decimal-pad" placeholder="e.g. 4.5" />
@@ -203,16 +203,16 @@ export default function SeasonSetupSheet({ visible, leagueId, leagueName, onClos
         {dates.length > 0 ? (
           <View style={[styles.preview, { backgroundColor: c.primaryLight, borderColor: c.primary }]}>
             <Text style={[t.sub, { color: c.primary, fontWeight: FONT.weight.bold }]}>
-              {dates.length} lock-in period{dates.length !== 1 ? 's' : ''} · final standings = median rank
+              {dates.length} lock-in round{dates.length !== 1 ? 's' : ''} · final standings = median rank
             </Text>
             {dates.map((d, i) => (
               <Text key={i} style={[t.sub, { color: c.text }]}>
-                Period {i + 1}: {d.toLocaleDateString(undefined, { weekday: 'short', month: 'short', day: 'numeric' })}
+                Round {i + 1}: {d.toLocaleDateString(undefined, { weekday: 'short', month: 'short', day: 'numeric' })}
                 {i === dates.length - 1 ? ' · season ends' : ''}
               </Text>
             ))}
             <Text style={t.meta}>
-              PLUPR soft-reset after each period: the top 5 keep a small rank bonus, everyone else resets to {baselineShown}.
+              PLUPR soft-reset after each round: the top 5 keep a small rank bonus, everyone else resets to {baselineShown}.
             </Text>
           </View>
         ) : null}

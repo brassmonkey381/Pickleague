@@ -157,7 +157,7 @@ function buildWagerNarrative(w: Wager): WagerNarrative {
     case 'period_rank': {
       const rankLabel = predRank ? ordinal(predRank) : '?';
       const period    = w.predicate?.period_number;
-      const periodLbl = period ? ` (Period ${period})` : '';
+      const periodLbl = period ? ` (Round ${period})` : '';
       const icon: IconName = 'medal';
       const prediction = scope
         ? `${predName} to finish ${rankLabel} in ${scope}${periodLbl}`
@@ -532,7 +532,7 @@ export default function MyWagersScreen({ navigation }: Props) {
           </Text>
           <Text style={S.marketTag}>Live league season</Text>
           <View style={S.marketLinkRow}>
-            <Text style={S.marketLink}>Wager on period leaders</Text>
+            <Text style={S.marketLink}>Wager on round leaders</Text>
             <Icon name="chevron-right" size={14} color={c.primary} />
           </View>
         </View>
@@ -657,9 +657,9 @@ export default function MyWagersScreen({ navigation }: Props) {
                 </View>
               )}
 
-            <Text style={S.sectionHeader}>Live League Periods</Text>
+            <Text style={S.sectionHeader}>Live League Rounds</Text>
             {seasonMarkets.length === 0
-              ? renderEmpty('No live league seasons yet. Start a season to wager on period leaders.')
+              ? renderEmpty('No live league seasons yet. Start a season to wager on round leaders.')
               : (
                 <View style={S.sectionList}>
                   {seasonMarkets.map(renderSeasonCard)}

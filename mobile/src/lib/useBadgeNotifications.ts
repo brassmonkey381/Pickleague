@@ -6,6 +6,7 @@ import {
   type RealtimeChannelStatus,
 } from '@just-messin-around/expo-foundation/supabase';
 import { supabase } from './supabase';
+import { badgeDisplayName } from './badgeDisplay';
 
 /**
  * Toast shown when the signed-in user earns a new badge. The hook subscribes
@@ -104,7 +105,7 @@ export function useBadgeNotifications() {
           // PostgREST embeds are typed loosely (object or single-element array).
           const badge = Array.isArray(row.badge) ? row.badge[0] : row.badge;
           if (!badge) continue;
-          enqueueToast({ id: row.id, badgeId: row.badge_id, name: badge.name, icon: badge.icon });
+          enqueueToast({ id: row.id, badgeId: row.badge_id, name: badgeDisplayName(badge.name), icon: badge.icon });
         }
         // Only advance on success — a failed catch-up must stay retryable, or
         // the badge it missed is gone forever.
@@ -139,7 +140,7 @@ export function useBadgeNotifications() {
               enqueueToast({
                 id: row.id,
                 badgeId: row.badge_id,
-                name: badge.name,
+                name: badgeDisplayName(badge.name),
                 icon: badge.icon,
               });
             } catch {

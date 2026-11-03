@@ -356,7 +356,7 @@ function AwardModal({
           <KeyboardTextInput style={[S.input, webInputFontFloor(S.input)]} keyboardType="number-pad" placeholder="50" value={amount} onChangeText={setAmount} />
 
           <Text style={S.label}>Reason (optional)</Text>
-          <TextInput style={[S.input, webInputFontFloor(S.input)]} placeholder="e.g. Period 2 winner" value={reason} onChangeText={setReason} />
+          <TextInput style={[S.input, webInputFontFloor(S.input)]} placeholder="e.g. Round 2 winner" value={reason} onChangeText={setReason} />
 
           <StatusBanner status={status.value} />
 
