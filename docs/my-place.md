@@ -18,7 +18,7 @@ is the contract the phase 4 screens build against. Server: `supabase/migration_m
 | Phase | What | Status |
 | --- | --- | --- |
 | 1 | Kit `/room` module | expo-foundation 1.78.0 |
-| 2 | This server | `migration_my_place.sql` (not applied yet) |
+| 2 | This server | `migration_my_place.sql` (applied; checked live 2026-11-03) |
 | 3 | About 30 real items with art (Brian reviews PNGs) | next |
 | 4 | Screens | after phase 3 |
 
