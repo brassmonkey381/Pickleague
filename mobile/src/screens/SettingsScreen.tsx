@@ -17,6 +17,7 @@ import {
   SegmentedToggle,
   SettingActionRow,
   SettingSwitchRow,
+  SkinPicker,
 } from '@just-messin-around/expo-foundation/ui';
 import { Button } from '@just-messin-around/expo-foundation/forms';
 import { SPACE, RADIUS, HAIRLINE, webInputFontFloor } from '@just-messin-around/expo-foundation/styles';
@@ -671,6 +672,9 @@ export default function SettingsScreen({ navigation, route }: Props) {
           style={S.themeTabs}
         />
       </Panel>
+      {/* The four looks (lib/skins); each works in light and dark. */}
+      <SectionHeader title="Look" />
+      <SkinPicker style={S.lookTiles} />
 
       {/* ── Danger zone ──────────────────────── */}
       <SectionHeader title="Account actions" />
@@ -744,6 +748,7 @@ function makeStyles(c: Colors) {
     rowDetail:     { ...t.sub, color: c.textMuted, flexShrink: 1 },
     divider:       { height: HAIRLINE, backgroundColor: c.border, marginHorizontal: SPACE.md },
     themeTabs:     { borderBottomWidth: 0 },
+    lookTiles:     { marginBottom: SPACE.md },
     hug:           { alignSelf: 'flex-start' },
     traceBox:      { paddingHorizontal: SPACE.md, paddingBottom: SPACE.sm, gap: SPACE.xs },
     traceText:     t.meta,
