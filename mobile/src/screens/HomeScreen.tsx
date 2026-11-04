@@ -45,11 +45,12 @@ import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { View, Text, StyleSheet, ScrollView, Platform } from 'react-native';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { useFocusEffect, useIsFocused, useRoute, type RouteProp } from '@react-navigation/native';
+import { setStatusBarStyle } from 'expo-status-bar';
 import { sbCall, currentUserId, friendlySbMessage } from '@just-messin-around/expo-foundation/supabase';
 import { useCachedQuery, setQueryData, peekQuery } from '@just-messin-around/expo-foundation/cache';
-import { AppTopBar, ConfirmModal, ErrorState, Panel, SkeletonList, SectionHeader } from '@just-messin-around/expo-foundation/ui';
+import { AppTopBar, BrandBand, ConfirmModal, ErrorState, Panel, SkeletonList, SectionHeader } from '@just-messin-around/expo-foundation/ui';
 import { rainReward } from '@just-messin-around/expo-foundation/ui/rewardRain';
-import { SPACE, HAIRLINE } from '@just-messin-around/expo-foundation/styles';
+import { SPACE } from '@just-messin-around/expo-foundation/styles';
 import { FONT, textStyles } from '@just-messin-around/expo-foundation/typography';
 import { Icon } from '@just-messin-around/expo-foundation/icons';
 import { useCoords } from '@just-messin-around/expo-foundation/hooks';
@@ -171,6 +172,14 @@ export default function HomeScreen({ navigation }: Props) {
   const spotlight = useLeagueSpotlight(HOME_FEED_ENABLED ? NO_LEAGUES : myLeagues, profile?.id ?? null, now);
   const { revalidate: revalidateSpotlight, refresh: refreshSpotlight } = spotlight;
   useFocusEffect(useCallback(() => { void revalidateSpotlight(); }, [revalidateSpotlight]));
+  // The brand band runs under the status bar: its text follows the band
+  // (dark on Rally's yellow, light on the green and night bands) while Home
+  // is showing, and goes back to the theme's default when it isn't.
+  const bandIsLight = isLightColor(c.headerBg);
+  useFocusEffect(useCallback(() => {
+    setStatusBarStyle(bandIsLight ? 'dark' : 'light');
+    return () => setStatusBarStyle('auto');
+  }, [bandIsLight]));
   // The feed's court side (friends at the courts, stars, routines, friends
   // list) has its own reads: pull-to-refresh reloads them as well.
   const feedRefresh = useRef<(() => Promise<void>) | null>(null);
@@ -616,15 +625,16 @@ export default function HomeScreen({ navigation }: Props) {
   // ── Sections (keyed: see the file header) ──
   const sections: React.ReactElement[] = [];
 
-  sections.push(
+  // The greeting lives in the brand band above the sections (see the render).
+  const greeting = (
     <HomeGreeting
-      key="greeting"
+      variant="band"
       profile={profile}
       streak={claimedStreak ?? data.streak}
       onProfile={() => { tap('greeting', 'profile'); navigation.navigate('Profile', {}); }}
       onBalance={() => { tap('greeting', 'pickles'); setPicklesOpen(true); }}
       onStreak={() => { tap('greeting', 'streak'); void openStreak(); }}
-    />,
+    />
   );
   if (courtPass.summary) {
     sections.push(
@@ -834,69 +844,76 @@ export default function HomeScreen({ navigation }: Props) {
 
   return (
     <View style={[styles.root, { backgroundColor: c.bg }]}>
-      <AppTopBar
-        title="PICKLEAGUE"
-        // Surface, like every stack header, with a hairline under it.
-        style={[styles.topBar, { backgroundColor: c.surface, borderBottomColor: c.border }]}
-        // The app's web column (AppNavigator's WebMaxWidth).
-        contentStyle={styles.topBarContent}
-        // Every action is a captionless 24px glyph on one line (Saved and QR
-        // used to carry captions that lifted them ~8px above the bell and gear).
-        iconSize={24}
-        iconColor={c.text}
-        actions={[
-          // Discover (the courts near you), always one tap away like Doggle's
-          // Discover tab. The magnifier reads without a caption (Doggle's icon).
-          // With the bottom bar, Discover is a slot there instead.
-          ...(COURT_DISCOVERY_ENABLED && !PLAY_NAV_ENABLED
-            ? [{
-                key: 'discover',
-                icon: 'search' as const,
-                a11yLabel: 'Discover courts',
-                // Places, as the magnifier opened the courts before (plan C5).
-                onPress: () => { tap('top_bar', 'discover'); openDiscover(navigation, { tab: 'places' }); },
-              }]
-            : []),
-          {
-            key: 'saved',
-            icon: 'bookmark',
-            a11yLabel: 'Saved',
-            onPress: () => { tap('top_bar', 'saved'); navigation.navigate('Bookmarks'); },
-          },
-          // QR codes live only on the phone (device storage), so web has no wallet.
-          ...(Platform.OS === 'web'
-            ? []
-            : [{
-                key: 'wallet',
-                icon: 'ticket' as const,
-                a11yLabel: 'QR wallet',
-                onPress: () => { tap('top_bar', 'wallet'); navigation.navigate('QrWallet'); },
-              }]),
-          {
-            // The number is what needs you (votes, RSVPs, invites, requests,
-            // scores to confirm), so its label says so: "Notifications, 2
-            // need you". Plain unread is a dot ("Notifications, new").
-            key: 'bell',
-            icon: 'bell',
-            badge: alertBadge ?? undefined,
-            a11yLabel: 'Notifications',
-            badgeA11yLabel: (n) => `Notifications, ${n} need${n === 1 ? 's' : ''} you`,
-            onPress: () => { tap('top_bar', 'bell'); navigation.navigate('Notifications'); },
-          },
-          {
-            key: 'settings',
-            icon: 'gear',
-            a11yLabel: 'Settings',
-            onPress: () => { tap('top_bar', 'settings'); navigation.navigate('Settings'); },
-          },
-        ]}
-      />
       <ScrollView
         style={styles.flex}
-        contentContainerStyle={styles.content}
         refreshControl={<AppRefreshControl {...refresh} />}
       >
-        {sections}
+        {/* The brand band: top bar, greeting and the streak / pickles pills on
+            the look's band colour and texture. It scrolls away with the page. */}
+        <BrandBand>
+          <View style={styles.bandColumn}>
+          <AppTopBar
+            // The wordmark in the look's display face, on the band.
+            title={<Text style={[t.h3, { color: c.headerText }]}>Pickleague</Text>}
+            // Clear: the brand band behind it is the bar's background.
+            style={styles.topBar}
+            // The app's web column (AppNavigator's WebMaxWidth).
+            contentStyle={styles.topBarContent}
+            // Every action is a captionless 24px glyph on one line (Saved and QR
+            // used to carry captions that lifted them ~8px above the bell and gear).
+            iconSize={24}
+            iconColor={c.headerText}
+            actions={[
+              // Discover (the courts near you), always one tap away like Doggle's
+              // Discover tab. The magnifier reads without a caption (Doggle's icon).
+              // With the bottom bar, Discover is a slot there instead.
+              ...(COURT_DISCOVERY_ENABLED && !PLAY_NAV_ENABLED
+                ? [{
+                    key: 'discover',
+                    icon: 'search' as const,
+                    a11yLabel: 'Discover courts',
+                    // Places, as the magnifier opened the courts before (plan C5).
+                    onPress: () => { tap('top_bar', 'discover'); openDiscover(navigation, { tab: 'places' }); },
+                  }]
+                : []),
+              {
+                key: 'saved',
+                icon: 'bookmark',
+                a11yLabel: 'Saved',
+                onPress: () => { tap('top_bar', 'saved'); navigation.navigate('Bookmarks'); },
+              },
+              // QR codes live only on the phone (device storage), so web has no wallet.
+              ...(Platform.OS === 'web'
+                ? []
+                : [{
+                    key: 'wallet',
+                    icon: 'ticket' as const,
+                    a11yLabel: 'QR wallet',
+                    onPress: () => { tap('top_bar', 'wallet'); navigation.navigate('QrWallet'); },
+                  }]),
+              {
+                // The number is what needs you (votes, RSVPs, invites, requests,
+                // scores to confirm), so its label says so: "Notifications, 2
+                // need you". Plain unread is a dot ("Notifications, new").
+                key: 'bell',
+                icon: 'bell',
+                badge: alertBadge ?? undefined,
+                a11yLabel: 'Notifications',
+                badgeA11yLabel: (n) => `Notifications, ${n} need${n === 1 ? 's' : ''} you`,
+                onPress: () => { tap('top_bar', 'bell'); navigation.navigate('Notifications'); },
+              },
+              {
+                key: 'settings',
+                icon: 'gear',
+                a11yLabel: 'Settings',
+                onPress: () => { tap('top_bar', 'settings'); navigation.navigate('Settings'); },
+              },
+            ]}
+          />
+            {greeting}
+          </View>
+        </BrandBand>
+        <View style={styles.content}>{sections}</View>
       </ScrollView>
 
       <PicklesViewer
@@ -962,14 +979,24 @@ export default function HomeScreen({ navigation }: Props) {
   );
 }
 
+/** Whether '#rrggbb' is light enough for dark text on it (relative luminance). */
+function isLightColor(hex: string): boolean {
+  if (!/^#[0-9a-f]{6}$/i.test(hex)) return true;
+  const n = parseInt(hex.slice(1), 16);
+  const lin = (v: number) => { const x = v / 255; return x <= 0.03928 ? x / 12.92 : ((x + 0.055) / 1.055) ** 2.4; };
+  const l = 0.2126 * lin((n >> 16) & 255) + 0.7152 * lin((n >> 8) & 255) + 0.0722 * lin(n & 255);
+  return l > 0.4;
+}
+
 const styles = StyleSheet.create({
   root: { flex: 1 },
   flex: { flex: 1 },
-  topBar: { borderBottomWidth: HAIRLINE },
+  topBar: { backgroundColor: 'transparent' },
+  bandColumn: { width: '100%', maxWidth: WEB_COLUMN_MAX_WIDTH, alignSelf: 'center' },
   topBarContent: { maxWidth: WEB_COLUMN_MAX_WIDTH },
   content: {
     paddingHorizontal: SPACE.lg,
-    paddingTop: SPACE.xs,
+    paddingTop: SPACE.lg,
     paddingBottom: SPACE.xl,
     gap: SPACE.md,
   },

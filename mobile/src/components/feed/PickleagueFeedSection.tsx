@@ -39,7 +39,7 @@ import { usePollWhileActive, useSignal, useTicker } from '@just-messin-around/ex
 import { Icon } from '@just-messin-around/expo-foundation/icons';
 import { ActionSheetModal, Panel, SectionHeader, SingleSelectModal, TextLink, TITLE_ICON_COLUMN, type ActionSheetAction } from '@just-messin-around/expo-foundation/ui';
 import { RADIUS, SPACE } from '@just-messin-around/expo-foundation/styles';
-import { DayBands, FeedActionPill, dayBandDate, type DayBand } from '@just-messin-around/expo-foundation/ui/feed';
+import { DayBands, FeedActionPill, dayBandDate, dayBandTile, type DayBand } from '@just-messin-around/expo-foundation/ui/feed';
 import { textStyles } from '@just-messin-around/expo-foundation/typography';
 import { friendlySbMessage } from '@just-messin-around/expo-foundation/supabase';
 import { useTheme } from '../../lib/ThemeContext';
@@ -747,6 +747,7 @@ export default function PickleagueFeedSection(props: PickleagueFeedProps) {
       key: d.key,
       title: d.title,
       date: dayBandDate(d.key, now),
+      tile: dayBandTile(d.key, now),
       count: d.count,
       children: (
         <>
@@ -783,6 +784,7 @@ export default function PickleagueFeedSection(props: PickleagueFeedProps) {
       key: 'today',
       title: 'Today',
       date: dayBandDate('today', now),
+      tile: dayBandTile('today', now),
       count: 0,
       children: <Text style={[t.meta, styles.emptyToday, { color: c.textMuted }]}>Nothing planned today.</Text>,
     });

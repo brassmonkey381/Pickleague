@@ -22,7 +22,7 @@
 // just above it.
 import React, { useEffect, useState } from 'react';
 import { Icon } from '@just-messin-around/expo-foundation/icons';
-import { FloatingNavBar, type FloatingNavItem } from '@just-messin-around/expo-foundation/ui';
+import { FloatingNavBar, floatingNavCentreColors, type FloatingNavItem } from '@just-messin-around/expo-foundation/ui';
 import { createSignal, useElapsed, useSignal } from '@just-messin-around/expo-foundation/hooks';
 import { currentUserId } from '@just-messin-around/expo-foundation/supabase';
 import { supabase } from '../lib/supabase';
@@ -154,7 +154,8 @@ function Bar({ signedIn }: { signedIn: boolean }) {
   const centre: FloatingNavItem = {
     key: 'play',
     label: state.label,
-    glyph: <Icon name="play" size={26} color={c.textInverse} />,
+    // The ink that matches the centre's fill (the yellow ball on an island bar).
+    glyph: <Icon name="play" size={26} color={floatingNavCentreColors(c, state.active).ink} />,
     active: state.active,
     accessibilityLabel: state.accessibilityLabel,
     accessibilityHint: state.accessibilityHint,

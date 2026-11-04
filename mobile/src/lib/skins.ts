@@ -28,6 +28,8 @@ const PARTS: ThemeParts = {
   sectionHeader: 'marker',
   toast: 'sticker',
   empty: 'ball',
+  navBar: 'island',
+  dayBands: 'date',
   titleFont: 'body',
 };
 
@@ -35,6 +37,8 @@ type Look = {
   display: string; number: string;
   radii: { card: number; button: number; chip: number; sheet: number };
   texture: unknown;
+  /** How strongly the texture shows on the band. Default 0.35. */
+  textureOpacity?: number;
 };
 
 function hexAlpha(hex: string, a: number): string {
@@ -70,6 +74,7 @@ function palette(base: Theme, t: Tokens, look: Look): Theme {
     radiusChip: look.radii.chip,
     radiusSheet: look.radii.sheet,
     texture: look.texture,
+    textureOpacity: look.textureOpacity,
     parts: PARTS,
   };
 }
@@ -103,6 +108,8 @@ export const SKINS: Skin[] = [
     display: FONT.barlowCondensed, number: FONT.barlowCondensed,
     radii: { card: 10, button: 8, chip: 6, sheet: 14 },
     texture: require('../../assets/textures/court-lines.png'),
+    // White lines: at the default they wash the green band out.
+    textureOpacity: 0.16,
   }, {
     bg: '#eef1ea', surface: '#ffffff', surfaceAlt: '#f7f8f5',
     ink: '#14231a', sub: '#56645b', muted: '#626f66',
@@ -120,6 +127,8 @@ export const SKINS: Skin[] = [
     display: FONT.fraunces, number: FONT.fraunces,
     radii: { card: 4, button: 3, chip: 3, sheet: 6 },
     texture: require('../../assets/textures/clubhouse-linen.png'),
+    // An opaque cloth photo: only a hint of it, or it greys the band.
+    textureOpacity: 0.12,
   }, {
     bg: '#f5efe2', surface: '#fffcf5', surfaceAlt: '#faf6ec',
     ink: '#1c1f1a', sub: '#5e5a4e', muted: '#6d695d',

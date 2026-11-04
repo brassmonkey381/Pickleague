@@ -4,10 +4,13 @@
 // only on a dev web server at /?lookslab (index.ts checks __DEV__ first). The
 // look and mode come from the saved settings (Settings, Look), so set
 // localStorage 'pickleague_theme_mode_skin' and 'pickleague_theme_mode' to
-// switch. Query: sheet=1 opens the sheet.
+// switch. Query: sheet=1 opens the sheet, toast=1 shows a success toast.
 import React, { useEffect, useState } from 'react';
 import { ScrollView, Text, View } from 'react-native';
 import {
+  AppTopBar,
+  BrandBand,
+  FloatingNavBar,
   BottomSheet,
   Chip,
   EmptyState,
@@ -24,6 +27,10 @@ import { textStyles } from '@just-messin-around/expo-foundation/typography';
 import { ThemeProvider, useTheme } from '../lib/ThemeContext';
 import ToastProvider, { useToast } from '../lib/ToastProvider';
 import { useBootLook } from '../lib/fonts';
+import { DayBands, dayBandDate, dayBandTile } from '@just-messin-around/expo-foundation/ui/feed';
+import HomeGreeting from '../components/home/HomeGreeting';
+import QuickRow from '../components/home/QuickRow';
+import type { Profile } from '../types';
 
 const PEOPLE = [
   ['Sam Ortiz', 'Alameda Ladder', '4.12'],
@@ -38,11 +45,46 @@ function Lab() {
   const [seg, setSeg] = useState('league');
   const [sheet] = useState(() => new URLSearchParams(window.location.search).get('sheet') === '1');
   useEffect(() => {
-    toast.success('Match recorded, +120 pickles');
+    if (new URLSearchParams(window.location.search).get('toast') === '1') toast.success('Match recorded, +120 pickles');
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   return (
-    <ScrollView style={{ flex: 1, backgroundColor: c.bg }} contentContainerStyle={{ padding: 16, gap: 14 }}>
+    <View style={{ flex: 1, backgroundColor: c.bg }}>
+    <ScrollView style={{ flex: 1 }} contentContainerStyle={{ paddingBottom: 120 }}>
+      <BrandBand>
+        <AppTopBar
+          title={<Text style={[t.h3, { color: c.headerText }]}>Pickleague</Text>}
+          style={{ backgroundColor: 'transparent' }}
+          iconSize={24}
+          iconColor={c.headerText}
+          actions={[
+            { key: 'bell', icon: 'bell', a11yLabel: 'Notifications', badge: 2, onPress: () => {} },
+            { key: 'gear', icon: 'gear', a11yLabel: 'Settings', onPress: () => {} },
+          ]}
+        />
+        <HomeGreeting
+          variant="band"
+          profile={{ full_name: 'Brian Lab', pickles: 53601 } as unknown as Profile}
+          streak={11}
+          onProfile={() => {}}
+          onBalance={() => {}}
+          onStreak={() => {}}
+        />
+      </BrandBand>
+      <View style={{ padding: 16, gap: 14 }}>
+      <QuickRow showRecord onPress={() => {}} />
+      <Panel>
+        <DayBands
+          bands={(['today', 'tomorrow', 'later'] as const).map((k) => ({
+            key: k,
+            title: k === 'today' ? 'Today' : k === 'tomorrow' ? 'Tomorrow' : 'Later this week',
+            date: dayBandDate(k, Date.now()),
+            tile: dayBandTile(k, Date.now()),
+            count: k === 'later' ? 1 : 0,
+            children: <Text style={t.sub}>The Hub Sports Club, nothing planned</Text>,
+          }))}
+        />
+      </Panel>
       <Text style={t.h1}>Looks lab</Text>
       <SkinPicker />
       <SectionHeader title="Buttons" />
@@ -93,7 +135,19 @@ function Lab() {
           <Button title="Check in" onPress={() => {}} style={{ flex: 1 }} />
         </View>
       </BottomSheet>
+      </View>
     </ScrollView>
+    <FloatingNavBar
+      items={[
+        { key: 'home', label: 'Home', icon: 'home', active: true, onPress: () => {} },
+        { key: 'saved', label: 'Saved', icon: 'bookmark', onPress: () => {} },
+        { key: 'discover', label: 'Discover', icon: 'search', onPress: () => {} },
+        { key: 'me', label: 'Me', icon: 'account', onPress: () => {} },
+      ]}
+      centre={{ key: 'play', label: 'Play', icon: 'play', onPress: () => {} }}
+      publishInset={false}
+    />
+    </View>
   );
 }
 

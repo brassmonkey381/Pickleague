@@ -1,4 +1,5 @@
-// Home's quick tiles (plan section 3): labelled tiles, rows of 3, above the feed.
+// Home's quick actions (plan section 3), above the feed: Play as one big
+// button, the others as round icons under it (ShortcutGrid layout 'lead').
 //   Discover · Record (league members) or Join (everyone else) · Play · Drill · Shop · History
 // Drawn by the foundation's ShortcutGrid (Doggle's HomeShortcuts, hoisted):
 // every tile a 24px glyph in the brand colour over a caption, radius
@@ -51,9 +52,12 @@ export default function QuickRow({ showRecord, onPress }: Props) {
     label: tile.label,
     a11y: tile.a11y ?? tile.label,
     iconName: tile.iconName,
+    // Play is Home's main action: the one big button (the redesign, 2026-11-04).
+    filled: tile.key === 'play',
     onPress: () => onPress(tile.key, i),
   }));
 
-  // Rows of 3 (the user, 2026-10-22: "two rows of 3, above the home feed").
-  return <ShortcutGrid items={items} columns={PER_ROW} tileRadius={RADIUS.lg} />;
+  // One big Play, the rest as round icons under it (the redesign's "lead"
+  // pick; it replaced the user's 2026-10-22 two rows of 3).
+  return <ShortcutGrid items={items} layout="lead" columns={PER_ROW} tileRadius={RADIUS.lg} />;
 }

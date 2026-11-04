@@ -54,6 +54,8 @@ type BalanceProps = {
   balance: number | null | undefined;
   preset?: TextPreset;
   color?: string;
+  /** The pickle glyph's colour. Default the theme primary. */
+  iconColor?: string;
   style?: StyleProp<ViewStyle>;
   textStyle?: StyleProp<TextStyle>;
   /** Inside a button that already says the balance in its own label: no label
@@ -61,7 +63,7 @@ type BalanceProps = {
   decorative?: boolean;
 };
 
-export function PickleBalance({ balance, preset = 'title', color, style, textStyle, decorative = false }: BalanceProps) {
+export function PickleBalance({ balance, preset = 'title', color, iconColor, style, textStyle, decorative = false }: BalanceProps) {
   const { colors: c } = useTheme();
   const known = typeof balance === 'number' && Number.isFinite(balance);
   return (
@@ -70,7 +72,7 @@ export function PickleBalance({ balance, preset = 'title', color, style, textSty
       value={known ? balance.toLocaleString() : '—'}
       preset={preset}
       color={color ?? c.text}
-      iconColor={c.primary}
+      iconColor={iconColor ?? c.primary}
       style={style}
       textStyle={textStyle}
       accessibilityLabel={decorative ? undefined : known ? picklesLabel(balance) : 'Pickle balance loading'}
