@@ -294,8 +294,8 @@ describe('arrivalLocalSchedule with a planned end', () => {
 describe('routine and window copy', () => {
   it('a routine as a line, and its windows from its start', () => {
     const r = routine();
-    expect(routineTimeLine(r)).toBe('Tue, Thu · 9 AM · 3 h');
-    expect(routineWindowsLine(r)).toBe('9 AM–10:30 AM Closed group · 10:30 AM–12 PM Open play');
+    expect(routineTimeLine(r)).toBe('Tue, Thu, 9 AM, 3 h');
+    expect(routineWindowsLine(r)).toBe('9 AM–10:30 AM Closed group, 10:30 AM–12 PM Open play');
     expect(routineWindowsLine({ localTime: '09:00', windows: [] })).toBe('');
     expect(routineWindowsLine({ localTime: '09:00', windows: [{ startMin: 0, endMin: 60, mode: null }] })).toBe('');
   });
@@ -322,12 +322,12 @@ describe('routine and window copy', () => {
       'Closed group with Ann, Bob',
     );
     expect(playerModeLine({ ...base, modeNow: 'closed', nextOpenAt: at(90).toISOString() }, TZ)).toBe(
-      'Closed group · open from 10:30 AM',
+      'Closed group, open from 10:30 AM',
     );
     expect(playerModeLine({ ...base, modeNow: null }, TZ)).toBe('');
     expect(playerModeLine({ ...base, modeNow: 'drill' }, TZ)).toBe('Drilling until 10:30 AM');
     expect(playerModeLine({ ...base, modeNow: 'drill', nextOpenAt: at(90).toISOString() }, TZ)).toBe(
-      'Drilling until 10:30 AM · open from 10:30 AM',
+      'Drilling until 10:30 AM, open from 10:30 AM',
     );
   });
 
@@ -347,12 +347,12 @@ describe('routine and window copy', () => {
     expect(m.players[0]).toMatchObject({ checkinId: 'c1', modeNow: 'open', closedGroup: [] });
   });
 
-  it('crowd line: "N here · M open to play" only with the number', () => {
+  it('crowd line: "N here, M open to play" only with the number', () => {
     const crowd = { here_now: 6, band_low: 3.5, band_high: 4, friends_here: 0 };
-    expect(crowdLineText(crowd)).toBe('6 playing now · mostly 3.5–4.0');
-    expect(crowdLineText(crowd, null, { openNow: 4 })).toBe('6 here · 4 open to play · mostly 3.5–4.0');
-    expect(crowdLineText(crowd, null, { openNow: 0 })).toBe('6 here · mostly 3.5–4.0');
-    expect(crowdLineText(crowd, null, { openNow: 9 })).toBe('6 here · 6 open to play · mostly 3.5–4.0');
+    expect(crowdLineText(crowd)).toBe('6 playing now, mostly 3.5–4.0');
+    expect(crowdLineText(crowd, null, { openNow: 4 })).toBe('6 here, 4 open to play, mostly 3.5–4.0');
+    expect(crowdLineText(crowd, null, { openNow: 0 })).toBe('6 here, mostly 3.5–4.0');
+    expect(crowdLineText(crowd, null, { openNow: 9 })).toBe('6 here, 6 open to play, mostly 3.5–4.0');
   });
 
   it('windows.bad: which window, and what is wrong', () => {

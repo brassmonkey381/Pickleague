@@ -203,12 +203,12 @@ export default function SeasonSetupSheet({ visible, leagueId, leagueName, onClos
         {dates.length > 0 ? (
           <View style={[styles.preview, { backgroundColor: c.primaryLight, borderColor: c.primary }]}>
             <Text style={[t.sub, { color: c.primary, fontWeight: FONT.weight.bold }]}>
-              {dates.length} lock-in round{dates.length !== 1 ? 's' : ''} · final standings = median rank
+              {dates.length} lock-in round{dates.length !== 1 ? 's' : ''}, final standings = median rank
             </Text>
             {dates.map((d, i) => (
               <Text key={i} style={[t.sub, { color: c.text }]}>
                 Round {i + 1}: {d.toLocaleDateString(undefined, { weekday: 'short', month: 'short', day: 'numeric' })}
-                {i === dates.length - 1 ? ' · season ends' : ''}
+                {i === dates.length - 1 ? ', season ends' : ''}
               </Text>
             ))}
             <Text style={t.meta}>

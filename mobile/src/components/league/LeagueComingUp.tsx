@@ -68,7 +68,7 @@ export default function LeagueComingUp({ items, champion }: LeagueComingUpProps)
   const hidden = items.length - shown.length;
   const championSub = champion
     // Without a team name the tournament is already the title, so it isn't repeated here.
-    ? [champion.teamName ? champion.tournamentName : null, champion.record, joinNames(champion.winners)].filter(Boolean).join(' · ')
+    ? [champion.teamName ? champion.tournamentName : null, champion.record, joinNames(champion.winners)].filter(Boolean).join(', ')
     : '';
 
   return (

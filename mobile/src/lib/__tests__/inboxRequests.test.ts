@@ -249,7 +249,7 @@ describe('teamInviteItems', () => {
     expect(p).toMatchObject({
       key: 'pair-invite-a',
       kind: 'team_invite',
-      title: 'Partner invite · Fall Open',
+      title: 'Partner invite, Fall Open',
       needsYou: true,
       deadline: iso(48 * H),
       status: 'from Dink Dynasty',
@@ -258,7 +258,7 @@ describe('teamInviteItems', () => {
     expect(p.target).toEqual({ screen: 'TournamentDetail', params: { tournamentId: 't1', tournamentName: 'Fall Open' } });
     expect(p.action).toMatchObject({ label: 'Respond', slug: 'pair_invite' });
     const [team] = teamInviteItems([row('b')], 'team', NOW);
-    expect(team).toMatchObject({ key: 'team-invite-b', title: 'Team invite · Fall Open' });
+    expect(team).toMatchObject({ key: 'team-invite-b', title: 'Team invite, Fall Open' });
     expect(team.action).toMatchObject({ slug: 'team_invite' });
   });
 

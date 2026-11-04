@@ -55,7 +55,7 @@ describe('entity glyphs', () => {
 
 describe('row text helpers', () => {
   it('joinFacts drops empty parts', () => {
-    expect(joinFacts(['Lake Merritt', null, '', '  ', false, undefined, '3 players'])).toBe('Lake Merritt · 3 players');
+    expect(joinFacts(['Lake Merritt', null, '', '  ', false, undefined, '3 players'])).toBe('Lake Merritt, 3 players');
     expect(joinFacts([])).toBe('');
   });
 

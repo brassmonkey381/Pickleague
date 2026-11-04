@@ -358,7 +358,7 @@ export default function ShopScreen({ navigation }: Props) {
             {isOwned
               ? 'Unlocked'
               : badgeEarnedButNotOwned
-                ? 'Earned · pending grant'
+                ? 'Earned, pending grant'
                 : `Earn ${unlockBadgeName}`}
           </Text>
         </View>
@@ -591,7 +591,7 @@ export default function ShopScreen({ navigation }: Props) {
                     <Text style={t.fieldLabel}>To</Text>
                     <Text style={t.title}>{giftRecipient.full_name}</Text>
                     <View style={S.inlineRow}>
-                      <Text style={[t.sub, S.shrink]} numberOfLines={1}>{giftItem.name} ·</Text>
+                      <Text style={[t.sub, S.shrink]} numberOfLines={1}>{giftItem.name},</Text>
                       <PickleAmount amount={giftItem.cost} preset="sub" textStyle={S.price} />
                     </View>
                   </View>

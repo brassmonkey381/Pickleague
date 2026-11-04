@@ -130,10 +130,10 @@ export type CourtPassSummary =
 export function courtPassChipLabel(s: CourtPassSummary, locale?: string): string {
   if (s.kind === 'next') {
     const date = courtPassDate(s.startsAt, locale);
-    return date ? `${COURT_PASS_NAME} · starts ${date}` : COURT_PASS_NAME;
+    return date ? `${COURT_PASS_NAME}, starts ${date}` : COURT_PASS_NAME;
   }
   const tail = s.finished ? 'all tiers done' : `${s.xpToNext} to next`;
-  return `${COURT_PASS_NAME} · Tier ${s.tier} · ${tail}`;
+  return `${COURT_PASS_NAME}, Tier ${s.tier}, ${tail}`;
 }
 
 /** The chip read aloud. */

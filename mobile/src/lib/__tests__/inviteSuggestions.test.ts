@@ -125,10 +125,10 @@ describe('withinLevel', () => {
 
 describe('suggestionsHeading', () => {
   it('names where the suggestions come from', () => {
-    expect(suggestionsHeading('place', 'Lake Merritt', 5)).toBe('Players near Lake Merritt · 5 mi');
-    expect(suggestionsHeading('place', null, 10)).toBe('Players near the court · 10 mi');
-    expect(suggestionsHeading('area', 'Oakland, CA', 25)).toBe('Players near Oakland, CA · 25 mi');
-    expect(suggestionsHeading('area', null, 5)).toBe('Players near your search area · 5 mi');
+    expect(suggestionsHeading('place', 'Lake Merritt', 5)).toBe('Players near Lake Merritt, 5 mi');
+    expect(suggestionsHeading('place', null, 10)).toBe('Players near the court, 10 mi');
+    expect(suggestionsHeading('area', 'Oakland, CA', 25)).toBe('Players near Oakland, CA, 25 mi');
+    expect(suggestionsHeading('area', null, 5)).toBe('Players near your search area, 5 mi');
     expect(suggestionsHeading('anywhere', 'x', 5)).toBeNull();
   });
 });

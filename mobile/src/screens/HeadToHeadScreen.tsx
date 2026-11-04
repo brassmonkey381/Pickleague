@@ -229,7 +229,7 @@ export default function HeadToHeadScreen({ route }: Props) {
                     <View style={S.flex}>
                       <View style={S.iconRow}>
                         <Icon name={singles ? 'person' : 'group'} size={14} color={c.textSub} />
-                        <Text style={S.meetType}>{singles ? 'Singles' : 'Doubles'}{score ? `  ·  ${score}` : ''}</Text>
+                        <Text style={S.meetType}>{singles ? 'Singles' : 'Doubles'}{score ? `, ${score}` : ''}</Text>
                       </View>
                       <Text style={S.meetDate}>{new Date(meet.played_at).toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' })}</Text>
                     </View>

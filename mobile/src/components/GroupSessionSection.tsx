@@ -184,7 +184,7 @@ export default function GroupSessionSection({ kind, id, title, startsAt, endsAt,
 
         {mine ? (
           <View style={[styles.inRow, styles.gap]}>
-            <Text style={[t.title, styles.flex, { color: c.success }]}>{`You're in · ${clock(elapsed)}`}</Text>
+            <Text style={[t.title, styles.flex, { color: c.success }]}>{`You're in, ${clock(elapsed)}`}</Text>
             <Button size="sm" variant="outline" title="End" loading={ending} onPress={() => void end()} />
           </View>
         ) : canJoin ? (

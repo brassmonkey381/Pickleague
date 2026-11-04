@@ -357,7 +357,7 @@ export function playedFor(ms: number): string {
 /** The end sheet's header line: "Play complete · 1h 42m at Riverside". */
 export function playCompleteLine(p: { startedAtMs: number; endedAtMs: number; venueName?: string | null }): string {
   const where = p.venueName ? ` at ${p.venueName}` : '';
-  return `Play complete · ${playedFor(p.endedAtMs - p.startedAtMs)}${where}`;
+  return `Play complete, ${playedFor(p.endedAtMs - p.startedAtMs)}${where}`;
 }
 
 /** "Group session: Ladder Night": the event or tournament I'm in that is around now (nearest first). */

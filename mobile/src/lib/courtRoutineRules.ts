@@ -505,7 +505,7 @@ export function playModeLabel(mode: PlayMode | null): string {
   return mode ? PLAY_MODE_LABEL[mode] : UNSAID_LABEL;
 }
 
-export const WINDOWS_COPY: WindowsCopy<PlayMode> = { mode: playModeLabel };
+export const WINDOWS_COPY: WindowsCopy<PlayMode> = { mode: playModeLabel, separator: ', ' };
 
 /** Windows that say something (a single unsaid window says nothing). */
 export function windowsSaySomething(windows: readonly { mode: PlayMode | null }[] | null | undefined): boolean {
@@ -515,7 +515,7 @@ export function windowsSaySomething(windows: readonly { mode: PlayMode | null }[
 
 /** "Weekdays · 9 AM · 3 h". */
 export function routineTimeLine(r: { days: number; localTime: string; lengthMin: number }): string {
-  return `${formatWeekdayMask(r.days)} · ${formatClockTime(r.localTime)} · ${formatDurationMinutes(r.lengthMin)}`;
+  return `${formatWeekdayMask(r.days)}, ${formatClockTime(r.localTime)}, ${formatDurationMinutes(r.lengthMin)}`;
 }
 
 /** "9 AM–10:30 AM Closed group · 10:30 AM–12 PM Open play"; '' when nothing is said. */
@@ -564,12 +564,12 @@ export function playerModeLine(row: Pick<PlayModeRow, 'modeNow' | 'modeUntil' | 
   }
   if (row.modeNow === 'drill') {
     const base = row.modeUntil ? `Drilling until ${clockLabel(row.modeUntil, timeZone)}` : 'Drilling';
-    return row.nextOpenAt ? `${base} · open from ${clockLabel(row.nextOpenAt, timeZone)}` : base;
+    return row.nextOpenAt ? `${base}, open from ${clockLabel(row.nextOpenAt, timeZone)}` : base;
   }
   if (row.modeNow === 'closed') {
     const names = row.closedGroup.map((m) => m.fullName?.trim().split(/\s+/)[0]).filter((n): n is string => !!n);
     const base = names.length ? `Closed group with ${names.join(', ')}` : 'Closed group';
-    return row.nextOpenAt ? `${base} · open from ${clockLabel(row.nextOpenAt, timeZone)}` : base;
+    return row.nextOpenAt ? `${base}, open from ${clockLabel(row.nextOpenAt, timeZone)}` : base;
   }
   // Nothing said now, open play later (a split that starts Not set).
   return row.nextOpenAt ? `Open to play from ${clockLabel(row.nextOpenAt, timeZone)}` : '';

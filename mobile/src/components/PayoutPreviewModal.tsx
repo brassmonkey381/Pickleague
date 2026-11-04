@@ -139,7 +139,7 @@ export default function PayoutPreviewModal({ visible, tournamentId, prizePool, o
                       <PickleAmount amount={r.pool_share} preset="title" textStyle={S.heavy} />
                     </View>
                     <Text style={S.placeMeta}>
-                      Team prize {picklesLabel(r.pool_share)} ÷ {teamSize} {teamSize === 1 ? 'player' : 'players'} = {picklesLabel(r.share_per_user)} each · +{r.plupr_bonus} PLUPR · Champion badge
+                      Team prize {picklesLabel(r.pool_share)} ÷ {teamSize} {teamSize === 1 ? 'player' : 'players'} = {picklesLabel(r.share_per_user)} each, +{r.plupr_bonus} PLUPR, Champion badge
                     </Text>
                     <View style={S.userList}>
                       {(r.user_names ?? []).map((n, j) => (

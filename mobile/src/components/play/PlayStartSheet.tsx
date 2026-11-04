@@ -791,7 +791,7 @@ export function PlayStartSheet({
               }}
               accessibilityRole="link"
             >
-              {' · Change'}
+              {', Change'}
             </Text>
           ) : null}
         </Text>

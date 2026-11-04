@@ -12,11 +12,11 @@ import {
   TAKE_BACK_WINDOW_MS,
 } from '../checkinPlayRules';
 
-describe('the bar: Home · Saved · ( ▶ Play ) · Discover · Me', () => {
+describe('the bar: Home, Saved, ( ▶ Play ), Discover, Me', () => {
   it('side slots in order, the centre action between Saved and Discover', () => {
     expect(navSideSlots({ discover: true })).toEqual(['home', 'saved', 'discover', 'me']);
   });
-  it('without Discover: Home · Saved · ( ▶ Play ) · Me', () => {
+  it('without Discover: Home, Saved, ( ▶ Play ), Me', () => {
     expect(navSideSlots({ discover: false })).toEqual(['home', 'saved', 'me']);
   });
   it('no separate Play or Check in side slot any more', () => {

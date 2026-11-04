@@ -125,7 +125,7 @@ export default function LeagueInfoScreen({ navigation, route }: Props) {
         {memberCount != null ? <Row label="Members" value={`${memberCount}`} /> : null}
         {matchCount != null ? <Row label="Matches played" value={`${matchCount}`} /> : null}
         {court ? <Row label="Home court" value={court} /> : null}
-        {activeSeason ? <Row label="Season" value={`${activeSeason.name} · ${activeSeason.status === 'active' ? 'Active' : 'Upcoming'}`} /> : null}
+        {activeSeason ? <Row label="Season" value={`${activeSeason.name}, ${activeSeason.status === 'active' ? 'Active' : 'Upcoming'}`} /> : null}
       </Panel>
 
       {/* ── Match scoring + PLUPR ─────────────────────────────── */}
@@ -152,7 +152,7 @@ export default function LeagueInfoScreen({ navigation, route }: Props) {
       <CollapsibleSection
         compact
         title="Home court"
-        summary={court ? `${court} · home vs away tagging` : 'No home court yet'}
+        summary={court ? `${court}, home vs away tagging` : 'No home court yet'}
         onToggle={onToggle('home_court')}
       >
         {court ? (
@@ -176,7 +176,7 @@ export default function LeagueInfoScreen({ navigation, route }: Props) {
         summary={seasons.length === 0
           ? 'No seasons yet'
           : activeSeason
-            ? `${activeSeason.name} · lock-in every ${activeSeason.lock_frequency_weeks}w`
+            ? `${activeSeason.name}, lock-in every ${activeSeason.lock_frequency_weeks}w`
             : `${completedSeasons.length} past season${completedSeasons.length === 1 ? '' : 's'}`}
         onToggle={onToggle('seasons')}
       >
@@ -197,10 +197,10 @@ export default function LeagueInfoScreen({ navigation, route }: Props) {
               <View style={[styles.callout, { backgroundColor: c.primaryLight, borderColor: c.primary }]}>
                 <Text style={[t.sub, { color: c.primary, fontWeight: FONT.weight.bold }]}>Current season: {activeSeason.name}</Text>
                 <Text style={[t.sub, { color: c.text }]}>
-                  {activeSeason.total_weeks} weeks · lock-in every {activeSeason.lock_frequency_weeks}w · {activeSeason.total_periods} rounds
+                  {activeSeason.total_weeks} weeks, lock-in every {activeSeason.lock_frequency_weeks}w, {activeSeason.total_periods} rounds
                 </Text>
                 <Text style={[t.sub, { color: c.text }]}>
-                  {fmtDate(activeSeason.start_date)} → {fmtDate(activeSeason.end_date)} · {activeSeason.status === 'active' ? 'Active' : 'Upcoming'}
+                  {fmtDate(activeSeason.start_date)} → {fmtDate(activeSeason.end_date)}, {activeSeason.status === 'active' ? 'Active' : 'Upcoming'}
                 </Text>
               </View>
             ) : null}

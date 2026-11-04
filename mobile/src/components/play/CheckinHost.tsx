@@ -385,8 +385,8 @@ function Host() {
 
   if (current) {
     const until = clockLabel(current.expiresAt);
-    pill = { primary: 'CHECKED IN', secondary: `${current.venueName} · until ${until}` };
-    title = `CHECKED IN · ${current.venueName.toUpperCase()}`;
+    pill = { primary: 'CHECKED IN', secondary: `${current.venueName}, until ${until}` };
+    title = `CHECKED IN, ${current.venueName.toUpperCase()}`;
     sections.push(
       <Text key="until" style={t.sub}>
         Until {until}. Friends see you here.

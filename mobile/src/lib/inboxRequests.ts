@@ -370,7 +370,7 @@ export function teamInviteItems(
     out.push({
       key: `${kind}-invite-${r.id}`,
       kind: 'team_invite',
-      title: `${kind === 'pair' ? 'Partner' : 'Team'} invite · ${tournamentName}`,
+      title: `${kind === 'pair' ? 'Partner' : 'Team'} invite, ${tournamentName}`,
       leagueName: null,
       startsAt: null,
       endsAt: null,

@@ -152,7 +152,7 @@ export default function PlayEndSheetHost({ signedIn }: { signedIn: boolean }) {
         id: loggedDrillDraftId(ended.id),
         partner_name: '',
         logForPlaySession: ended.id,
-        heading: `Your drill · ${ask.lengthLabel}`,
+        heading: `Your drill, ${ask.lengthLabel}`,
       });
     }, 350);
   };

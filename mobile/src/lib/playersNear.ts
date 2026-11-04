@@ -121,7 +121,7 @@ export function playsAtLabel(p: Pick<NearPlayer, 'place_name' | 'distance_m'>): 
   const miles = p.distance_m / METERS_PER_MILE;
   const d = miles < 0.95 ? `${Math.max(0.1, Math.round(miles * 10) / 10)} mi` : `${Math.round(miles)} mi`;
   const where = p.place_name?.trim();
-  return where ? `Plays at ${where} · ${d}` : `Plays nearby · ${d}`;
+  return where ? `Plays at ${where}, ${d}` : `Plays nearby, ${d}`;
 }
 
 /** Whether an error says the RPC isn't on this server yet (the SQL isn't applied). */

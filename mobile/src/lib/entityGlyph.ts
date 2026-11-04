@@ -102,7 +102,7 @@ export function joinFacts(parts: ReadonlyArray<string | null | undefined | false
   return parts
     .filter((p): p is string => typeof p === 'string' && p.trim().length > 0)
     .map((p) => p.trim())
-    .join(' · ');
+    .join(', ');
 }
 
 /** "1 player" / "12 players". Null for 0, unknown or negative counts: a row

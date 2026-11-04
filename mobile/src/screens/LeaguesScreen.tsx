@@ -739,7 +739,6 @@ export default function LeaguesScreen({ navigation, route, active = true, routeM
           <Pressable onPress={openCreate} accessibilityRole="button" style={S.footerLink}>
             <Text style={[t.sub, S.footerLinkText]} maxFontSizeMultiplier={SMALL_TEXT_MAX_SCALE}>+ New league</Text>
           </Pressable>
-          <Text style={[t.meta, { color: c.textMuted }]} accessibilityElementsHidden>·</Text>
           <Pressable onPress={() => setShowJoinCode(true)} accessibilityRole="button" style={S.footerLink}>
             <Text style={[t.sub, S.footerLinkText]} maxFontSizeMultiplier={SMALL_TEXT_MAX_SCALE}>Enter code</Text>
           </Pressable>

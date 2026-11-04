@@ -201,7 +201,7 @@ export default function CourtPlansHere({ court, here, options, onCheckIn }: Prop
                   <View style={S.metaRow}>
                     <Text style={[t.meta, S.shrink, { color: c.textSub }]} numberOfLines={2}>
                       {playModeNowLine(p.windows, new Date(Math.max(now, Date.parse(p.plannedAt)))) ||
-                        `Planned check-in · until ${shortTime(new Date(p.plannedEndAt))}`}
+                        `Planned check-in, until ${shortTime(new Date(p.plannedEndAt))}`}
                     </Text>
                     {PLAN_SHARING_ENABLED ? (
                       <PlanShareChip
@@ -233,7 +233,7 @@ export default function CourtPlansHere({ court, here, options, onCheckIn }: Prop
       ) : null}
       <ActionSheetModal
         visible={open != null}
-        title={`You · ${court.venueName}`}
+        title={`You, ${court.venueName}`}
         subtitle={open ? `Planned check-in ${today(open.plannedAt) ? 'at ' : ''}${planWhen(open.plannedAt, now)}` : undefined}
         actions={open ? actions(open) : []}
         cancelLabel="Close"

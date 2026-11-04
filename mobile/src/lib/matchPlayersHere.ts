@@ -31,6 +31,6 @@ export function nextEmptySlot(
 /** Picker rows with the players here first, marked " · here". */
 export function hereFirst<T extends { id: string; name: string }>(items: readonly T[], hereIds: ReadonlySet<string>): T[] {
   if (hereIds.size === 0) return [...items];
-  const here = items.filter((i) => hereIds.has(i.id)).map((i) => ({ ...i, name: `${i.name} · here` }));
+  const here = items.filter((i) => hereIds.has(i.id)).map((i) => ({ ...i, name: `${i.name}, here` }));
   return [...here, ...items.filter((i) => !hereIds.has(i.id))];
 }

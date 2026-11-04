@@ -97,7 +97,7 @@ export default function FeedAgendaLine({
         <View style={styles.inline}>
           {lead ? (
             <Text style={[t.meta, styles.shrink, { color: c.textSub }]} numberOfLines={1}>
-              {`${lead} · `}
+              {`${lead}, `}
             </Text>
           ) : null}
           <Icon name={row.statusIcon} size={12} color={c.success} />

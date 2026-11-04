@@ -241,7 +241,7 @@ describe('generatePoolPlay', () => {
     // 4-player RR = 6 matches per pool × 3 pools = 18 total
     expect(matches).toHaveLength(18);
 
-    // Each pool tagged with poolIndex and labeled "Pool X · Round N"
+    // Each pool tagged with poolIndex and labeled "Pool X, Round N"
     const poolACount = matches.filter(m => m.poolIndex === 0).length;
     const poolBCount = matches.filter(m => m.poolIndex === 1).length;
     const poolCCount = matches.filter(m => m.poolIndex === 2).length;
@@ -249,9 +249,9 @@ describe('generatePoolPlay', () => {
     expect(poolBCount).toBe(6);
     expect(poolCCount).toBe(6);
 
-    expect(matches.find(m => m.poolIndex === 0)?.label).toMatch(/^Pool A · Round \d+$/);
-    expect(matches.find(m => m.poolIndex === 1)?.label).toMatch(/^Pool B · Round \d+$/);
-    expect(matches.find(m => m.poolIndex === 2)?.label).toMatch(/^Pool C · Round \d+$/);
+    expect(matches.find(m => m.poolIndex === 0)?.label).toMatch(/^Pool A, Round \d+$/);
+    expect(matches.find(m => m.poolIndex === 1)?.label).toMatch(/^Pool B, Round \d+$/);
+    expect(matches.find(m => m.poolIndex === 2)?.label).toMatch(/^Pool C, Round \d+$/);
   });
 
   it('cross-pool matches do not exist (every match is within one pool)', () => {
@@ -516,7 +516,7 @@ describe('validatePools', () => {
   it('flags an underfull pool', () => {
     const pools = [['s1', 's2'], ['s3']];
     const matches: MatchPairing[] = [
-      { round: 1, matchOrder: 0, team1: ['s1'], team2: ['s2'], label: 'Pool A · Round 1' },
+      { round: 1, matchOrder: 0, team1: ['s1'], team2: ['s2'], label: 'Pool A, Round 1' },
     ];
     const err = validatePools(pools, 2, matches);
     expect(err?.code).toBe('POOL_UNDERFULL');
@@ -525,7 +525,7 @@ describe('validatePools', () => {
   it('flags a pool with no matches', () => {
     const pools = [['s1', 's2'], ['s3', 's4']];
     const matches: MatchPairing[] = [
-      { round: 1, matchOrder: 0, team1: ['s1'], team2: ['s2'], label: 'Pool A · Round 1' },
+      { round: 1, matchOrder: 0, team1: ['s1'], team2: ['s2'], label: 'Pool A, Round 1' },
     ];
     const err = validatePools(pools, 2, matches);
     expect(err?.code).toBe('POOL_HAS_NO_MATCHES');

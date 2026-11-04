@@ -76,7 +76,7 @@ export default function TournamentIdentity({
     <View style={styles.wrap}>
       <View style={styles.chips}>
         <Chip {...chipProps} label={pill.label} tone={pill.tone} variant="solid" />
-        <Chip {...chipProps} iconName={fmt.iconName} label={`${fmt.label} · ${t.match_type === 'doubles' ? 'Doubles' : 'Singles'}`} />
+        <Chip {...chipProps} iconName={fmt.iconName} label={`${fmt.label}, ${t.match_type === 'doubles' ? 'Doubles' : 'Singles'}`} />
         {date ? (
           <Chip {...chipProps} iconName="calendar-event" label={date} />
         ) : onEdit ? (

@@ -124,7 +124,7 @@ export default function SeasonStrip({
         >
           <View style={styles.startRow}>
             <Text style={[t.meta, styles.shrink]} numberOfLines={1} maxFontSizeMultiplier={SMALL_TEXT_MAX_SCALE}>
-              No active season ·
+              No active season.
             </Text>
             <Text style={[t.meta, { color: c.primary }]} numberOfLines={1} maxFontSizeMultiplier={SMALL_TEXT_MAX_SCALE}>
               Start a season

@@ -432,7 +432,7 @@ export default function EditProfileSheet({
           <View style={S.navText}>
             <Text style={t.title} numberOfLines={1}>Play style tags</Text>
             <Text style={t.sub} numberOfLines={1}>
-              {tagLabels.length > 0 ? tagLabels.join(' · ') : `Pick up to ${maxTagSlots} that describe your game`}
+              {tagLabels.length > 0 ? tagLabels.join(', ') : `Pick up to ${maxTagSlots} that describe your game`}
             </Text>
           </View>
           <Text style={[t.meta, { color: c.textSub }]} maxFontSizeMultiplier={SMALL_TEXT_MAX_SCALE}>

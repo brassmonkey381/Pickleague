@@ -293,7 +293,7 @@ function InvRow({
           <View style={styles.inlineRow}>
             <Icon name="gift" size={14} color={c.textSub} />
             <Text style={[styles.rowSub, styles.flexText]} numberOfLines={1}>
-              Gift{message ? ` · "${message}"` : ''}
+              Gift{message ? `, "${message}"` : ''}
             </Text>
           </View>
         )}
@@ -806,7 +806,7 @@ export default function ProfileScreen({ navigation }: Props) {
   const comingHidden = comingCount - shownTournaments.length - shownLeagues.length;
 
   // Reference-section summaries (one line each, shown while collapsed).
-  const availSummary = availabilityShortSummary(availability) ?? 'Not set';
+  const availSummary = availabilityShortSummary(availability, { separator: ', ' }) ?? 'Not set';
   const paddleSummary = defaultPaddle ? `${defaultPaddle.brandName} ${defaultPaddle.modelName}` : 'Not set';
   const chemRows = chemistryResults.filter(r => partnerNames[r.partnerId]);
   const bestChem = chemRows.length > 0
@@ -979,7 +979,7 @@ export default function ProfileScreen({ navigation }: Props) {
         title={(
           <Text style={styles.stripLabel} numberOfLines={1}>
             Achievements
-            {achCount ? <Text style={styles.stripCount}> · {achCount.earned} of {achCount.total} unlocked</Text> : null}
+            {achCount ? <Text style={styles.stripCount}>, {achCount.earned} of {achCount.total} unlocked</Text> : null}
           </Text>
         )}
         chevron
@@ -1080,7 +1080,7 @@ export default function ProfileScreen({ navigation }: Props) {
         >
           <View style={styles.availHead}>
             <Text style={[t.sub, styles.flexText]} numberOfLines={2}>
-              Auto-saved · used for event filters and player matching
+              Auto-saved, used for event filters and player matching
             </Text>
             {avSaveStatus === 'saving' && <Text style={t.meta}>Saving…</Text>}
             {avSaveStatus === 'saved' && (

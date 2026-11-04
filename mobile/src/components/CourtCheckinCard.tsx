@@ -402,7 +402,7 @@ export default function CourtCheckinCard({ onModeChange, onTap }: Props = {}) {
             <Icon name="pin" size={14} color={c.textSub} />
             <Text style={[t.title, S.shrink]} numberOfLines={1}>
               {current.venueName}
-              <Text style={t.sub}> · checked in · til {timeLabel(current.expiresAt)}</Text>
+              <Text style={t.sub}>, checked in, til {timeLabel(current.expiresAt)}</Text>
             </Text>
           </View>
           {/* Star the court you're at: next time, arriving checks you in. */}

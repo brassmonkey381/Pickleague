@@ -15,7 +15,7 @@ import {
 const ALL = availableDiscoverTabs({ places: true, players: true });
 
 describe('tabs', () => {
-  it("are in the user's order: Leagues · Tournaments · Places · Players", () => {
+  it("are in the user's order: Leagues, Tournaments, Places, Players", () => {
     expect(DISCOVER_TABS).toEqual(['leagues', 'tournaments', 'places', 'players']);
     expect(ALL).toEqual(['leagues', 'tournaments', 'places', 'players']);
   });

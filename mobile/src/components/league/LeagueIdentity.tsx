@@ -111,7 +111,7 @@ export default function LeagueIdentity({
           presence.venueId ? (
             <FilterPill
               iconName="pin"
-              label={`${courtShort}${hereCount ? ` · ${hereCount} here` : ''}`}
+              label={`${courtShort}${hereCount ? `, ${hereCount} here` : ''}`}
               trailingIconName={rosterOpen ? 'chevron-down' : 'chevron-right'}
               active={rosterOpen}
               maxFontSizeMultiplier={SMALL_TEXT_MAX_SCALE}

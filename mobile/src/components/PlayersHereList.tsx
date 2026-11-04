@@ -128,9 +128,9 @@ function RowAvatar({ p, fill }: { p: PlayerHere; fill?: boolean }) {
 function rowSublabel(p: PlayerHere): string | null {
   if (p.anonymous) return null;
   const plupr = `PLUPR ${formatPluprShort(p.doubles_rating, undefined)}`;
-  const mode = p.modeLine ? ` · ${p.modeLine}` : '';
-  if (p.is_close_friend) return `Close friend · ${plupr}${mode}`;
-  if (p.is_friend) return `Friend · ${plupr}${mode}`;
+  const mode = p.modeLine ? `, ${p.modeLine}` : '';
+  if (p.is_close_friend) return `Close friend, ${plupr}${mode}`;
+  if (p.is_friend) return `Friend, ${plupr}${mode}`;
   return plupr + mode;
 }
 
@@ -251,7 +251,7 @@ export default function PlayersHereList({ venueId, compact, venueName, presenceM
         <View key={p.checkin_id} style={S.row}>
           <View style={[S.name, S.inline]}>
             <Text style={[t.body, S.shrink]} numberOfLines={1}>
-              {p.anonymous ? '· ' : p.avatar_emoji ? `${p.avatar_emoji} ` : ''}
+              {p.anonymous ? '' : p.avatar_emoji ? `${p.avatar_emoji} ` : ''}
               {presenceRowLabel(p)}
             </Text>
             {presenceIsCloseFriend(p) ? <Icon name="star" size={12} color={c.primary} accessibilityLabel="Close friend" /> : null}

@@ -170,6 +170,8 @@ export default function PickleShareStudio({ visible, onClose, title, model, trac
       details={details}
       defaultDetails={defaultDetails}
       templatesFor={templatesFor}
+      // No middle dots in Pickleague's copy (the redesign's rule).
+      labels={{ photos: 'PHOTOS: TAP ONE TO MAKE IT THE BIG ONE' }}
       maxPhotos={MAX_SHARE_PHOTOS}
       initialPhotos={initialPhotos}
       strings={{ photoHint: (n) => (n === 0 ? 'Add photos from the court for photo layouts.' : n === 1 ? 'Add another photo for collages.' : `${n} photos`) }}

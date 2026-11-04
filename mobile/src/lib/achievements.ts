@@ -466,7 +466,7 @@ export function awardLines(
   return awards.map(a => {
     const t = Date.parse(a.earnedAt);
     const date = Number.isFinite(t) ? formatDate(new Date(t)) : '';
-    const text = [a.leagueName, date].filter(Boolean).join(' · ');
+    const text = [a.leagueName, date].filter(Boolean).join(', ');
     return { id: a.id, text, matchId: a.matchId, context: badgeDisplayContext(a.context) };
   });
 }

@@ -50,8 +50,8 @@ function Section({ profileId }: { profileId: string }) {
       <Panel padded={false}>
         {stops.map((s, i) => {
           const windows = routineWindowsLine(s);
-          const head = `${formatClockTime(s.localTime)}${zoneSuffix(s.tz)} · ${s.venueName}`;
-          const sub = `${formatWeekdayMask(s.days)} · ${formatDurationMinutes(s.lengthMin)}`;
+          const head = `${formatClockTime(s.localTime)}${zoneSuffix(s.tz)}, ${s.venueName}`;
+          const sub = `${formatWeekdayMask(s.days)}, ${formatDurationMinutes(s.lengthMin)}`;
           const body = (
             <>
               <View style={S.head}>

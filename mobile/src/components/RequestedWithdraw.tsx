@@ -29,7 +29,7 @@ export default function RequestedWithdraw({ leagueId, leagueName, leagueJoin, la
   return (
     <View style={styles.box}>
       <Text style={[t.meta, { color: c.textSub }]} maxFontSizeMultiplier={SMALL_TEXT_MAX_SCALE}>
-        {label} ·{' '}
+        {label},{' '}
       </Text>
       <Pressable
         onPress={() => setConfirming(true)}

@@ -104,10 +104,10 @@ describe('normalising rows', () => {
   });
 });
 
-describe('crowd: "N playing now · mostly 3.5–4.0" (decision 4)', () => {
+describe('crowd: "N playing now, mostly 3.5–4.0" (decision 4)', () => {
   it('no friends part while the friends feature is off', () => {
-    expect(courtCrowdText(CROWD, { friendsEnabled: false })).toBe('6 playing now · mostly 3.5–4.0');
-    expect(courtCrowdText(CROWD, { friendsEnabled: true })).toBe('6 playing now · mostly 3.5–4.0 · 2 friends');
+    expect(courtCrowdText(CROWD, { friendsEnabled: false })).toBe('6 playing now, mostly 3.5–4.0');
+    expect(courtCrowdText(CROWD, { friendsEnabled: true })).toBe('6 playing now, mostly 3.5–4.0, 2 friends');
   });
 
   it('nothing before it loads, and nothing for an empty court', () => {
@@ -117,8 +117,8 @@ describe('crowd: "N playing now · mostly 3.5–4.0" (decision 4)', () => {
   });
 
   it('crowdLineText keeps its old default (friends shown)', () => {
-    expect(crowdLineText(CROWD)).toBe('6 playing now · mostly 3.5–4.0 · 2 friends');
-    expect(crowdLineText(CROWD, null, { showFriends: false })).toBe('6 playing now · mostly 3.5–4.0');
+    expect(crowdLineText(CROWD)).toBe('6 playing now, mostly 3.5–4.0, 2 friends');
+    expect(crowdLineText(CROWD, null, { showFriends: false })).toBe('6 playing now, mostly 3.5–4.0');
   });
 });
 
@@ -132,7 +132,7 @@ describe('a list row', () => {
 
   it('reads out name, distance, crowd, leagues (and the star only when shown)', () => {
     const v = courtRowView(row(), CROWD, { friendsEnabled: false, starsEnabled: true, starred: true });
-    expect(v.a11yLabel).toBe('Lakeside Park, 1.2 miles, 6 playing now · mostly 3.5–4.0, 3 leagues, one of your courts');
+    expect(v.a11yLabel).toBe('Lakeside Park, 1.2 miles, 6 playing now, mostly 3.5–4.0, 3 leagues, one of your courts');
     expect(v.distanceLabel).toBe('1.2 mi');
     expect(v.meta).toEqual(['Oakland', '3 leagues']);
     expect(v.chips).toEqual(['6 courts', 'Lights', 'Free']);

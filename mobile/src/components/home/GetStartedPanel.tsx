@@ -49,7 +49,7 @@ export default function GetStartedPanel({ ftue, isGuest, dupr, defaultOpen, emph
         claim > 0 ? `Claim +${claim}` : '',
         isGuest ? 'Save your account' : '',
         dupr.match ? 'DUPR rating found' : '',
-      ].filter(Boolean).join(' · ');
+      ].filter(Boolean).join(', ');
 
   // Rows in order; the last one drops its divider so the Panel edge closes it.
   const rows: { key: string; render: (last: boolean) => React.ReactNode }[] = [];

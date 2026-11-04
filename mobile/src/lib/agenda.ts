@@ -627,7 +627,7 @@ export function pickSpotlightLeague(leagues: readonly SpotlightLeagueInput[], no
  *  season. The status line under it (rank, next lock) is the standings'. */
 export function spotlightHeaderLine(leagueName: string, seasonName: string | null | undefined): string {
   const season = seasonName?.trim();
-  return season ? `${leagueName} · ${season}` : leagueName;
+  return season ? `${leagueName}, ${season}` : leagueName;
 }
 
 /** The card's one "what's next" line: "Next: Thu 6 PM · 1 vote open", "Next:
@@ -636,6 +636,6 @@ export function spotlightNextLine(f: { openVotes: number; nextEventAt: string | 
   const t = ms(f.nextEventAt);
   const next = t != null && t > now ? whenPhrase(f.nextEventAt as string, now) : null;
   const votes = f.openVotes > 0 ? (f.openVotes === 1 ? '1 vote open' : `${f.openVotes} votes open`) : null;
-  if (next) return votes ? `Next: ${next} · ${votes}` : `Next: ${next}`;
+  if (next) return votes ? `Next: ${next}, ${votes}` : `Next: ${next}`;
   return votes;
 }

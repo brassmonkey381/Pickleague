@@ -57,7 +57,7 @@ export default function InviteEarnSection({ onToggle }: { onToggle?: (open: bool
       compact
       iconName="gift"
       title="Invite & Earn"
-      summary={`Invite a friend · you both get ${picklesLabel(REFERRAL_REWARD_PICKLES)}`}
+      summary={`Invite a friend, you both get ${picklesLabel(REFERRAL_REWARD_PICKLES)}`}
       onToggle={onToggle}
     >
       <InviteEarnBody />

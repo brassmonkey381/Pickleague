@@ -181,8 +181,8 @@ describe('recipients', () => {
 
   it('the button and why it is off', () => {
     expect(sendLabel(0, 15)).toBe('Pick friends to tell');
-    expect(sendLabel(1, 15)).toBe('Tell 1 friend · about 15 min');
-    expect(sendLabel(3, 60)).toBe('Tell 3 friends · about 1 hr');
+    expect(sendLabel(1, 15)).toBe('Tell 1 friend, about 15 min');
+    expect(sendLabel(3, 60)).toBe('Tell 3 friends, about 1 hr');
     expect(sendBlockedReason(0)).toBe('Pick at least one friend to tell.');
     expect(sendBlockedReason(3)).toBeNull();
     expect(sendBlockedReason(52)).toBe('You can tell up to 50 friends at once. Untick 2 to send.');

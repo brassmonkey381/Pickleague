@@ -136,19 +136,19 @@ describe('savedStandingLine', () => {
     totalPeriods: 12, myRank: 3, rankedCount: 16, startsOn: null,
   };
   it('reads as one short line per kind', () => {
-    expect(savedStandingLine(base)).toBe('You #3 of 16 · Fall 2026 · R7');
-    expect(savedStandingLine({ ...base, myRank: null })).toBe('16 players · Fall 2026 · R7');
-    expect(savedStandingLine({ ...base, kind: 'locked', period: 6 })).toBe('You #3 of 16 · Fall 2026 · R6 locked');
-    expect(savedStandingLine({ ...base, kind: 'noMatches', myRank: null })).toBe('Fall 2026 · R7 · no matches yet');
+    expect(savedStandingLine(base)).toBe('You #3 of 16, Fall 2026, R7');
+    expect(savedStandingLine({ ...base, myRank: null })).toBe('16 players, Fall 2026, R7');
+    expect(savedStandingLine({ ...base, kind: 'locked', period: 6 })).toBe('You #3 of 16, Fall 2026, R6 locked');
+    expect(savedStandingLine({ ...base, kind: 'noMatches', myRank: null })).toBe('Fall 2026, R7, no matches yet');
     expect(savedStandingLine({ ...base, kind: 'upcoming', startsOn: '2026-11-03' }, { locale: 'en-US' }))
       .toBe('Fall 2026 starts Nov 3');
     expect(savedStandingLine({ ...base, kind: 'final', period: null, myRank: 2, rankedCount: 14, seasonName: 'Spring' }))
-      .toBe('Finished #2 of 14 · Spring');
-    expect(savedStandingLine({ ...base, kind: 'final', myRank: null, rankedCount: 0 })).toBe('Fall 2026 · final standings');
+      .toBe('Finished #2 of 14, Spring');
+    expect(savedStandingLine({ ...base, kind: 'final', myRank: null, rankedCount: 0 })).toBe('Fall 2026, final standings');
     expect(savedStandingLine({ ...base, kind: 'none' })).toBeNull();
   });
   it('drops the period on a one-period season', () => {
-    expect(savedStandingLine({ ...base, totalPeriods: 1, period: 1 })).toBe('You #3 of 16 · Fall 2026');
+    expect(savedStandingLine({ ...base, totalPeriods: 1, period: 1 })).toBe('You #3 of 16, Fall 2026');
   });
   it('says the rank in words for screen readers', () => {
     expect(savedStandingA11y(base)).toBe('You ranked 3 of 16, Fall 2026, round 7');

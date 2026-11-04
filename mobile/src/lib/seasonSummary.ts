@@ -409,9 +409,9 @@ export function seasonDatePart(
   if (s.endsOn != null && s.endsOn < today) {
     const ended = `Ended ${shortDate(s.endsOn, locale)}`;
     if (compact) return ended;
-    if (!isAdmin) return `${ended} · Final standings soon`;
+    if (!isAdmin) return `${ended}, Final standings soon`;
     const lockLeft = s.nextLockOn != null && s.nextLockOn <= today;
-    return `${ended} · ${lockLeft ? 'Lock due' : 'Completion due'}`;
+    return `${ended}, ${lockLeft ? 'Lock due' : 'Completion due'}`;
   }
   if (s.nextPeriod == null || s.nextLockOn == null) {
     // Every period locked: nothing played from here counts for the season
@@ -426,7 +426,7 @@ export function seasonDatePart(
   // (total_periods is total_weeks / lock_frequency_weeks, integer division).
   const endsWithLock = last && (s.endsOn == null || s.endsOn === s.nextLockOn);
   // The season's end, when this line doesn't already say it.
-  const end = withEnd && !compact && !endsWithLock && s.endsOn ? ` · Ends ${shortDate(s.endsOn, locale)}` : '';
+  const end = withEnd && !compact && !endsWithLock && s.endsOn ? `, Ends ${shortDate(s.endsOn, locale)}` : '';
   if (s.lockDue || s.nextLockOn <= today) {
     if (isAdmin) return `Lock due${end}`;
     if (endsWithLock) return compact ? 'Ending soon' : 'Season ending soon';
@@ -463,9 +463,9 @@ export function seasonStatusLine({ summary, myRank, rankedCount, ...opts }: Seas
   const who = myRank != null
     ? `You #${myRank} of ${rankedCount}`
     : `${rankedCount} player${rankedCount === 1 ? '' : 's'}`;
-  if (!summary) return `Final · ${who}`;
+  if (!summary) return `Final, ${who}`;
   if (summary.phase === 'upcoming') return seasonDatePart(summary, opts);
-  return `${who} · ${seasonDatePart(summary, opts)}`;
+  return `${who}, ${seasonDatePart(summary, opts)}`;
 }
 
 /**

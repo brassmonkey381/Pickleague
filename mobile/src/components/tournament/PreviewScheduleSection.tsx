@@ -42,7 +42,7 @@ export default function PreviewScheduleSection({
       {rounds.map(r => (
         <View key={r} style={S.roundBlock}>
           <Text style={S.roundLabel}>
-            {generatedMatches.find(m => m.round === r)?.label?.split('·')[0]?.trim() ?? `Round ${r}`}
+            {generatedMatches.find(m => m.round === r)?.label?.split(',')[0]?.trim() ?? `Round ${r}`}
           </Text>
           {previewFiltered.filter(m => m.round === r).map((m, mi, arr) => {
             const t1 = m.team1.map(playerName).join(' & ');

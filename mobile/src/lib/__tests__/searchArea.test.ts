@@ -135,10 +135,10 @@ describe('resolveSearchArea', () => {
 
   it('labels and keys', () => {
     expect(searchAreaLabel(null, null)).toBe('Choose an area');
-    expect(searchAreaLabel(area(5), null)).toBe('Near Oakland, CA · 5 mi');
-    expect(searchAreaLabel({ ...area(10), source: 'device', label: null }, 'Alameda, CA')).toBe('Near Alameda, CA · 10 mi');
-    expect(searchAreaLabel({ ...area(5), source: 'courts', label: null }, null)).toBe('Near your courts · 5 mi');
-    expect(searchAreaLabel({ ...area(5), source: 'courts', label: null }, 'Berkeley, CA')).toBe('Near Berkeley, CA · 5 mi');
+    expect(searchAreaLabel(area(5), null)).toBe('Near Oakland, CA, 5 mi');
+    expect(searchAreaLabel({ ...area(10), source: 'device', label: null }, 'Alameda, CA')).toBe('Near Alameda, CA, 10 mi');
+    expect(searchAreaLabel({ ...area(5), source: 'courts', label: null }, null)).toBe('Near your courts, 5 mi');
+    expect(searchAreaLabel({ ...area(5), source: 'courts', label: null }, 'Berkeley, CA')).toBe('Near Berkeley, CA, 5 mi');
     expect(searchAreaKey(null)).toBe('anywhere');
     expect(searchAreaKey(area(5))).toBe(searchAreaKey({ ...area(5), center: { lat: 37.80441, lng: -122.27121 } }));
     expect(searchAreaKey(area(5))).not.toBe(searchAreaKey(area(10)));
@@ -498,8 +498,8 @@ describe('players near: the league fallback', () => {
   });
 
   it('labels, name search, and the missing-RPC test', () => {
-    expect(playsAtLabel({ place_name: 'Lake Merritt', distance_m: 3 * METERS_PER_MILE })).toBe('Plays at Lake Merritt · 3 mi');
-    expect(playsAtLabel({ place_name: null, distance_m: 300 })).toBe('Plays nearby · 0.2 mi');
+    expect(playsAtLabel({ place_name: 'Lake Merritt', distance_m: 3 * METERS_PER_MILE })).toBe('Plays at Lake Merritt, 3 mi');
+    expect(playsAtLabel({ place_name: null, distance_m: 300 })).toBe('Plays nearby, 0.2 mi');
     expect(playsAtLabel({ place_name: 'X', distance_m: null })).toBeNull();
     expect(playerMatchesQuery({ full_name: 'Ann Lee', username: 'annl' }, '@ANNL')).toBe(true);
     expect(playerMatchesQuery({ full_name: 'Ann Lee', username: null }, 'bob')).toBe(false);

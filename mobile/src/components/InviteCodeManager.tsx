@@ -310,8 +310,8 @@ export default function InviteCodeManager({ scopeType, scopeId, scopeName, tourn
             <Text style={S.expiry}>
               {daysLeft(invite.expires_at)}
               {invite.max_uses != null
-                ? `  ·  ${invite.used_count} / ${invite.max_uses} uses`
-                : `  ·  ${invite.used_count} use${invite.used_count !== 1 ? 's' : ''}`}
+                ? ` ,  ${invite.used_count} / ${invite.max_uses} uses`
+                : ` ,  ${invite.used_count} use${invite.used_count !== 1 ? 's' : ''}`}
             </Text>
             {invite.pickle_subsidy > 0 && (
               <View

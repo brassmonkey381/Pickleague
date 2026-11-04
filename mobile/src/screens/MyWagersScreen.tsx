@@ -112,7 +112,7 @@ function buildWagerContext(w: Wager): string | null {
     const settled = w.status === 'won' || w.status === 'lost';
     parts.push(`${settled ? 'Ended' : 'Ends'} ${fmtEndDate(w.expected_end_at, w.subject_type)}`);
   }
-  return parts.length ? parts.join(' · ') : null;
+  return parts.length ? parts.join(', ') : null;
 }
 
 // Build a human "you bet X" line plus an optional "actually Y" line so the
@@ -198,7 +198,7 @@ function buildWagerNarrative(w: Wager): WagerNarrative {
       const pickedLabel = pickedTeam === 'team1' ? teamA : teamB;
       const icon: IconName = 'versus';
       const prediction = scope
-        ? `${pickedLabel} to beat ${pickedTeam === 'team1' ? teamB : teamA} · ${scope}`
+        ? `${pickedLabel} to beat ${pickedTeam === 'team1' ? teamB : teamA}, ${scope}`
         : `${pickedLabel} to beat ${pickedTeam === 'team1' ? teamB : teamA}`;
       if (!settled) return { icon, prediction, outcome: null, hit: null };
       const winnerTeam = w.actual_winner_team;
@@ -222,7 +222,7 @@ function buildWagerNarrative(w: Wager): WagerNarrative {
       const ps2 = w.predicate?.team2_score;
       const icon: IconName = 'target';
       const prediction = scope
-        ? `Exact: ${teamA} ${ps1}-${ps2} ${teamB} · ${scope}`
+        ? `Exact: ${teamA} ${ps1}-${ps2} ${teamB}, ${scope}`
         : `Exact: ${teamA} ${ps1}-${ps2} ${teamB}`;
       if (!settled) return { icon, prediction, outcome: null, hit: null };
       const s1 = w.actual_team1_score;
@@ -475,7 +475,7 @@ export default function MyWagersScreen({ navigation }: Props) {
           <Text style={S.timestamp}>
             {item.status === 'open'
               ? `Placed ${placedLabel}`
-              : `Placed ${placedLabel} · ${STATUS_LABEL[item.status]} ${settledLabel}`}
+              : `Placed ${placedLabel}, ${STATUS_LABEL[item.status]} ${settledLabel}`}
           </Text>
         </View>
         {item.status === 'open' && (
@@ -528,7 +528,7 @@ export default function MyWagersScreen({ navigation }: Props) {
       >
         <View style={S.flex1}>
           <Text style={S.rowSubject} numberOfLines={2}>
-            Period {m.periodNumber} · {m.leagueName}
+            Period {m.periodNumber}, {m.leagueName}
           </Text>
           <Text style={S.marketTag}>Live league season</Text>
           <View style={S.marketLinkRow}>

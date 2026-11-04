@@ -35,7 +35,7 @@ const INVALID: Preview = { valid: false, league_name: null, event_id: null, even
 /** "Sat, Nov 8 · 6:00 PM" */
 function slotLabel(startsAt: string): string {
   const d = new Date(startsAt);
-  return `${d.toLocaleDateString(undefined, { weekday: 'short', month: 'short', day: 'numeric' })} · ${d.toLocaleTimeString(undefined, { hour: 'numeric', minute: '2-digit' })}`;
+  return `${d.toLocaleDateString(undefined, { weekday: 'short', month: 'short', day: 'numeric' })}, ${d.toLocaleTimeString(undefined, { hour: 'numeric', minute: '2-digit' })}`;
 }
 
 /**

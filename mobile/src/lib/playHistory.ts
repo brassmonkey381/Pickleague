@@ -63,7 +63,7 @@ export const PLAY_KIND_LABEL: Record<PlayKind, string> = {
 /** "Lakeside · Open play", or "Open play" without a court. */
 export function playHistoryTitle(r: Pick<PlayHistoryRow, 'kind' | 'venueName'>): string {
   const kind = PLAY_KIND_LABEL[r.kind] ?? 'Play';
-  return r.venueName ? `${r.venueName} · ${kind}` : kind;
+  return r.venueName ? `${r.venueName}, ${kind}` : kind;
 }
 
 /** "Today", "Yesterday", "Oct 27" (an earlier year: "Oct 27, 2025"). */
@@ -79,7 +79,7 @@ export function playHistoryDay(d: Date, now: Date): string {
 export function playHistoryWhen(r: Pick<PlayHistoryRow, 'startedAt' | 'endedAt'>, nowMs: number): string {
   const start = new Date(r.startedAt);
   const end = new Date(r.endedAt);
-  return `${playHistoryDay(start, new Date(nowMs))} · ${shortTime(start)}–${shortTime(end)} · ${playedFor(end.getTime() - start.getTime())}`;
+  return `${playHistoryDay(start, new Date(nowMs))}, ${shortTime(start)}–${shortTime(end)}, ${playedFor(end.getTime() - start.getTime())}`;
 }
 
 export type PlayHistoryStatus = { label: string; tone: 'success' | 'warning' | 'neutral'; note: string | null };

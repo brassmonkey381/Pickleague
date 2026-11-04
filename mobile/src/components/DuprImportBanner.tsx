@@ -196,7 +196,7 @@ export function DuprImportRow({ offer, lastRow, onPressed }: RowProps) {
       lastRow={lastRow}
       leading={<Lead name="pickleball" color={c.primary} />}
       title="We found your DUPR rating"
-      subtitle={`${Number(rating).toFixed(2)} doubles${match.club_name ? ` · ${match.club_name}` : ''}. Start your PLUPR here?`}
+      subtitle={`${Number(rating).toFixed(2)} doubles${match.club_name ? `, ${match.club_name}` : ''}. Start your PLUPR here?`}
       subtitleLines={2}
     >
       <View style={styles.actions}>

@@ -109,7 +109,7 @@ export default function AgendaRow({ row, now, lastRow, onPress, onAction, onConf
       <View style={[styles.inline, styles.subtitle]}>
         {row.leagueName ? (
           <Text style={[t.sub, styles.shrink]} numberOfLines={1}>
-            {`${row.leagueName} · `}
+            {`${row.leagueName}, `}
           </Text>
         ) : null}
         <Icon name={row.statusIcon} size={12} color={c.success} />

@@ -165,7 +165,7 @@ export default function FeedCourtCard({
           </View>
           {trailing(l, p.name)}
         </View>
-        {facts.length ? underLine(facts.join(' · '), l.kind === 'here' ? c.success : c.textSub) : null}
+        {facts.length ? underLine(facts.join(', '), l.kind === 'here' ? c.success : c.textSub) : null}
       </>
     );
   }
@@ -198,7 +198,7 @@ export default function FeedCourtCard({
           </View>
           {trailing(l, 'your check-in')}
         </View>
-        {underLine(facts.join(' · '), c.success)}
+        {underLine(facts.join(', '), c.success)}
       </>
     );
   }
@@ -206,7 +206,7 @@ export default function FeedCourtCard({
   function stopLine(l: Extract<FeedCourtLine, { kind: 'stop' }>) {
     const s = l.stop;
     const plan = s.status === 'planned' ? playModeNowLine(s.windows, new Date(Math.max(now, Date.parse(s.at)))) : '';
-    const meta = s.status === 'cancelled' ? `Skipped · ${stopClock(s.at)}–${clock(s.endAt)}` : plan || `${stopClock(s.at)}–${clock(s.endAt)}`;
+    const meta = s.status === 'cancelled' ? `Skipped, ${stopClock(s.at)}–${clock(s.endAt)}` : plan || `${stopClock(s.at)}–${clock(s.endAt)}`;
     const chip = s.status === 'planned' ? shareChip(l, s.planShared, s.at) : null;
     return (
       <>
@@ -216,7 +216,7 @@ export default function FeedCourtCard({
           </View>
           <View style={styles.body}>
             <Text style={t.title} numberOfLines={2}>
-              You · your routine
+              You, your routine
             </Text>
             {chip ? null : (
               <Text style={[t.meta, { color: c.textSub }]} numberOfLines={1}>
@@ -266,7 +266,7 @@ export default function FeedCourtCard({
     const p = l.person;
     const line = friendPlanLine({ ownerName: p.name, at: l.plan.at, kind: l.plan.routine ? 'routine' : 'once' }, now);
     const rating = plupr.get(p.userId);
-    const meta = [rating != null ? `PLUPR ${formatPluprShort(rating, null)}` : null, line.meta].filter(Boolean).join(' · ');
+    const meta = [rating != null ? `PLUPR ${formatPluprShort(rating, null)}` : null, line.meta].filter(Boolean).join(', ');
     return (
       <>
         <View style={styles.line}>
@@ -311,7 +311,7 @@ export default function FeedCourtCard({
           </View>
           <View style={styles.body}>
             <Text style={t.title} numberOfLines={2}>
-              You · planned check-in
+              You, planned check-in
             </Text>
             {chip ? null : (
               <Text style={[t.meta, { color: c.textSub }]} numberOfLines={1}>

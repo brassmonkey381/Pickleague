@@ -546,7 +546,7 @@ export default function DoublesPairSection({
         <View style={S.unteamedBox}>
           <Text style={S.unteamedTitle}>{playersWithoutPair.length} approved player{playersWithoutPair.length === 1 ? '' : 's'} not yet paired</Text>
           <Text style={S.unteamedNames} numberOfLines={3}>
-            {playersWithoutPair.map(r => (r.profile?.full_name ?? '?')).join(' · ')}
+            {playersWithoutPair.map(r => (r.profile?.full_name ?? '?')).join(', ')}
           </Text>
         </View>
       )}

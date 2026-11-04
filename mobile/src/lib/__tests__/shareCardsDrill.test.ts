@@ -42,7 +42,7 @@ describe('type of play', () => {
       { startsAt: at(20), endsAt: at(21), mode: null },
     ], at(18), at(19, 45));
     expect(mix).toEqual([{ mode: 'closed', minutes: 75 }, { mode: 'open', minutes: 30 }]);
-    expect(playTypeLabel(mix, 'Open play')).toBe('1 h 15 min closed group · 30 min open play');
+    expect(playTypeLabel(mix, 'Open play')).toBe('1 h 15 min closed group, 30 min open play');
   });
   it('says one mode when it is nearly all of it, else the kind', () => {
     expect(playTypeLabel([{ mode: 'open', minutes: 100 }, { mode: 'closed', minutes: 5 }], 'x')).toBe('Open play');
@@ -91,7 +91,7 @@ describe('drill card', () => {
     expect(m.title).toBe('Drilled with Pat D.');
     expect(shareDetailOptions(m).map((o) => o.id)).toEqual(['rating', 'month', 'streak', 'court', 'date', 'focus', 'facets', 'weeks', 'notes']);
     expect(shareDefaultDetails(m)).toMatchObject({ rating: true, focus: true, weeks: true, notes: false, facets: false, court: false });
-    expect(m.stats.find((x) => x.id === 'month')?.value).toBe('6 drills · 9 h this month');
+    expect(m.stats.find((x) => x.id === 'month')?.value).toBe('6 drills, 9 h this month');
     expect(m.rows.find((r) => r.id === 'facets')?.items).toHaveLength(1);
     expect(m.message).toBe('Put in 1 h 35 min of drilling with Pat D. on Pickleague 🥒💪');
     expect(m.showsScores).toBe(false);

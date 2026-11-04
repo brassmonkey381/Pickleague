@@ -40,7 +40,7 @@ export default function EventTimeCard(p: EventTimeCardProps) {
   const day = new Date(p.startsAt).toLocaleDateString(undefined, { weekday: 'long', month: 'long', day: 'numeric' });
   const time = `${new Date(p.startsAt).toLocaleTimeString(undefined, { hour: 'numeric', minute: '2-digit' })} – ${new Date(p.endsAt).toLocaleTimeString(undefined, { hour: 'numeric', minute: '2-digit' })}`;
   const anyBusy = p.busy != null;
-  const counts = [`${p.inCount} in`, p.outCount > 0 ? `${p.outCount} can't make it` : null].filter(Boolean).join(' · ');
+  const counts = [`${p.inCount} in`, p.outCount > 0 ? `${p.outCount} can't make it` : null].filter(Boolean).join(', ');
 
   return (
     <Panel emphasis accentColor={p.isLive ? c.danger : c.primary}>
@@ -48,7 +48,7 @@ export default function EventTimeCard(p: EventTimeCardProps) {
         {p.isLive ? 'Live now' : 'Confirmed time'}
       </Text>
       <Text style={[t.title, styles.day]} accessibilityRole="header">{day}</Text>
-      <Text style={t.sub} numberOfLines={1}>{[time, p.place].filter(Boolean).join(' · ')}</Text>
+      <Text style={t.sub} numberOfLines={1}>{[time, p.place].filter(Boolean).join(', ')}</Text>
       <Text style={[t.meta, styles.counts]} maxFontSizeMultiplier={SMALL_TEXT_MAX_SCALE}>{counts}</Text>
 
       {p.rsvpOpen && (

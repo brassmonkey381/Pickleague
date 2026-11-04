@@ -511,7 +511,7 @@ export default function LeagueDetailScreen({ navigation, route }: Props) {
           key:   `vc-${ev.id}`,
           kind:  'vote',
           title: ev.title,
-          when:  privileged ? `Voting closed ${fmt(ms)} · needs finalizing` : `Voting closed ${fmt(ms)}`,
+          when:  privileged ? `Voting closed ${fmt(ms)}, needs finalizing` : `Voting closed ${fmt(ms)}`,
           whenMs: now,
           chip:  { label: 'Vote closed', tone: 'warning' },
           onPress: () => navigation.navigate('EventDetail', { eventId: ev.id, title: ev.title }),
@@ -711,7 +711,7 @@ export default function LeagueDetailScreen({ navigation, route }: Props) {
     ...(privileged && activeSeason ? [
       {
         key: 'periods',
-        label: 'Lock rounds · complete season',
+        label: 'Lock rounds, complete season',
         meta: lockDue ? 'Lock due' : null,
         attention: lockDue,
         onPress: () => goStandings(activeSeason.id),
@@ -719,7 +719,7 @@ export default function LeagueDetailScreen({ navigation, route }: Props) {
       {
         key: 'baseline',
         label: 'Baseline PLUPR',
-        meta: `${Number(baselineValue ?? 3.5).toFixed(2)} · Edit`,
+        meta: `${Number(baselineValue ?? 3.5).toFixed(2)}, Edit`,
         onPress: openBaselineEdit,
       },
     ] : []),
@@ -730,7 +730,7 @@ export default function LeagueDetailScreen({ navigation, route }: Props) {
   const manageSummary = [
     pendingRequests > 0 && privileged ? `${pendingRequests} join request${pendingRequests === 1 ? '' : 's'}` : null,
     lockDue ? 'Round lock due' : null,
-  ].filter(Boolean).join(' · ') || (privileged ? 'Edit, invites, seasons' : 'Developer tools');
+  ].filter(Boolean).join(', ') || (privileged ? 'Edit, invites, seasons' : 'Developer tools');
 
   // The sticky bar repeats the "you" slot's one action once it scrolls away.
   // A pending request only counts on a PRIVATE league (as in LeagueJoinCard):
@@ -867,7 +867,7 @@ export default function LeagueDetailScreen({ navigation, route }: Props) {
         visible={pastSheetOpen}
         title="Past seasons"
         actions={pastSeasons.map((s) => ({
-          label: `${s.name} · ${seasonRange(s)}`,
+          label: `${s.name}, ${seasonRange(s)}`,
           onPress: () => goStandings(s.id),
         }))}
         onClose={() => setPastSheetOpen(false)}

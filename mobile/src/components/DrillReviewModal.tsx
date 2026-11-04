@@ -333,7 +333,7 @@ export default function DrillReviewModal({
                 editable={!submitting}
               />
               <View style={S.counter}>
-                <Text style={t.caption}>{notes.trim().length}/{TEXT_MAX} ·</Text>
+                <Text style={t.caption}>{notes.trim().length}/{TEXT_MAX},</Text>
                 <PickleAmount amount={textPickles} prefix="+" preset="caption" color={c.textMuted} iconColor={c.primary} />
               </View>
 

@@ -1076,7 +1076,7 @@ export default function EventDetailScreen({ navigation, route }: Props) {
                   <View key={m.id} style={[S.matchRow, i < eventMatches.length - 1 && S.divider]}>
                     <Text style={t.title} numberOfLines={1}>{teamA} vs {teamB}</Text>
                     <Text style={t.sub} numberOfLines={1}>
-                      {[scoreLabel, winSuffix, m.status === 'completed' ? 'final' : m.status].filter(Boolean).join(' · ')}
+                      {[scoreLabel, winSuffix, m.status === 'completed' ? 'final' : m.status].filter(Boolean).join(', ')}
                     </Text>
                   </View>
                 );
@@ -1101,7 +1101,7 @@ export default function EventDetailScreen({ navigation, route }: Props) {
                 canEdit && 'Edit details',
                 canCancel && 'Cancel event',
                 canRemove && 'Remove',
-              ].filter(Boolean).join(' · ') || 'League chat'}
+              ].filter(Boolean).join(', ') || 'League chat'}
               open={manageOpen}
               onToggle={(next) => { setManageOpen(next); onSectionToggle('manage', next); }}
             >

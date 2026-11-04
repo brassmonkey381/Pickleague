@@ -16,7 +16,7 @@ export default function ScoringAlgoScreen() {
     <ScrollView contentContainerStyle={S.container}>
       {/* Hero */}
       <View style={S.hero}>
-        <Text style={S.heroVersion}>PLUPR · v1</Text>
+        <Text style={S.heroVersion}>PLUPR v1</Text>
         <Text style={S.heroTitle}>Scoring Algo</Text>
         <Text style={S.heroSub}>
           Pickleague Universal Pickleball Rating — how every match changes
@@ -48,7 +48,7 @@ export default function ScoringAlgoScreen() {
           that prediction.
         </P>
 
-        <Sub S={S}>1 · Predicted point differential</Sub>
+        <Sub S={S}>1. Predicted point differential</Sub>
         <Mono S={S}>{`expected_diff = 10 × tanh((you − opp) / 1.0)`}</Mono>
         <P S={S}>
           A smooth curve that asymptotes at <B S={S}>±10</B> (the largest
@@ -61,14 +61,14 @@ gap 0.5 → +4.6   (~ 11-6)
 gap 1.0 → +7.6   (~ 11-3)
 gap 2.0 → +9.6   (blowout)`}</Mono>
 
-        <Sub S={S}>2 · Actual point differential</Sub>
+        <Sub S={S}>2. Actual point differential</Sub>
         <Mono S={S}>{`actual_diff = yourScore − oppScore`}</Mono>
         <P S={S}>
           A signed value: <B S={S}>+11</B> for a shutout win, <B S={S}>−11</B>{' '}
           for being shut out. An 11-9 loss is <B S={S}>−2</B>.
         </P>
 
-        <Sub S={S}>3 · Surprise</Sub>
+        <Sub S={S}>3. Surprise</Sub>
         <Mono S={S}>{`surprise = (actual_diff − expected_diff) / 10`}</Mono>
         <P S={S}>
           How much you beat (or missed) expectations, normalized to a
@@ -77,7 +77,7 @@ gap 2.0 → +9.6   (blowout)`}</Mono>
           surprise — you exceeded the prediction even though you didn't win.
         </P>
 
-        <Sub S={S}>4 · K factor (decays with experience)</Sub>
+        <Sub S={S}>4. K factor (decays with experience)</Sub>
         <Mono S={S}>{`matches < 5  → K = 1.75
 matches < 15 → K = 1.10
 else         → K = 0.75`}</Mono>
@@ -86,7 +86,7 @@ else         → K = 0.75`}</Mono>
           established players move slowly (their ratings are confident).
         </P>
 
-        <Sub S={S}>5 · The delta</Sub>
+        <Sub S={S}>5. The delta</Sub>
         <Mono S={S}>{`delta = K × surprise   (at most ±0.60; ±0.80 under 5 matches)`}</Mono>
         <P S={S}>
           Rounded to 3 decimal places. Ratings are clamped at <B S={S}>2.000</B>{' '}
@@ -159,7 +159,7 @@ else         → K = 0.75`}</Mono>
         </P>
       </Section>
 
-      <Text style={S.footnote}>PLUPR v1.1 · Last updated 2026-05-23</Text>
+      <Text style={S.footnote}>PLUPR v1.1. Last updated 2026-05-23</Text>
     </ScrollView>
   );
 }

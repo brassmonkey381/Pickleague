@@ -67,7 +67,7 @@ function wagerContext(w: WagerOnPlayer): string | null {
     const settled = w.status === 'won' || w.status === 'lost';
     parts.push(`${settled ? 'Ended' : 'Ends'} ${fmtEndDate(w.expected_end_at, w.subject_type)}`);
   }
-  return parts.length ? parts.join(' · ') : null;
+  return parts.length ? parts.join(', ') : null;
 }
 
 export default function PlayerWagersScreen({ navigation, route }: Props) {
@@ -148,7 +148,7 @@ export default function PlayerWagersScreen({ navigation, route }: Props) {
           </View>
           <Text style={S.headerSub}>
             {wagers.length} wager{wagers.length !== 1 ? 's' : ''}
-            {scopeName ? ` · ${scopeName}` : ''}
+            {scopeName ? `, ${scopeName}` : ''}
           </Text>
         </View>
       }

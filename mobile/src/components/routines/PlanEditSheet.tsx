@@ -83,7 +83,7 @@ export default function PlanEditSheet({
     <BottomSheet visible={!!plan} onClose={onClose} title="Edit plan" height="90%">
       <ScrollView style={S.scroll} contentContainerStyle={S.body} keyboardShouldPersistTaps="handled">
         <Text style={[t.meta, { color: c.textSub }]}>
-          {shown.venueName} · {planDayTime(shown.plannedAt, Date.now())}
+          {shown.venueName}, {planDayTime(shown.plannedAt, Date.now())}
         </Text>
         <PlayPlanFields
           lengthMin={lengthMin}

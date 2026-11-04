@@ -20,15 +20,15 @@ describe('drillWhen', () => {
 
   it("drillWhenLabel keeps slotFullLabel's format", () => {
     const weekday = new Date(2030, 0, 1).toLocaleDateString(undefined, { weekday: 'short' });
-    expect(drillWhenLabel(null, { date: '2030-01-01', slot: 36 })).toBe(`${weekday} 1/1 · 6pm`);
-    expect(drillWhenLabel(new Date(2030, 0, 1, 18, 30).toISOString(), { date: '2030-01-01', slot: 0 })).toBe(`${weekday} 1/1 · 6:30pm`);
+    expect(drillWhenLabel(null, { date: '2030-01-01', slot: 36 })).toBe(`${weekday} 1/1, 6pm`);
+    expect(drillWhenLabel(new Date(2030, 0, 1, 18, 30).toISOString(), { date: '2030-01-01', slot: 0 })).toBe(`${weekday} 1/1, 6:30pm`);
   });
 
   it("drillWhenRangeLabel keeps slotRangeLabel's format, ending at start + length", () => {
     const weekday = new Date(2030, 0, 1).toLocaleDateString(undefined, { weekday: 'short' });
-    expect(drillWhenRangeLabel(null, { date: '2030-01-01', slot: 36 }, 60)).toBe(`${weekday} 1/1 · 6pm – 7pm`);
+    expect(drillWhenRangeLabel(null, { date: '2030-01-01', slot: 36 }, 60)).toBe(`${weekday} 1/1, 6pm – 7pm`);
     expect(drillWhenRangeLabel(new Date(2030, 0, 1, 23, 0).toISOString(), { date: '2030-01-01', slot: 0 }, 60))
-      .toBe(`${weekday} 1/1 · 11pm – 12am`);
+      .toBe(`${weekday} 1/1, 11pm – 12am`);
   });
 });
 

@@ -562,7 +562,7 @@ export default function TournamentDetailScreen({ navigation, route }: Props) {
     partner: nextMatch && myUserId && partnerOf(nextMatch, myUserId) ? td.playerName(partnerOf(nextMatch, myUserId)!) : null,
     roundLabel: nextMatch?.round?.label ?? null,
     recordLine: mine
-      ? `You ${mine.row.wins}-${mine.row.losses} · #${mine.position} of ${mine.of}${mine.table ? ` in ${mine.table}` : ''}`
+      ? `You ${mine.row.wins}-${mine.row.losses}, #${mine.position} of ${mine.of}${mine.table ? ` in ${mine.table}` : ''}`
       : null,
     onRecord: () => { if (nextMatch) openRecord(nextMatch); },
     onOpenSchedule: openSchedule,
@@ -573,7 +573,7 @@ export default function TournamentDetailScreen({ navigation, route }: Props) {
       isMe: !!myUserId && p.userIds.includes(myUserId),
     })),
     payoutLine: pool > 0
-      ? (tournament.champion_payout_applied_at ? `${picklesLabel(pool)} pot paid out` : `${picklesLabel(pool)} pot · payout pending`)
+      ? (tournament.champion_payout_applied_at ? `${picklesLabel(pool)} pot paid out` : `${picklesLabel(pool)} pot, payout pending`)
       : null,
     // The big Share callout under the You card has it (PKL-013).
     onShare: null,
@@ -597,7 +597,7 @@ export default function TournamentDetailScreen({ navigation, route }: Props) {
   // Hidden for non-organizers when there is nothing in it (plan section 5).
   const potShown = isPriv || pool > 0 || ante > 0;
   const potSummary = [picklesLabel(pool), ante > 0 ? `${ante} ante` : null, `${structure.join('/')}% payout`]
-    .filter(Boolean).join(' · ');
+    .filter(Boolean).join(', ');
 
   // ── Manage ──
   const manageShown = isPriv || td.godmode;
@@ -637,7 +637,7 @@ export default function TournamentDetailScreen({ navigation, route }: Props) {
         manageSteps.push({
           ...base,
           meta: isMlp
-            ? `${td.mlpTeams.length} team${td.mlpTeams.length === 1 ? '' : 's'}${tournament.format === 'mlp_random' ? ' · draw them in Teams' : ''}`
+            ? `${td.mlpTeams.length} team${td.mlpTeams.length === 1 ? '' : 's'}${tournament.format === 'mlp_random' ? ', draw them in Teams' : ''}`
             : `${td.doublesPairs.filter(p => p.partner_1_id && p.partner_2_id).length} complete pair(s) for ${approved.length} players`,
           actions: [{ title: isMlp ? 'Open Teams' : 'Open Pairs', onPress: openTeams, variant: 'outline' }],
         });
@@ -693,7 +693,7 @@ export default function TournamentDetailScreen({ navigation, route }: Props) {
         'Left over from registration',
         pendingRequests.length > 0 ? `${pendingRequests.length} pending` : null,
         waitlisted.length > 0 ? `${waitlisted.length} on the waitlist` : null,
-      ].filter(Boolean).join(' · '),
+      ].filter(Boolean).join(', '),
       content: (
         <View style={{ gap: SPACE.sm }}>
           {pendingRequests.length > 0 && (
@@ -745,7 +745,7 @@ export default function TournamentDetailScreen({ navigation, route }: Props) {
       current: !paidAt,
       meta: paidAt
         ? new Date(paidAt).toLocaleDateString()
-        : `Splits ${picklesLabel(pool)} among the finishers · stamps badges · applies the PLUPR bonus`,
+        : `Splits ${picklesLabel(pool)} among the finishers, stamps badges, applies the PLUPR bonus`,
       actions: paidAt ? [] : [{ title: 'Review payout', onPress: () => td.setShowPayoutModal(true) }],
     });
   }
@@ -784,7 +784,7 @@ export default function TournamentDetailScreen({ navigation, route }: Props) {
   const allPlayed = playedCount >= playableMatches.length;
   const stripText = status === 'completed' && allPlayed
     ? `All ${playedCount} match${playedCount === 1 ? '' : 'es'} played`
-    : `${status !== 'completed' && currentStage ? `${currentStage.label} · ` : ''}${playedCount} of ${playableMatches.length} played`;
+    : `${status !== 'completed' && currentStage ? `${currentStage.label}, ` : ''}${playedCount} of ${playableMatches.length} played`;
 
   const wagerShown = WAGERS_ENABLED && live && approved.length > 0;
   const mlpPlayoff = isMlp && (tournament.mlp_play_format === 'round_robin_playoff' || tournament.mlp_play_format === 'pool_play_playoff');

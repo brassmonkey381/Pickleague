@@ -322,7 +322,7 @@ export function statusPill(i: { status: Tournament['status']; regClosed: boolean
   switch (i.status) {
     case 'registration':
       if (i.regClosed) return { label: 'Registration closed', tone: 'warning' };
-      if (i.isFull) return { label: 'Full · waitlist open', tone: 'warning' };
+      if (i.isFull) return { label: 'Full, waitlist open', tone: 'warning' };
       return { label: 'Registration open', tone: 'brand' };
     case 'active': return { label: 'In progress', tone: 'success' };
     case 'completed': return { label: 'Completed', tone: 'neutral' };

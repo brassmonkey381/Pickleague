@@ -207,7 +207,7 @@ export function savedStandingsParams(
 export function savedStandingLine(s: SavedStanding, opts: { locale?: string } = {}): string | null {
   const name = s.seasonName ?? 'Season';
   const periodPart = s.period != null && (s.totalPeriods ?? 0) > 1 ? `R${s.period}` : null;
-  const join = (...parts: Array<string | null>) => parts.filter(Boolean).join(' · ');
+  const join = (...parts: Array<string | null>) => parts.filter(Boolean).join(', ');
   const count = `${s.rankedCount} player${s.rankedCount === 1 ? '' : 's'}`;
   switch (s.kind) {
     case 'live':
@@ -221,7 +221,7 @@ export function savedStandingLine(s: SavedStanding, opts: { locale?: string } = 
     case 'noMatches':
       return join(name, periodPart, 'no matches yet');
     case 'upcoming':
-      return s.startsOn ? `${name} starts ${shortDate(s.startsOn, opts.locale)}` : `${name} · upcoming`;
+      return s.startsOn ? `${name} starts ${shortDate(s.startsOn, opts.locale)}` : `${name}, upcoming`;
     case 'final':
       return s.myRank != null && s.rankedCount > 0
         ? join(`Finished #${s.myRank} of ${s.rankedCount}`, name)
@@ -236,7 +236,7 @@ export function savedStandingLine(s: SavedStanding, opts: { locale?: string } = 
 export function savedStandingA11y(s: SavedStanding, opts: { locale?: string } = {}): string | null {
   const line = savedStandingLine(s, opts);
   if (!line) return null;
-  return line.replace(/#(\d+) of (\d+)/g, 'ranked $1 of $2').replace(/\bR(\d+)\b/g, 'round $1').replace(/ · /g, ', ');
+  return line.replace(/#(\d+) of (\d+)/g, 'ranked $1 of $2').replace(/\bR(\d+)\b/g, 'round $1');
 }
 
 /** A completed tournament's finish for me, from tournament_final_ranks rows. */

@@ -110,7 +110,7 @@ export function youCardView(kind: YouCardKind, f: YouCardFacts): YouCardView | n
         title: f.isFull ? 'This tournament is full' : 'Want to play?',
         lines: [
           f.isFull ? 'Join the waitlist and you\'re in when a spot opens.' : 'Request a spot and an organizer will approve it.',
-          ...(facts.length ? [facts.join(' · ')] : []),
+          ...(facts.length ? [facts.join(', ')] : []),
         ],
         primary: { title: f.isFull ? 'Join waitlist' : 'Request to join', onPress: f.register, loading: f.registering },
       };
@@ -158,7 +158,7 @@ export function youCardView(kind: YouCardKind, f: YouCardFacts): YouCardView | n
         eyebrow: 'Next match',
         title: `vs ${f.opponents}`,
         lines: [
-          [f.roundLabel, f.partner ? `with ${f.partner}` : null].filter(Boolean).join(' · '),
+          [f.roundLabel, f.partner ? `with ${f.partner}` : null].filter(Boolean).join(', '),
           f.recordLine ?? '',
         ].filter(Boolean),
         primary: { title: 'Record score', onPress: f.onRecord },

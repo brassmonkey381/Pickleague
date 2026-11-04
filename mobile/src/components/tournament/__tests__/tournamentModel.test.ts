@@ -192,7 +192,7 @@ describe('identity helpers', () => {
   it('one status pill per status', () => {
     expect(statusPill({ status: 'registration', regClosed: false, isFull: false }).label).toBe('Registration open');
     expect(statusPill({ status: 'registration', regClosed: true, isFull: false }).label).toBe('Registration closed');
-    expect(statusPill({ status: 'registration', regClosed: false, isFull: true }).label).toBe('Full · waitlist open');
+    expect(statusPill({ status: 'registration', regClosed: false, isFull: true }).label).toBe('Full, waitlist open');
     expect(statusPill({ status: 'active', regClosed: false, isFull: false }).label).toBe('In progress');
     expect(statusPill({ status: 'completed', regClosed: false, isFull: false }).label).toBe('Completed');
     expect(statusPill({ status: 'cancelled', regClosed: false, isFull: false }).tone).toBe('danger');

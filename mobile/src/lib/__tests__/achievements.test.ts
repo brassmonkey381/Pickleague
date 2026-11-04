@@ -215,12 +215,12 @@ describe('detail helpers', () => {
     expect(rewardsForBadge('Marathon')).toEqual([]);
   });
 
-  it('awardLines: league · date, with the match id', () => {
+  it('awardLines: league, date, with the match id', () => {
     const lines = awardLines(
       [award('Dominant', '2026-10-02T15:00:00Z', { leagueName: 'Fall League', matchId: 'M9' }), award('Dominant', 'bad')],
       () => 'Oct 2, 2026',
     );
-    expect(lines[0]).toMatchObject({ text: 'Fall League · Oct 2, 2026', matchId: 'M9' });
+    expect(lines[0]).toMatchObject({ text: 'Fall League, Oct 2, 2026', matchId: 'M9' });
     expect(lines[1].text).toBe('');
   });
 

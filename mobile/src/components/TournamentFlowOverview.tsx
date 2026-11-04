@@ -81,7 +81,7 @@ export default function TournamentFlowOverview({ stages, onPressStage, selectedK
           {done ? <Icon name="check-mark" size={10} color={c.success} /> : null}
           <Text style={[S.cardSub, S.shrink]} numberOfLines={1} maxFontSizeMultiplier={SMALL_TEXT_MAX_SCALE}>
             {status}
-            {s.byes > 0 ? ` · ${s.byes} bye${s.byes === 1 ? '' : 's'}` : ''}
+            {s.byes > 0 ? `, ${s.byes} bye${s.byes === 1 ? '' : 's'}` : ''}
           </Text>
         </View>
       </>

@@ -30,6 +30,8 @@ const PARTS: ThemeParts = {
   empty: 'ball',
   navBar: 'island',
   dayBands: 'date',
+  // No middle dots in Pickleague's copy: the foundation joins with commas.
+  separator: 'comma',
   titleFont: 'body',
 };
 

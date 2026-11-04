@@ -204,7 +204,7 @@ export default function PlayHistoryScreen(_props: Props) {
                       id: loggedDrillDraftId(r.id),
                       partner_name: '',
                       logForPlaySession: r.id,
-                      heading: `Your drill · ${playHistoryWhen(r, now)}`,
+                      heading: `Your drill, ${playHistoryWhen(r, now)}`,
                     })}
                     accessibilityLabel={`Add a drill to ${playHistoryTitle(r)}, ${playHistoryWhen(r, now)}`}
                   />

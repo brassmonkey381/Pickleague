@@ -135,7 +135,7 @@ export default function DrillRequestModal({
           ) : (
             Object.entries(groups).map(([date, slots]) => (
               <Panel key={date} style={S.dateGroup}>
-                <Text style={[t.label, S.dateLabel]}>{dateLabel(date)} · {dateSubLabel(date)}</Text>
+                <Text style={[t.label, S.dateLabel]}>{dateLabel(date)}, {dateSubLabel(date)}</Text>
                 <View style={S.slotRow}>
                   {slots.map(slot => {
                     const k = `${date}|${slot}`;

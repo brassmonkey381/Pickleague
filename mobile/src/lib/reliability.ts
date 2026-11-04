@@ -64,10 +64,10 @@ export function computeReliability(
   const idlePhrase = !lastMatchAt
     ? ''
     : daysInactive < 3
-      ? ' · active recently'
+      ? ', active recently'
       : daysInactive < 30
-        ? ` · ${Math.round(daysInactive)}d ago`
-        : ` · ${Math.round(daysInactive / 30)}mo ago`;
+        ? `, ${Math.round(daysInactive)}d ago`
+        : `, ${Math.round(daysInactive / 30)}mo ago`;
 
   return {
     score,

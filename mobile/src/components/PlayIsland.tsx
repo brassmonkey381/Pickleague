@@ -273,7 +273,7 @@ export default function PlayIsland({ signedIn }: { signedIn: boolean }) {
       anchor="bottom"
       style={position}
       // The mode and timer stay whole; only the court is cut short (foundation 1.72).
-      pill={{ primary: `${label ?? 'Playing'} · ${clock(elapsed)}`, secondary: where ?? undefined }}
+      pill={{ primary: `${label ?? 'Playing'}, ${clock(elapsed)}`, secondary: where ?? undefined }}
       title="PLAYING NOW"
       stats={[
         { value: clock(elapsed), label: 'Elapsed' },

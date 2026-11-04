@@ -159,7 +159,7 @@ export function sinceUntilLabel(since: string, until: string | null | undefined)
   if (!u || Number.isNaN(u.getTime())) return `since ${shortTime(s)}`;
   const sameHalf = calendarDayDiff(s, u) === 0 && s.getHours() < 12 === u.getHours() < 12;
   const sinceText = sameHalf ? shortTime(s).replace(/ [AP]M$/, '') : shortTime(s);
-  return `since ${sinceText} · til ${shortTime(u)}`;
+  return `since ${sinceText}, til ${shortTime(u)}`;
 }
 
 /** A NOW row: "Lakeside" over "Alex, Sam +2 · since 5:40 · til 7:30 PM", and
@@ -168,7 +168,7 @@ export function friendsCourtRow(g: FriendsCourtGroup): { title: string; subtitle
   const when = sinceUntilLabel(g.since, g.until);
   return {
     title: g.venue_name,
-    subtitle: when ? `${peopleLine(g.people)} · ${when}` : peopleLine(g.people),
+    subtitle: when ? `${peopleLine(g.people)}, ${when}` : peopleLine(g.people),
     trailing: `${g.people.length + g.others_here} here`,
   };
 }
@@ -187,7 +187,7 @@ export function yourCourtReasonLabel(reason: YourCourtReason): string {
 /** A YOUR COURTS row's subtitle: the crowd line, or why the court is listed
  *  when nobody is there ("League home court · No one checked in now"). */
 export function yourCourtSubtitle(c: YourCourt): string {
-  return crowdLineText(c) ?? `${yourCourtReasonLabel(c.reason)} · No one checked in now`;
+  return crowdLineText(c) ?? `${yourCourtReasonLabel(c.reason)}, No one checked in now`;
 }
 
 /** Drops people whose check-in has ended by `now` (a cached payload read on a

@@ -166,10 +166,10 @@ describe("friends' plans", () => {
     expect(parseFriendCourtPlans({})).toEqual([]);
   });
 
-  it('says a line as "Sky" / "planned 6 PM · routine"', () => {
+  it('says a line as "Sky" / "planned 6 PM, routine"', () => {
     expect(friendPlanLine({ ownerName: 'Sky', at: at(22, 18), kind: 'routine' }, NOW)).toEqual({
       title: 'Sky',
-      meta: 'planned 6 PM · routine',
+      meta: 'planned 6 PM, routine',
       a11y: 'Sky, planned 6 PM, routine',
     });
     expect(friendPlanLine({ ownerName: 'Sky', at: at(23, 9, 30), kind: 'once' }, NOW).meta).toBe('planned tomorrow 9:30 AM');

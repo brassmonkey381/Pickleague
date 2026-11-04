@@ -304,7 +304,7 @@ export default function PlayerProfileScreen({ navigation, route }: Props) {
             numberOfLines={1}
           />
           <Text style={t.sub} numberOfLines={1}>
-            @{profile.username}{matchCount > 0 ? ` · ${matchCount} ${matchCount === 1 ? 'match' : 'matches'}` : ''}
+            @{profile.username}{matchCount > 0 ? `, ${matchCount} ${matchCount === 1 ? 'match' : 'matches'}` : ''}
           </Text>
           {profile.tagline ? <Text style={[t.sub, styles.tagline]} numberOfLines={1}>{profile.tagline}</Text> : null}
         </View>
@@ -426,7 +426,7 @@ export default function PlayerProfileScreen({ navigation, route }: Props) {
             </Text>
           </View>
           <Text style={t.sub} numberOfLines={1}>
-            Win rate vs your baseline · {myChemistry.matchesTogether} doubles {myChemistry.matchesTogether === 1 ? 'match' : 'matches'}
+            Win rate vs your baseline, {myChemistry.matchesTogether} doubles {myChemistry.matchesTogether === 1 ? 'match' : 'matches'}
           </Text>
           {myChemistry.insights.map((ins, i) => (
             <Text key={i} style={[t.sub, styles.insight]} numberOfLines={2}>• {ins}</Text>

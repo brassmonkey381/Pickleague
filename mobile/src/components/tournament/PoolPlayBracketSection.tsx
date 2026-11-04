@@ -125,10 +125,10 @@ export default function PoolPlayBracketSection({
 
       {/* Visual bracket — populated with actual team names + winners where available */}
       <TournamentBracket
-        slotA1={{ label: 'Pool A · 1st Place', team: a1?.name, highlight: a1?.isMe }}
-        slotB2={{ label: 'Pool B · 2nd Place', team: b2?.name, highlight: b2?.isMe }}
-        slotB1={{ label: 'Pool B · 1st Place', team: b1?.name, highlight: b1?.isMe }}
-        slotA2={{ label: 'Pool A · 2nd Place', team: a2?.name, highlight: a2?.isMe }}
+        slotA1={{ label: 'Pool A, 1st Place', team: a1?.name, highlight: a1?.isMe }}
+        slotB2={{ label: 'Pool B, 2nd Place', team: b2?.name, highlight: b2?.isMe }}
+        slotB1={{ label: 'Pool B, 1st Place', team: b1?.name, highlight: b1?.isMe }}
+        slotA2={{ label: 'Pool A, 2nd Place', team: a2?.name, highlight: a2?.isMe }}
         semi1={{
           label: semi1Match?.status === 'completed'
             ? `Semi 1: ${semi1Match.team1_score}–${semi1Match.team2_score}`

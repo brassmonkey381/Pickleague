@@ -38,7 +38,7 @@ export function drillWhen(startsAt: string | null | undefined, fallback: DateSlo
 /** "Tmrw 10/15 · 6:30pm" (slotFullLabel's format) for a drill time. */
 export function drillWhenLabel(startsAt: string | null | undefined, fallback: DateSlot): string {
   const { date, time } = drillWhen(startsAt, fallback);
-  return `${dateLabel(date)} ${dateSubLabel(date)} · ${time}`;
+  return `${dateLabel(date)} ${dateSubLabel(date)}, ${time}`;
 }
 
 /** "Tmrw 10/15 · 6pm – 7pm" (slotRangeLabel's format) for a drill time and
@@ -50,11 +50,11 @@ export function drillWhenRangeLabel(
 ): string {
   const t = startsAt ? Date.parse(startsAt) : NaN;
   if (!Number.isFinite(t)) {
-    return `${dateLabel(fallback.date)} ${dateSubLabel(fallback.date)} · ${slotRangeLabel(fallback.slot, lengthMinutes)}`;
+    return `${dateLabel(fallback.date)} ${dateSubLabel(fallback.date)}, ${slotRangeLabel(fallback.slot, lengthMinutes)}`;
   }
   const start = new Date(t);
   const date = isoDate(start);
-  return `${dateLabel(date)} ${dateSubLabel(date)} · ${clockLabel(start)} – ${clockLabel(new Date(t + lengthMinutes * 60_000))}`;
+  return `${dateLabel(date)} ${dateSubLabel(date)}, ${clockLabel(start)} – ${clockLabel(new Date(t + lengthMinutes * 60_000))}`;
 }
 
 /** Key for one proposed time in a loadDrillSlotStarts map. */

@@ -95,7 +95,7 @@ export function withinLevel<P extends { rating: number | null | undefined }>(
 export function suggestionsHeading(source: SuggestionSource, label: string | null, radiusMi: number): string | null {
   if (source === 'anywhere') return null;
   const where = label?.trim() || (source === 'place' ? 'the court' : 'your search area');
-  return `Players near ${where} · ${radiusMi} mi`;
+  return `Players near ${where}, ${radiusMi} mi`;
 }
 
 /**

@@ -170,7 +170,7 @@ export default function ModerationQueueScreen({ navigation }: Props) {
                 <View style={S.flex}>
                   <Text style={S.subjectName}>{r.subject?.full_name ?? 'Unknown player'}</Text>
                   <Text style={S.meta}>
-                    reported by {r.reporter?.full_name ?? 'someone'} · {r.subject_type}
+                    reported by {r.reporter?.full_name ?? 'someone'}, {r.subject_type}
                   </Text>
                 </View>
               </TouchableOpacity>

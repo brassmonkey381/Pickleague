@@ -257,12 +257,12 @@ export default function MatchScheduleSection({
           whole road to the final is visible from lock-in. */}
       {!filtered && upcomingStages.length > 0 && (
         <View style={S.roundBlock}>
-          <Text style={S.roundLabel}>Still to come · {expectedTotal} matches expected</Text>
+          <Text style={S.roundLabel}>Still to come, {expectedTotal} matches expected</Text>
           {upcomingStages.map(stage => (
             <View key={stage.key} style={[S.row, S.rowLast]}>
               <Text style={[S.note, { flex: 1 }]} numberOfLines={1}>
-                {stage.label} · {stage.total} match{stage.total === 1 ? '' : 'es'}
-                {stage.byes > 0 ? ` · ${stage.byes} bye${stage.byes === 1 ? '' : 's'}` : ''}
+                {stage.label}, {stage.total} match{stage.total === 1 ? '' : 'es'}
+                {stage.byes > 0 ? `, ${stage.byes} bye${stage.byes === 1 ? '' : 's'}` : ''}
               </Text>
             </View>
           ))}

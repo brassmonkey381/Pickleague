@@ -223,7 +223,7 @@ export function sortRecipients<T extends OnMyWayFriend>(friends: readonly T[]): 
 export function sendLabel(count: number, etaMinutes: number, here = false): string {
   if (count === 0) return 'Pick friends to tell';
   const who = count === 1 ? '1 friend' : `${count} friends`;
-  return here ? `Tell ${who} you're here` : `Tell ${who} · about ${etaLabel(etaMinutes)}`;
+  return here ? `Tell ${who} you're here` : `Tell ${who}, about ${etaLabel(etaMinutes)}`;
 }
 
 /** Why the button is off, in words (rule 11), or null when it can send. */

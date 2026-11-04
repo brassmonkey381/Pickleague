@@ -1,5 +1,5 @@
 // The ▶ Play sheet's chip (the user's decision 4, 2026-10-22): Open play ·
-// Closed group · Drill, picked from what I have scheduled around now
+// Closed group, Drill, picked from what I have scheduled around now
 // (lib/playStartRules pickPlayChip), and the lines the sheet and the end
 // sheet say.
 import { describe, it, expect } from 'vitest';
@@ -243,11 +243,11 @@ describe('the lines', () => {
     ).toBe('Open play until 19:00');
   });
 
-  it('the end sheet: "Play complete · 1h 42m at Riverside"', () => {
+  it('the end sheet: "Play complete, 1h 42m at Riverside"', () => {
     expect(playCompleteLine({ startedAtMs: NOW, endedAtMs: NOW + 102 * 60_000, venueName: 'Riverside' })).toBe(
-      'Play complete · 1h 42m at Riverside',
+      'Play complete, 1h 42m at Riverside',
     );
-    expect(playCompleteLine({ startedAtMs: NOW, endedAtMs: NOW + 42 * 60_000 })).toBe('Play complete · 42m');
+    expect(playCompleteLine({ startedAtMs: NOW, endedAtMs: NOW + 42 * 60_000 })).toBe('Play complete, 42m');
     expect(playedFor(60 * 60_000)).toBe('1h');
     expect(playedFor(-5)).toBe('0m');
   });

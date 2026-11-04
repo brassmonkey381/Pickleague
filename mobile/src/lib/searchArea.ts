@@ -174,7 +174,7 @@ export function searchAreaLabel(area: SearchArea | null, placeLabel: string | nu
   if (!area) return 'Choose an area';
   const where = area.label ?? placeLabel
     ?? (area.source === 'device' ? 'your location' : area.source === 'courts' ? 'your courts' : 'here');
-  return `Near ${where} · ${area.radiusMi} mi`;
+  return `Near ${where}, ${area.radiusMi} mi`;
 }
 
 // ── Distance ─────────────────────────────────────────────────────────────────

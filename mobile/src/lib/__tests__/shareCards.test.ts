@@ -125,8 +125,8 @@ describe('play session card', () => {
       games: 5, wins: 3, losses: 2, people: [],
     });
     expect(m.title).toBe('Pickleball');
-    expect(m.hero.small).toBe('on the court · 5 games');
-    expect(m.stats.map((s) => s.value)).toEqual(['30 min open play · 1 h 15 min closed group', '5 games', 'Record 3-2', 'Oct 27']);
+    expect(m.hero.small).toBe('on the court, 5 games');
+    expect(m.stats.map((s) => s.value)).toEqual(['30 min open play, 1 h 15 min closed group', '5 games', 'Record 3-2', 'Oct 27']);
   });
   it('starts the type chip off when the title already says it (no court, one mode)', () => {
     const m = sessionCardModel({ court: null, kindLabel: 'Open play', date: 'Today', minutes: 38, mix: [], games: 0, wins: null, losses: null, people: [] });
@@ -161,6 +161,6 @@ describe('bracket card', () => {
     const m = bracketCardModel({ title: 'Fall Open', rank: 2, of: 8, wins: 1, losses: 1, steps });
     expect(m.hero.big).toBe('2nd place');
     expect(m.showsScores).toBe(true);
-    expect(m.rows[0].items[1]).toEqual({ lead: { won: false }, text: 'Final · vs Pat D.', trailing: '9–11' });
+    expect(m.rows[0].items[1]).toEqual({ lead: { won: false }, text: 'Final, vs Pat D.', trailing: '9–11' });
   });
 });

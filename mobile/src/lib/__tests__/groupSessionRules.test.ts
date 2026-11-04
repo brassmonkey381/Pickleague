@@ -100,13 +100,13 @@ describe('lines', () => {
     expect(playingLine([player({}), player({ endedAt: '2026-10-30T19:00:00Z' })])).toBe('1 playing now');
   });
   it('says each row', () => {
-    expect(playerStatus(player({}), () => '6 PM')).toBe('Playing · since 6 PM');
+    expect(playerStatus(player({}), () => '6 PM')).toBe('Playing, since 6 PM');
     expect(playerStatus(player({ endedAt: 'x', playedS: 80 * 60 + 30 }), () => '')).toBe('Played 1 h 20 min');
     expect(playedLabel(59)).toBe('0 min');
   });
   it('names the group on the island', () => {
     expect(islandGroupLine('Ladder Night', 1)).toBe('Ladder Night');
-    expect(islandGroupLine('Ladder Night', 4)).toBe('Ladder Night · 4 playing');
+    expect(islandGroupLine('Ladder Night', 4)).toBe('Ladder Night, 4 playing');
   });
   it('puts me first', () => {
     const out = meFirst([player({ userId: 'a' }), player({ userId: 'me', isMe: true }), player({ userId: 'b' })]);

@@ -225,7 +225,7 @@ export function finishCardModel(d: FinishShareData): ShareCardModel {
     over: d.kind === 'season' ? d.league : null,
     hero: {
       big: placeHeadline(d.rank, d.of),
-      small: d.rank === 1 ? `${d.me} took 1st` : d.of ? `${d.me} · of ${d.of}` : d.me,
+      small: d.rank === 1 ? `${d.me} took 1st` : d.of ? `${d.me}, of ${d.of}` : d.me,
       medal: d.rank <= 3 ? d.rank : null,
     },
     stats: record ? [{ id: 'record', label: 'Record', value: `Record ${record}` }] : [],
@@ -367,7 +367,7 @@ export function playTypeLabel(mix: readonly { mode: SharePlayMode; minutes: numb
   const total = mix.reduce((n, p) => n + p.minutes, 0);
   const lead = [...mix].sort((a, b) => b.minutes - a.minutes)[0];
   if (mix.length === 1 || lead.minutes >= total * 0.9) return MODE_WORDS[lead.mode].label;
-  return mix.map((p) => `${lengthLabel(p.minutes)} ${MODE_WORDS[p.mode].short}`).join(' · ');
+  return mix.map((p) => `${lengthLabel(p.minutes)} ${MODE_WORDS[p.mode].short}`).join(', ');
 }
 
 /** "5 games", "1 game". */
@@ -407,7 +407,7 @@ export function sessionCardModel(d: SessionShareData): ShareCardModel {
     eyebrow: 'PLAY SESSION',
     title: d.court ?? (d.mix.length > 1 ? 'Pickleball' : type),
     over: d.court ? 'Played at' : null,
-    hero: { big: length, small: d.games > 0 ? `on the court · ${gamesLabel(d.games)}` : 'on the court', medal: null },
+    hero: { big: length, small: d.games > 0 ? `on the court, ${gamesLabel(d.games)}` : 'on the court', medal: null },
     stats,
     rows: d.people.length
       ? [{ id: 'people', label: 'Players', heading: 'Played with', items: d.people.slice(0, 6).map((p) => ({ lead: null, people: [p] })) }]
@@ -520,7 +520,7 @@ export function drillCardModel(d: DrillShareData): ShareCardModel {
     stats.push({
       id: 'month',
       label: 'This month',
-      value: `${d.stats.monthCount === 1 ? '1 drill' : `${d.stats.monthCount} drills`} · ${lengthLabel(d.stats.monthMinutes)} this month`,
+      value: `${d.stats.monthCount === 1 ? '1 drill' : `${d.stats.monthCount} drills`}, ${lengthLabel(d.stats.monthMinutes)} this month`,
     });
   }
   if (d.stats.weekStreak >= 2) stats.push({ id: 'streak', label: 'Streak', value: `🔥 ${d.stats.weekStreak}-week drill streak` });
@@ -716,7 +716,7 @@ export function bracketCardModel(d: BracketShareData): ShareCardModel {
           heading: 'My path',
           items: d.steps.slice(-6).map((s) => ({
             lead: { won: s.won },
-            text: `${s.round} · vs ${joinPeople(s.opponents)}`,
+            text: `${s.round}, vs ${joinPeople(s.opponents)}`,
             trailing: s.score ?? undefined,
           })),
         }]

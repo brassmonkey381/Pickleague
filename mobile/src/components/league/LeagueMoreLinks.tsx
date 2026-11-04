@@ -23,11 +23,6 @@ export default function LeagueMoreLinks({ links }: { links: LeagueMoreLink[] }) 
     <View style={styles.line}>
       {links.map((l, i) => (
         <React.Fragment key={l.key}>
-          {i > 0 ? (
-            <Text style={[t.sub, { color: c.textMuted }]} accessibilityElementsHidden importantForAccessibility="no">
-              ·
-            </Text>
-          ) : null}
           <TouchableOpacity
             onPress={l.onPress}
             activeOpacity={0.7}
@@ -44,6 +39,6 @@ export default function LeagueMoreLinks({ links }: { links: LeagueMoreLink[] }) 
 }
 
 const styles = StyleSheet.create({
-  line: { flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center', columnGap: SPACE.sm },
+  line: { flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center', columnGap: SPACE.lg },
   link: { minHeight: 44, minWidth: 44, justifyContent: 'center' },
 });

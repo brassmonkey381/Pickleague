@@ -52,7 +52,7 @@ function List({ venueId }: { venueId: string }) {
       compact
       style={S.card}
       rows={plans.map((p) => {
-        const label = friendPlanLabel(p, now);
+        const label = friendPlanLabel(p, now, undefined, { separator: ', ' });
         return {
           key: p.planId,
           avatar: (

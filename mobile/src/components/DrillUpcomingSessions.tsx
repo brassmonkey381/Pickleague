@@ -144,12 +144,12 @@ export default function DrillUpcomingSessions({
                 <View style={S.placeLine}>
                   <Icon name="pin" size={14} color={c.textSub} style={S.placeGlyph} />
                   <Text style={[t.sub, S.shrink]} numberOfLines={2}>
-                    We're playing at {place} · {when} · {durationLabel(s.length_minutes ?? 60)}
+                    We're playing at {place}, {when}, {durationLabel(s.length_minutes ?? 60)}
                   </Text>
                 </View>
               ) : (
                 <Text style={t.sub} numberOfLines={1}>
-                  {when} · {durationLabel(s.length_minutes ?? 60)}
+                  {when}, {durationLabel(s.length_minutes ?? 60)}
                 </Text>
               )}
               <Text

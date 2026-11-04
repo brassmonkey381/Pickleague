@@ -38,14 +38,14 @@ describe('levels and bands', () => {
 describe('crowdLineText', () => {
   it('reads count, band and friends', () => {
     expect(crowdLineText({ here_now: 6, band_low: 3.5, band_high: 4, friends_here: 2 })).toBe(
-      '6 playing now · mostly 3.5–4.0 · 2 friends',
+      '6 playing now, mostly 3.5–4.0, 2 friends',
     );
   });
 
   it('drops the band the server withheld and a zero friend count', () => {
     expect(crowdLineText({ here_now: 2, band_low: null, band_high: null, friends_here: 0 })).toBe('2 playing now');
     expect(crowdLineText({ here_now: 1, band_low: null, band_high: null, friends_here: 1 })).toBe(
-      '1 playing now · 1 friend',
+      '1 playing now, 1 friend',
     );
   });
 
@@ -73,9 +73,9 @@ describe('roster rows', () => {
   });
 
   it('labels anonymous rows with a band, never a name or exact rating', () => {
-    expect(anonymousPlayerLabel(3.62)).toBe('Player · 3.5–4.0');
+    expect(anonymousPlayerLabel(3.62)).toBe('Player, 3.5–4.0');
     expect(anonymousPlayerLabel(null)).toBe('Player');
-    expect(presenceRowLabel(row({ anonymous: true, full_name: null }))).toBe('Player · 3.5–4.0');
+    expect(presenceRowLabel(row({ anonymous: true, full_name: null }))).toBe('Player, 3.5–4.0');
   });
 
   it('marks close friends', () => {

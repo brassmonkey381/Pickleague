@@ -454,7 +454,7 @@ export default function MatchHistoryScreen({ navigation, route }: Props) {
     let when: string | null = null;
     if (item.scheduled_at) {
       const d = new Date(item.scheduled_at);
-      when = `${d.toLocaleDateString(undefined, { weekday: 'short', month: 'short', day: 'numeric' })} · ${d.toLocaleTimeString(undefined, { hour: 'numeric', minute: '2-digit' })}`;
+      when = `${d.toLocaleDateString(undefined, { weekday: 'short', month: 'short', day: 'numeric' })}, ${d.toLocaleTimeString(undefined, { hour: 'numeric', minute: '2-digit' })}`;
     }
     return (
       <ListCard
@@ -516,7 +516,7 @@ export default function MatchHistoryScreen({ navigation, route }: Props) {
         ? 'Confirm needed'
         : myTeamConfirmed
           ? 'Waiting on other team'
-          : `Team 1 ${team1Done ? 'confirmed' : 'waiting'} · Team 2 ${team2Done ? 'confirmed' : 'waiting'}`;
+          : `Team 1 ${team1Done ? 'confirmed' : 'waiting'}, Team 2 ${team2Done ? 'confirmed' : 'waiting'}`;
       // An unconfirmed match is dropped after an hour, so the countdown leads
       // the line and survives truncation.
       const deadlineFact = deadlineLabel === 'expired' ? 'Expired' : deadlineLabel;

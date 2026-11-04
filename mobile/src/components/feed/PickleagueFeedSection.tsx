@@ -621,9 +621,9 @@ export default function PickleagueFeedSection(props: PickleagueFeedProps) {
     if (line.kind === 'mine') {
       const m = line.checkin;
       return {
-        title: `You · ${card.venueName}`,
+        title: `You, ${card.venueName}`,
         subtitle: m.queued
-          ? `Saved with no signal · until ${clock(m.expiresAt)}`
+          ? `Saved with no signal, until ${clock(m.expiresAt)}`
           : m.checkedInAt
             ? `Checked in since ${clock(m.checkedInAt)}`
             : `Checked in until ${clock(m.expiresAt)}`,
@@ -633,23 +633,23 @@ export default function PickleagueFeedSection(props: PickleagueFeedProps) {
       const s = line.stop;
       const when = day === 'later' ? `${dayLabel(new Date(s.at), new Date(now))} ${clock(s.at)}` : clock(s.at);
       return {
-        title: `You · ${card.venueName}`,
+        title: `You, ${card.venueName}`,
         subtitle: s.status === 'cancelled' ? `Skipped: ${when} (routine)` : `Planned check-in ${day === 'later' ? '' : 'at '}${when} (routine)`,
       };
     }
     if (line.kind === 'plan') {
       const when = day === 'later' ? planWhen(line.plan.at, now) : clock(line.plan.at);
-      return { title: `You · ${card.venueName}`, subtitle: `Planned check-in ${day === 'later' ? '' : 'at '}${when}` };
+      return { title: `You, ${card.venueName}`, subtitle: `Planned check-in ${day === 'later' ? '' : 'at '}${when}` };
     }
     if (line.kind === 'friendPlan') {
       const when = day === 'later' ? planWhen(line.plan.at, now) : clock(line.plan.at);
       return {
-        title: `${line.person.name} · ${card.venueName}`,
+        title: `${line.person.name}, ${card.venueName}`,
         subtitle: `Planned check-in ${day === 'later' ? '' : 'at '}${when}${line.plan.routine ? ' (routine)' : ''}`,
       };
     }
     return {
-      title: `${line.person.name} · ${card.venueName}`,
+      title: `${line.person.name}, ${card.venueName}`,
       subtitle: line.kind === 'here' ? `Here since ${clock(line.at)}` : `Was here ${clock(line.at)}–${clock(line.endedAt)}`,
     };
   }

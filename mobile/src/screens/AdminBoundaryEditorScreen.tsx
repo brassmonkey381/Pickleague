@@ -93,7 +93,7 @@ export default function AdminBoundaryEditorScreen({ navigation, route }: Props) 
       <Text style={[styles.meta, { color: c.textSub }]}>
         {[venue.city, area != null ? `Outline ${Math.round(area).toLocaleString()} m²` : 'No outline yet', `${ring.length} points`]
           .filter(Boolean)
-          .join(' · ')}
+          .join(', ')}
       </Text>
       <BoundaryEditorMap
         key={rev}

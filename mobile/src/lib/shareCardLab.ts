@@ -127,9 +127,9 @@ export function labSamples(): LabSample[] {
       model: bracketCardModel({
         title: 'Summer Smash MLP', rank: 2, of: 16, wins: 5, losses: 2,
         steps: [
-          { round: 'Pool A · Round 1', won: true, score: '11–4', opponents: [sam, lee] },
-          { round: 'Pool A · Round 2', won: false, score: '8–11', opponents: [kim, anon] },
-          { round: 'Pool A · Round 3', won: true, score: '11–9', opponents: [longName] },
+          { round: 'Pool A, Round 1', won: true, score: '11–4', opponents: [sam, lee] },
+          { round: 'Pool A, Round 2', won: false, score: '8–11', opponents: [kim, anon] },
+          { round: 'Pool A, Round 3', won: true, score: '11–9', opponents: [longName] },
           { round: 'Quarterfinal', won: true, score: '11–6', opponents: [pat, sam] },
           { round: 'Semifinal', won: true, score: '15–13', opponents: [lee, kim] },
           { round: 'Final', won: false, score: '9–11', opponents: [sam, pat] },

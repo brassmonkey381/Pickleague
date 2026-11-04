@@ -27,7 +27,7 @@ describe('MatchEntry "Here now"', () => {
 
   it('puts the players here first in the picker, marked', () => {
     const items = [{ id: 'a', name: 'Zoe' }, { id: 'b', name: 'Ann' }];
-    expect(hereFirst(items, new Set(['a']))).toEqual([{ id: 'a', name: 'Zoe · here' }, { id: 'b', name: 'Ann' }]);
+    expect(hereFirst(items, new Set(['a']))).toEqual([{ id: 'a', name: 'Zoe, here' }, { id: 'b', name: 'Ann' }]);
     expect(hereFirst(items, new Set())).toEqual(items);
   });
 });

@@ -120,12 +120,12 @@ export function playedLabel(seconds: number): string {
 
 /** A row's status: "Playing · since 6:10 PM" or "Played 1 h 20 min". */
 export function playerStatus(p: GroupPlayer, clock: (iso: string) => string): string {
-  return p.endedAt === null ? `Playing · since ${clock(p.startedAt)}` : `Played ${playedLabel(p.playedS)}`;
+  return p.endedAt === null ? `Playing, since ${clock(p.startedAt)}` : `Played ${playedLabel(p.playedS)}`;
 }
 
 /** The island's line for a group session: "Ladder Night · 4 playing". */
 export function islandGroupLine(title: string, playing: number): string {
-  return playing > 1 ? `${title} · ${playing} playing` : title;
+  return playing > 1 ? `${title}, ${playing} playing` : title;
 }
 
 /** Me first, then the rest as the server ordered them (playing now first). */

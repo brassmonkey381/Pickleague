@@ -89,10 +89,9 @@ export default function PicklePotCard(props: PicklePotCardProps) {
           <Text style={S.metaText}>Payout:</Text>
           {structure.map((p, i) => (
             <View key={i} style={S.payoutItem}>
-              {i > 0 ? <Text style={S.metaText}>·</Text> : null}
               {/* 1st-3rd as medal discs; 4th+ as words. */}
               {i < 3 ? <RankMedal place={i + 1} size={16} /> : <Text style={S.metaBold}>{ordinal(i + 1)}</Text>}
-              <Text style={S.metaBold}>{p}%</Text>
+              <Text style={S.metaBold}>{p}%{i < structure.length - 1 ? ',' : ''}</Text>
             </View>
           ))}
         </View>
@@ -440,8 +439,9 @@ function DistributeModal({
           <View style={S.modalSubRow}>
             <Text style={S.modalSubText}>Pool:</Text>
             <PickleAmount amount={pool} preset="meta" color={c.textSub} />
-            <Text style={S.modalSubText}>· structure {structure.join(' / ')}%</Text>
           </View>
+          {/* Its own line: a separator glyph or a leading comma would float in the gapped row. */}
+          <Text style={S.modalSubText}>Split {structure.join(' / ')}%</Text>
 
           <Text style={S.modalBody}>
             Will pay top finishers from the locked-in <Text style={S.modalBold}>final standings</Text>

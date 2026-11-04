@@ -74,7 +74,7 @@ export async function verifyTournament(tournamentId: string): Promise<CheckResul
   const matches = (matchesRes.data ?? []) as MatchRow[];
 
   const checks: CheckResult[] = [
-    { ok: 'info', label: `${t.name}`, detail: `${t.format} · ${t.match_type} · status=${t.status}` },
+    { ok: 'info', label: `${t.name}`, detail: `${t.format}, ${t.match_type}, status=${t.status}` },
     { ok: 'info', label: 'Approved registrations', detail: `${regs.length}` },
     { ok: 'info', label: 'Rounds', detail: `${rounds.length} (${roundTypeBreakdown(rounds)})` },
     { ok: 'info', label: 'Matches', detail: `${matches.length}` },

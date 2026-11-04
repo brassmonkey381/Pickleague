@@ -136,10 +136,10 @@ export function parseFriendCourtPlans(data: unknown): FriendCourtPlan[] {
 
 /** A friend's plan as a feed line says it: title "Sky", meta "planned 6 PM · routine". */
 export function friendPlanLine(p: Pick<FriendCourtPlan, 'ownerName' | 'at' | 'kind'>, now: number): { title: string; meta: string; a11y: string } {
-  const label = friendPlanLabel(p, now);
+  const label = friendPlanLabel(p, now, undefined, { separator: ', ' });
   return {
     title: p.ownerName,
-    meta: label.routineTag ? `${label.text} · ${label.routineTag}` : label.text,
+    meta: label.routineTag ? `${label.text}, ${label.routineTag}` : label.text,
     a11y: `${p.ownerName}, ${label.a11y}`,
   };
 }

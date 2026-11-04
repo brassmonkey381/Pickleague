@@ -643,7 +643,7 @@ export default function PlayersPanel({ navigation, active = true, view: viewPara
                     key={p.id}
                     c={c}
                     person={person}
-                    subtitle={friendIds.has(p.id) ? `Friend · ${playsAtLabel(p) ?? ''}`.replace(/ · $/, '') : playsAtLabel(p)}
+                    subtitle={friendIds.has(p.id) ? `Friend, ${playsAtLabel(p) ?? ''}`.replace(/, $/, '') : playsAtLabel(p)}
                     lastRow={i === nearby.length - 1}
                     onOpen={() => openProfile(p.id, p.full_name)}
                     trailing={known ? undefined : (
@@ -800,7 +800,7 @@ export default function PlayersPanel({ navigation, active = true, view: viewPara
         realPeopleOnly
         load={area || !areaReady ? loadNear : undefined}
         loadKey={areaKey}
-        subtitle={area ? `Players near ${areaPlace ?? 'your area'} · ${area.radiusMi} mi` : null}
+        subtitle={area ? `Players near ${areaPlace ?? 'your area'}, ${area.radiusMi} mi` : null}
         search={searchByName}
         onPick={onPick}
         onClose={() => setPickerOpen(false)}

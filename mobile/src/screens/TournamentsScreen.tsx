@@ -527,7 +527,7 @@ export default function TournamentsScreen({ navigation, route, active = true, ro
       return (
         <SectionHeader
           title="Ended"
-          count={cancelled ? `${count} · incl. cancelled` : count}
+          count={cancelled ? `${count}, incl. cancelled` : count}
           style={style}
           open={endedOpen}
           onToggle={() => setEndedToggled(!endedOpen)}

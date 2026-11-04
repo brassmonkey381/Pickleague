@@ -477,7 +477,7 @@ export default function GodmodeScreen({ navigation }: Props) {
                   <Text style={S.inviteToken}>{inv.token}</Text>
                   <Text style={S.inviteMeta}>
                     {daysUntil(inv.expires_at)}
-                    {inv.max_uses != null ? ` · ${inv.used_count}/${inv.max_uses} used` : ` · ${inv.used_count} used`}
+                    {inv.max_uses != null ? `, ${inv.used_count}/${inv.max_uses} used` : `, ${inv.used_count} used`}
                   </Text>
                 </View>
                 {inv.already_member ? (
@@ -711,7 +711,7 @@ export default function GodmodeScreen({ navigation }: Props) {
         <PickleShareStudio
           visible={labOpen}
           onClose={() => setLabOpen(false)}
-          title={`Lab · ${labSample.title}`}
+          title={`Lab, ${labSample.title}`}
           model={labSample.model}
           initialPhotos={LAB_PHOTOS.slice(0, labPhotos)}
           trackProps={{ lab: true }}

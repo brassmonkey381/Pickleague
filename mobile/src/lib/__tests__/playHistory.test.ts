@@ -27,7 +27,7 @@ const row = (id: string, startedAt: string): PlayHistoryRow => ({
 
 describe('play history rows', () => {
   it('title: court and kind, or the kind alone', () => {
-    expect(playHistoryTitle({ kind: 'open_play', venueName: 'Lakeside' })).toBe('Lakeside · Open play');
+    expect(playHistoryTitle({ kind: 'open_play', venueName: 'Lakeside' })).toBe('Lakeside, Open play');
     expect(playHistoryTitle({ kind: 'drill', venueName: null })).toBe('Drill');
   });
 
@@ -43,7 +43,7 @@ describe('play history rows', () => {
     const start = new Date(2026, 9, 29, 18, 10);
     const end = new Date(2026, 9, 29, 20, 5);
     expect(playHistoryWhen({ startedAt: start.toISOString(), endedAt: end.toISOString() }, new Date(2026, 9, 29, 21).getTime()))
-      .toBe('Today · 6:10 PM–8:05 PM · 1h 55m');
+      .toBe('Today, 6:10 PM–8:05 PM, 1h 55m');
   });
 
   it('status: counts, waits on a confirm, or says why not', () => {

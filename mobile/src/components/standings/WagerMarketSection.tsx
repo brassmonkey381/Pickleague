@@ -47,7 +47,7 @@ export default function WagerMarketSection({
     <CollapsibleSection
       compact
       title="Wager market"
-      summary={`${scopeLabel} · tap a cell to wager on a rank`}
+      summary={`${scopeLabel}, tap a cell to wager on a rank`}
       onToggle={onToggle}
     >
       <View style={S.headRow}>

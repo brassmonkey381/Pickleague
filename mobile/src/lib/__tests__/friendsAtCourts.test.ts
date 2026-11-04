@@ -54,15 +54,15 @@ describe('peopleLine', () => {
 
 describe('sinceUntilLabel', () => {
   it('says the meridiem once when both ends share it', () => {
-    expect(sinceUntilLabel(at(17, 40), at(19, 30))).toBe('since 5:40 · til 7:30 PM');
+    expect(sinceUntilLabel(at(17, 40), at(19, 30))).toBe('since 5:40, til 7:30 PM');
   });
 
   it('keeps both meridiems across noon', () => {
-    expect(sinceUntilLabel(at(11, 30), at(13, 0))).toBe('since 11:30 AM · til 1 PM');
+    expect(sinceUntilLabel(at(11, 30), at(13, 0))).toBe('since 11:30 AM, til 1 PM');
   });
 
   it('keeps both across midnight', () => {
-    expect(sinceUntilLabel(at(21, 0), at(9, 0, 16))).toBe('since 9 PM · til 9 AM');
+    expect(sinceUntilLabel(at(21, 0), at(9, 0, 16))).toBe('since 9 PM, til 9 AM');
   });
 
   it('has no end without an until', () => {
@@ -85,7 +85,7 @@ describe('friendsCourtRow', () => {
     };
     expect(friendsCourtRow(g)).toEqual({
       title: 'Lakeside',
-      subtitle: 'Alex, Sam +2 · since 5:40 · til 7:30 PM',
+      subtitle: 'Alex, Sam +2, since 5:40, til 7:30 PM',
       trailing: '7 here',
     });
   });
@@ -95,9 +95,9 @@ describe('your courts', () => {
   it('shows the crowd line, or why the court is listed', () => {
     const base = { venue_id: 'v1', venue_name: 'Lakeside', band_low: null, band_high: null, friends_here: 0 };
     expect(yourCourtSubtitle({ ...base, reason: 'home', here_now: 6, band_low: 3.5, band_high: 4, friends_here: 2 })).toBe(
-      '6 playing now · mostly 3.5–4.0 · 2 friends',
+      '6 playing now, mostly 3.5–4.0, 2 friends',
     );
-    expect(yourCourtSubtitle({ ...base, reason: 'home', here_now: 0 })).toBe('League home court · No one checked in now');
+    expect(yourCourtSubtitle({ ...base, reason: 'home', here_now: 0 })).toBe('League home court, No one checked in now');
     expect(yourCourtReasonLabel('favorite')).toBe('Your court');
     expect(yourCourtReasonLabel('frequent')).toBe('You play here often');
   });

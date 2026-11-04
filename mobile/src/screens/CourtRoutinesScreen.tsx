@@ -294,7 +294,7 @@ export default function CourtRoutinesScreen({ route, navigation }: Props) {
                   <Text style={[S.time, { color: c.text }]}>{formatClockTime(s.localTime)}</Text>
                   <Text style={t.title} numberOfLines={1}>{s.venueName}</Text>
                   <Text style={[t.meta, S.cardMeta]} numberOfLines={1}>
-                    {formatWeekdayMask(s.days)} · {s.visits} visits in 6 weeks
+                    {formatWeekdayMask(s.days)}, {s.visits} visits in 6 weeks
                   </Text>
                   <View style={S.cardActions}>
                     <Button
@@ -379,9 +379,9 @@ export default function CourtRoutinesScreen({ route, navigation }: Props) {
                           <View style={[S.statusText, S.inline]}>
                             <Text style={[t.sub, S.shrink, { color: c.textSub }]} numberOfLines={1}>
                               {o.status === 'completed'
-                                ? `${day} · checked in`
+                                ? `${day}, checked in`
                                 : o.status === 'cancelled'
-                                  ? `${day} · skipped`
+                                  ? `${day}, skipped`
                                   : `${day} ${timeLabel(o.plannedAt, r.localTime)}`}
                             </Text>
                             {o.status === 'completed' ? <Icon name="check-mark" size={14} color={c.success} /> : null}

@@ -207,7 +207,7 @@ export default function TournamentMatchHistoryScreen({ route }: Props) {
     } else {
       badge = completed
         ? { text: team1Won ? 'W' : 'L', bg: team1Won ? c.primary : c.danger, fg: c.textInverse }
-        : { text: '·', bg: c.surfaceAlt, fg: c.textMuted };
+        : { text: '', bg: c.surfaceAlt, fg: c.textMuted };
       title = `${team1Name} vs ${team2Name}`;
       score = completed ? `${item.team1_score} – ${item.team2_score}` : 'Not played';
       meta = [item.round?.label, dateStr, typeLabel];
@@ -221,7 +221,7 @@ export default function TournamentMatchHistoryScreen({ route }: Props) {
         <View style={S.cardText}>
           <Text style={t.title} numberOfLines={1}>{title}</Text>
           <Text style={t.meta} numberOfLines={1} maxFontSizeMultiplier={SMALL_TEXT_MAX_SCALE}>
-            {meta.filter(Boolean).join(' · ')}
+            {meta.filter(Boolean).join(', ')}
           </Text>
         </View>
         <Text style={[t.sub, completed ? S.score : S.pendingScore]} numberOfLines={1}>{score}</Text>

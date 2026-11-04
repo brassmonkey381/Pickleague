@@ -93,7 +93,7 @@ export default function AdminBoundariesScreen({ navigation }: Props) {
           <View style={styles.flex}>
             <Text style={t.title} numberOfLines={1}>{item.name}</Text>
             <Text style={[t.sub, styles.sub]} numberOfLines={1}>
-              {[item.city, `${item.checkins} check-in${item.checkins === 1 ? '' : 's'}`].filter(Boolean).join(' · ')}
+              {[item.city, `${item.checkins} check-in${item.checkins === 1 ? '' : 's'}`].filter(Boolean).join(', ')}
             </Text>
           </View>
           <Text style={[t.sub, styles.badge, { color: item.has_boundary ? c.success : c.textSub }]}>

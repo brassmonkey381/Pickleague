@@ -509,7 +509,7 @@ export default function LeagueMembersScreen({ navigation, route }: Props) {
 
           <SectionHeader
             title="Members"
-            count={members.length > 0 ? `${members.length} · avg ${avgLeagueElo.toFixed(2)} PLUPR` : undefined}
+            count={members.length > 0 ? `${members.length}, avg ${avgLeagueElo.toFixed(2)} PLUPR` : undefined}
             action={privileged ? { label: 'Suggest', onPress: openSuggest, a11yLabel: 'Suggest players to invite' } : undefined}
           />
 
@@ -621,8 +621,8 @@ export default function LeagueMembersScreen({ navigation, route }: Props) {
             </View>
             <Text style={t.sub} numberOfLines={2}>
               {suggestHeading
-                ? `${suggestHeading} · similar PLUPR · sorted by schedule overlap`
-                : `Similar PLUPR to ${leagueName || 'this league'} · sorted by schedule overlap`}
+                ? `${suggestHeading}, similar PLUPR, sorted by schedule overlap`
+                : `Similar PLUPR to ${leagueName || 'this league'}, sorted by schedule overlap`}
             </Text>
           </View>
           <Pressable onPress={() => setShowSuggest(false)} style={S.box44} accessibilityRole="button">
@@ -678,7 +678,7 @@ export default function LeagueMembersScreen({ navigation, route }: Props) {
                       numberOfLines={1}
                     />
                   }
-                  subtitle={`@${p.username} · ${p.rating.toFixed(2)} PLUPR (${eloDiffLabel}) · ${hasOverlap ? `${p.overlapHours}h overlap` : 'no overlap'}`}
+                  subtitle={`@${p.username}, ${p.rating.toFixed(2)} PLUPR (${eloDiffLabel}), ${hasOverlap ? `${p.overlapHours}h overlap` : 'no overlap'}`}
                   trailing={
                     <Button
                       size="sm"

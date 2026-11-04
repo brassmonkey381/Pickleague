@@ -389,14 +389,14 @@ export function leagueStandingsHeader(
         title: 'Standings',
         label: d.seasonName,
         subtitle: d.summary
-          ? `${n} player${n === 1 ? '' : 's'} by PLUPR · ${seasonDatePart(d.summary, dateOpts)}`
+          ? `${n} player${n === 1 ? '' : 's'} by PLUPR, ${seasonDatePart(d.summary, dateOpts)}`
           : 'Members by PLUPR',
       };
     case 'upcoming':
       return {
         title: 'Standings',
         label: d.seasonName,
-        subtitle: d.summary ? `${status(d.summary)} · by PLUPR` : 'Members by PLUPR',
+        subtitle: d.summary ? `${status(d.summary)}, by PLUPR` : 'Members by PLUPR',
       };
     case 'final':
       return { title: 'Standings', label: d.seasonName, subtitle: status(null) };
@@ -405,7 +405,7 @@ export function leagueStandingsHeader(
       return {
         title: 'Leaderboard',
         label: `${d.rows.length} member${d.rows.length === 1 ? '' : 's'}`,
-        subtitle: 'Members by PLUPR · no season yet',
+        subtitle: 'Members by PLUPR, no season yet',
       };
   }
 }

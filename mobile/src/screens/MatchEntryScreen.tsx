@@ -474,20 +474,20 @@ export default function MatchEntryScreen({ navigation, route }: Props) {
       if (onlyOutdoor) {
         setIsOutdoor(true);
         setCourtTypeLocked('outdoor');
-        setCourtHint({ icons: ['sun'], text: `Outdoor only · ${source}` });
+        setCourtHint({ icons: ['sun'], text: `Outdoor only, ${source}` });
         return;
       }
       if (onlyIndoor) {
         setIsOutdoor(false);
         setCourtTypeLocked('indoor');
-        setCourtHint({ icons: ['indoor'], text: `Indoor only · ${source}` });
+        setCourtHint({ icons: ['indoor'], text: `Indoor only, ${source}` });
         return;
       }
       if (hasBoth) {
         // Has both — prefer the location's stored default, else fall back to outdoor.
         if (court.default_outdoor === false) setIsOutdoor(false);
         else                                  setIsOutdoor(true);
-        setCourtHint({ icons: ['indoor', 'sun'], text: `Has both indoor and outdoor courts · ${source}` });
+        setCourtHint({ icons: ['indoor', 'sun'], text: `Has both indoor and outdoor courts, ${source}` });
         return;
       }
       // Row exists but unclassified (has_indoor=false, has_outdoor=false). Fall

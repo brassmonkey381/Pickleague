@@ -91,7 +91,7 @@ export function buildStandings(i: StandingsInput): StandingsData | null {
         label: null,
         rows: sortMlpTeamStandings(i.mlpStandings).map(r => ({
           key: r.team_id,
-          name: r.pool_letter ? `${r.team_name} · Pool ${r.pool_letter}` : r.team_name,
+          name: r.pool_letter ? `${r.team_name}, Pool ${r.pool_letter}` : r.team_name,
           isMe: !!i.myMlpTeamId && r.team_id === i.myMlpTeamId,
           wins: r.sub_matches_won,
           losses: r.sub_matches_lost,

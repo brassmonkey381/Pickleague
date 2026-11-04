@@ -203,7 +203,7 @@ export function generatePoolPlay(
   pools.forEach((pool, pi) => {
     const poolMatches = generateRoundRobin(pool).map(m => ({
       ...m,
-      label: `Pool ${String.fromCharCode(65 + pi)} · Round ${m.round}`,
+      label: `Pool ${String.fromCharCode(65 + pi)}, Round ${m.round}`,
       poolIndex: pi,
     }));
     matches.push(...poolMatches);
@@ -391,7 +391,7 @@ export function generateDoublesPoolPlay(
   pools.forEach((pool, pi) => {
     const poolMatches = generateDoublesRoundRobin(pool).map(m => ({
       ...m,
-      label: `Pool ${String.fromCharCode(65 + pi)} · Round ${m.round}`,
+      label: `Pool ${String.fromCharCode(65 + pi)}, Round ${m.round}`,
       poolIndex: pi,
     }));
     matches.push(...poolMatches);

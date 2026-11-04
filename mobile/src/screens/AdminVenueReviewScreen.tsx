@@ -116,11 +116,11 @@ export default function AdminVenueReviewScreen({ navigation }: Props) {
                 <Chip size="sm" label={v.kind} />
               </View>
               <Text style={S.meta}>
-                {[v.city, v.address].filter(Boolean).join(' · ') || `${v.lat.toFixed(4)}, ${v.lng.toFixed(4)}`}
+                {[v.city, v.address].filter(Boolean).join(', ') || `${v.lat.toFixed(4)}, ${v.lng.toFixed(4)}`}
               </Text>
               <Text style={S.meta}>
                 by {v.submitter_name || 'unknown'}
-                {v.affirmation_count > 0 ? ` · ${v.affirmation_count} agreed` : ''}
+                {v.affirmation_count > 0 ? `, ${v.affirmation_count} agreed` : ''}
               </Text>
               <View style={S.actions}>
                 <Button

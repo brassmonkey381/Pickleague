@@ -151,7 +151,7 @@ export default function MultiUserPickerModal({
         return {
           id: u.id,
           primary: u.full_name,
-          secondary: u.detail ? `@${u.username} · ${u.detail}` : `@${u.username}`,
+          secondary: u.detail ? `@${u.username}, ${u.detail}` : `@${u.username}`,
           left: (
             <View style={[S.avatar, { backgroundColor: bg }]}>
               <Text style={S.avatarEmoji}>{emoji}</Text>

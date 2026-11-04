@@ -90,13 +90,13 @@ export function genericSubjectLabel(
   predicate: Record<string, any>,
 ): string {
   switch (subject_type) {
-    case 'match':            return `Match · ${predicate?.winner_team ?? '?'} to win`;
-    case 'tournament_match': return `Tournament match · ${predicate?.winner_team ?? '?'} to win`;
-    case 'match_score':      return `Match final score · ${predicate?.team1_score}-${predicate?.team2_score}`;
-    case 'tournament_match_score': return `Tournament match final score · ${predicate?.team1_score}-${predicate?.team2_score}`;
-    case 'tournament_rank':  return `Tournament rank · ${ordinal(predicate?.rank ?? 1)}`;
-    case 'period_rank':      return `Round ${predicate?.period_number ?? '?'} rank · ${ordinal(predicate?.rank ?? 1)}`;
-    case 'season_rank':      return `Season rank · ${ordinal(predicate?.rank ?? 1)}`;
+    case 'match':            return `Match, ${predicate?.winner_team ?? '?'} to win`;
+    case 'tournament_match': return `Tournament match, ${predicate?.winner_team ?? '?'} to win`;
+    case 'match_score':      return `Match final score, ${predicate?.team1_score}-${predicate?.team2_score}`;
+    case 'tournament_match_score': return `Tournament match final score, ${predicate?.team1_score}-${predicate?.team2_score}`;
+    case 'tournament_rank':  return `Tournament rank, ${ordinal(predicate?.rank ?? 1)}`;
+    case 'period_rank':      return `Round ${predicate?.period_number ?? '?'} rank, ${ordinal(predicate?.rank ?? 1)}`;
+    case 'season_rank':      return `Season rank, ${ordinal(predicate?.rank ?? 1)}`;
     default:                 return 'Wager';
   }
 }

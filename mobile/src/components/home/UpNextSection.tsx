@@ -158,7 +158,7 @@ export default function UpNextSection({
                 accessibilityLabel={`${beyondCap} more. See all in Notifications`}
               >
                 <Text style={[t.meta, { color: c.primary }]} maxFontSizeMultiplier={SMALL_TEXT_MAX_SCALE}>
-                  +{beyondCap} more · See all in Notifications
+                  +{beyondCap} more. See all in Notifications
                 </Text>
                 <Icon name="chevron-right" size={14} color={c.primary} />
               </TouchableOpacity>

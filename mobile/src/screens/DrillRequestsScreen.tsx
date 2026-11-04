@@ -456,7 +456,7 @@ export default function DrillRequestsScreen({ route }: Props) {
       `${formatPlupr(otherProfile?.rating, (otherProfile as any)?.total_matches_played)} PLUPR`,
       isClosed ? (item.status === 'declined' ? 'Declined' : 'Cancelled') : null,
       timeAgo(item.created_at),
-    ].filter(Boolean).join(' · ');
+    ].filter(Boolean).join(', ');
 
     const chatButton = (
       <Button
@@ -534,10 +534,10 @@ export default function DrillRequestsScreen({ route }: Props) {
         {/* Slots: pick one to enable Accept (incoming), or read them. */}
         <Text style={S.slotsLabel} maxFontSizeMultiplier={SMALL_TEXT_MAX_SCALE}>
           {isAccepted && item.accepted_slot
-            ? `Confirmed time · ${length} drill`
+            ? `Confirmed time, ${length} drill`
             : interactable
-              ? `Pick a time to enable Accept · ${length} drill`
-              : `Proposed times · ${length} drill`}
+              ? `Pick a time to enable Accept. ${length} drill`
+              : `Proposed times, ${length} drill`}
         </Text>
         <View style={S.slotsWrap} accessibilityRole={interactable ? 'radiogroup' : undefined}>
           {(slots ?? []).map((s, i) => {
@@ -576,7 +576,7 @@ export default function DrillRequestsScreen({ route }: Props) {
               <Icon name="pin" size={14} color={colors.textSub} />
               <Text style={S.locationText} numberOfLines={isAccepted && item.accepted_slot ? 2 : 1}>
                 {isAccepted && item.accepted_slot
-                  ? `We're playing at ${item.location_name} · ${whenLabel(item, item.accepted_slot)}`
+                  ? `We're playing at ${item.location_name}, ${whenLabel(item, item.accepted_slot)}`
                   : item.location_name}
               </Text>
             </View>
@@ -673,7 +673,7 @@ export default function DrillRequestsScreen({ route }: Props) {
                   variant="row"
                   lastRow={i === reviewable.length - 1}
                   title={`Drill with ${s.partner_name}`}
-                  subtitle={`${drillWhenLabel(s.starts_at, { date: s.session_date, slot: s.session_slot })} · ${durationLabel(s.length_minutes ?? 60)}${draftIds.has(s.id) ? ' · Draft saved' : ''}`}
+                  subtitle={`${drillWhenLabel(s.starts_at, { date: s.session_date, slot: s.session_slot })}, ${durationLabel(s.length_minutes ?? 60)}${draftIds.has(s.id) ? ', Draft saved' : ''}`}
                   trailing={<Button size="sm" iconName="edit" title={draftIds.has(s.id) ? 'Finish' : 'Review'} onPress={() => setReviewTarget(s)} />}
                   style={S.actionRow}
                 />

@@ -569,7 +569,7 @@ function SeasonStandingsBody({ navigation, route, seasonId, leagueId }: Props & 
   // ── Period strip ──
   const tabOptions: FilterChipOption<string>[] = periods.map(p => (
     p.periodNumber === livePeriodNumber
-      ? { value: `p${p.periodNumber}`, label: `R${p.periodNumber} · Live`, iconName: 'dot' as const }
+      ? { value: `p${p.periodNumber}`, label: `R${p.periodNumber}, Live`, iconName: 'dot' as const }
       : { value: `p${p.periodNumber}`, label: `R${p.periodNumber}` }
   ));
   if (finals.length > 0 || season.status === 'completed') tabOptions.push({ value: 'final', label: 'Final', iconName: 'trophy' });
@@ -593,13 +593,13 @@ function SeasonStandingsBody({ navigation, route, seasonId, leagueId }: Props & 
       const isFuture = !period.locked && pStart > todayDateOnly;
       const isLive = !period.locked && !isFuture && period.periodNumber === livePeriodNumber;
       if (isFuture) {
-        futureNote = `R${period.periodNumber} starts ${fmtDay(pStart)} · locks ${fmtDay(period.date)}`;
+        futureNote = `R${period.periodNumber} starts ${fmtDay(pStart)}, locks ${fmtDay(period.date)}`;
       } else {
         caption = period.locked
           ? `Locked ${fmtDay(period.date)}`
           : isLive
-            ? `Live · ${fmtDay(pStart)} → ${fmtDay(period.date)} · W-L so far`
-            : `Preview · ${fmtDay(pStart)} → ${fmtDay(period.date)} · not locked yet`;
+            ? `Live, ${fmtDay(pStart)} → ${fmtDay(period.date)}, W-L so far`
+            : `Preview, ${fmtDay(pStart)} → ${fmtDay(period.date)}, not locked yet`;
         // The change column is the ending PLUPR against the PLUPR the player
         // opened this period at. Locked periods carry the previous lock's rank
         // bonus in both numbers; computed (unlocked) periods carry it in
@@ -635,7 +635,7 @@ function SeasonStandingsBody({ navigation, route, seasonId, leagueId }: Props & 
   } else if (activeTab === 'final') {
     middleLabel = 'Median';
     caption = finalsAreComputed
-      ? `Median rank across ${totalPeriods} round${totalPeriods !== 1 ? 's' : ''} · preview until the season completes`
+      ? `Median rank across ${totalPeriods} round${totalPeriods !== 1 ? 's' : ''}, preview until the season completes`
       : `Median rank across ${lockedCount} locked round${lockedCount !== 1 ? 's' : ''}`;
     tableRows = finals.map(r => ({
       userId: r.user_id,
@@ -766,7 +766,7 @@ function SeasonStandingsBody({ navigation, route, seasonId, leagueId }: Props & 
         <View style={S.headerLine}>
           <Text style={[t.sub, S.headerText]} numberOfLines={1}>
             <Text style={S.headerName}>{season.name}</Text>
-            {` · ${headerLine}`}
+            {`, ${headerLine}`}
           </Text>
         </View>
 
@@ -828,7 +828,7 @@ function SeasonStandingsBody({ navigation, route, seasonId, leagueId }: Props & 
             <CollapsibleSection
               compact
               title="Pot"
-              summary={`${picklesLabel(pool)} · paid to the top finishers`}
+              summary={`${picklesLabel(pool)}, paid to the top finishers`}
               onToggle={(next) => onSectionToggle('pot', next)}
             >
               <PicklePotCard
@@ -853,11 +853,11 @@ function SeasonStandingsBody({ navigation, route, seasonId, leagueId }: Props & 
           <CollapsibleSection
             compact
             title="How scoring works"
-            summary={`Baseline ${baseline.toFixed(2)} PLUPR · ${totalPeriods} rounds · top 5 keep a bonus`}
+            summary={`Baseline ${baseline.toFixed(2)} PLUPR, ${totalPeriods} rounds, top 5 keep a bonus`}
             onToggle={(next) => onSectionToggle('scoring', next)}
           >
             <Text style={t.sub}>
-              {fmtDate(season.start_date)} → {fmtDate(season.end_date)} · {season.total_weeks} weeks · locks every{' '}
+              {fmtDate(season.start_date)} → {fmtDate(season.end_date)}, {season.total_weeks} weeks, locks every{' '}
               {season.lock_frequency_weeks === 1 ? 'week' : `${season.lock_frequency_weeks} weeks`}.
             </Text>
             <Text style={t.sub}>
@@ -924,7 +924,7 @@ function SeasonStandingsBody({ navigation, route, seasonId, leagueId }: Props & 
             rowContext
               ? rowContext.periodNumber === null
                 ? `Final rank #${rowContext.rank}`
-                : `Round ${rowContext.periodNumber} · rank #${rowContext.rank}`
+                : `Round ${rowContext.periodNumber}, rank #${rowContext.rank}`
               : undefined
           }
           actions={rowContext ? [
@@ -967,7 +967,7 @@ function SeasonStandingsBody({ navigation, route, seasonId, leagueId }: Props & 
         style={navReserve > 0 ? { paddingBottom: SPACE.sm } : undefined}
         visible={!!mine && myRowOffscreen}
         active={isFocused}
-        summary={mine ? `You're #${mine.rank} · ${mine.plupr} PLUPR` : undefined}
+        summary={mine ? `You're #${mine.rank}, ${mine.plupr} PLUPR` : undefined}
         primary={{ title: 'Jump to me', onPress: jumpToMe }}
       />
 

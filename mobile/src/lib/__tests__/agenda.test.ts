@@ -172,7 +172,7 @@ describe('drillAgendaItems', () => {
     requestId: 'r1', court: 'Lake Merritt', myRsvp: null, partnerRsvp: null, ...over,
   });
 
-  it('accepted with no court: "Drill with Sam" · pick a court, needs me, opens the request', () => {
+  it('accepted with no court: "Drill with Sam", pick a court, needs me, opens the request', () => {
     const [d] = drillAgendaItems([stage({ court: null })], NOW);
     expect(d).toMatchObject({ title: 'Drill with Sam', status: 'pick a court', needsYou: true, deadline: at(2, 18) });
     expect(d.target).toEqual({ screen: 'DrillRequests', params: { focusId: 'r1' } });
@@ -444,14 +444,14 @@ describe('league spotlight', () => {
   });
 
   it('header line: league, then the season name (no week count)', () => {
-    expect(spotlightHeaderLine('Dinks', 'Fall')).toBe('Dinks · Fall');
+    expect(spotlightHeaderLine('Dinks', 'Fall')).toBe('Dinks, Fall');
     expect(spotlightHeaderLine('Dinks', '  ')).toBe('Dinks');
     expect(spotlightHeaderLine('Dinks', null)).toBe('Dinks');
     expect(spotlightHeaderLine('Dinks', undefined)).toBe('Dinks');
   });
 
   it('next line: the next event, then the open votes', () => {
-    expect(spotlightNextLine({ openVotes: 1, nextEventAt: at(2, 18) }, NOW)).toBe('Next: Thu 6 PM · 1 vote open');
+    expect(spotlightNextLine({ openVotes: 1, nextEventAt: at(2, 18) }, NOW)).toBe('Next: Thu 6 PM, 1 vote open');
     expect(spotlightNextLine({ openVotes: 0, nextEventAt: at(0, 18) }, NOW)).toBe('Next: today 6 PM');
     expect(spotlightNextLine({ openVotes: 2, nextEventAt: null }, NOW)).toBe('2 votes open');
     // Started already (it lives in NOW), and nothing at all.

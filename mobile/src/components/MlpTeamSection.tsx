@@ -601,12 +601,11 @@ export default function MlpTeamSection({
                 accessibilityLabel={`${males} men, ${females} women${wildcards > 0 ? `, ${wildcards} wildcard${wildcards === 1 ? '' : 's'}` : ''}, ${total} total`}
               >
                 <Icon name="male" size={12} color={c.info} />
-                <Text style={S.preFlightBody}>{males} ·</Text>
+                <Text style={S.preFlightBody}>{males},</Text>
                 <Icon name="female" size={12} color={c.rarityRare} />
-                <Text style={S.preFlightBody}>{females}</Text>
+                <Text style={S.preFlightBody}>{females}{wildcards > 0 ? ',' : ''}</Text>
                 {wildcards > 0 ? (
                   <>
-                    <Text style={S.preFlightBody}>·</Text>
                     <Icon name="gender-any" size={12} color={c.primary} />
                     <Text style={S.preFlightBody}>{wildcards} wildcard{wildcards === 1 ? '' : 's'}</Text>
                   </>
@@ -903,7 +902,7 @@ export default function MlpTeamSection({
                 >
                   <Text style={S.unteamedSlots}>Your team:</Text>
                   <Icon name="male" size={12} color={c.info} />
-                  <Text style={S.unteamedSlots}>{maleOpenings} open ·</Text>
+                  <Text style={S.unteamedSlots}>{maleOpenings} open,</Text>
                   <Icon name="female" size={12} color={c.rarityRare} />
                   <Text style={S.unteamedSlots}>{femaleOpenings} open</Text>
                 </View>
@@ -1072,7 +1071,7 @@ export default function MlpTeamSection({
               </View>
               <Text style={S.preFlightBody}>
                 {lockedCount} locked
-                {formingCount > 0 ? ` · ${formingCount} still forming` : ''}
+                {formingCount > 0 ? `, ${formingCount} still forming` : ''}
               </Text>
               {!ok && (
                 <Text style={S.preFlightBody}>

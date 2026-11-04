@@ -83,7 +83,7 @@ export default function ShareLabWeb() {
         const templates = shareTemplatesFor(n, smp.model.kind).filter((t) => !templateQ || t === templateQ);
         return (
           <View key={smp.id} nativeID={`sample-${smp.id}`} style={{ gap: 6 }}>
-            <Text style={{ color: '#fff', fontWeight: '800', fontSize: 14 }}>{smp.id} · {smp.label} · {n} photos · details {detailsQ}</Text>
+            <Text style={{ color: '#fff', fontWeight: '800', fontSize: 14 }}>{smp.id}, {smp.label}, {n} photos, details {detailsQ}</Text>
             <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 10, alignItems: 'flex-start' }}>
               {templates.flatMap((t: ShareTemplateId) =>
                 looks.flatMap((look) =>
@@ -93,7 +93,7 @@ export default function ShareLabWeb() {
                     const s = { template: t, aspect, look, banner, logo, details, photos, width: W, height };
                     return (
                       <View key={`${t}-${look}-${aspect}`} style={{ gap: 3 }}>
-                        <Text style={{ color: '#fff', fontSize: 10 }}>{SHARE_TEMPLATE_LABEL[t]} · {look} · {aspect}</Text>
+                        <Text style={{ color: '#fff', fontSize: 10 }}>{SHARE_TEMPLATE_LABEL[t]}, {look}, {aspect}</Text>
                         <View style={{ width: W, height, overflow: 'hidden' }}>
                           <ShareCardArt s={s} model={smp.model} />
                         </View>

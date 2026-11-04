@@ -250,7 +250,7 @@ export default function PaddlePickerModal({ visible, onSelect, onClose, initial 
                 <Text style={[t.hint, styles.message, styles.center]}>Not listed? Type its name in the box above.</Text>
               ) : null}
               renderItem={({ item }) => {
-                const meta = [item.thickness_mm != null ? `${Number(item.thickness_mm)} mm` : null, item.notes].filter(Boolean).join(' · ');
+                const meta = [item.thickness_mm != null ? `${Number(item.thickness_mm)} mm` : null, item.notes].filter(Boolean).join(', ');
                 const current = isCurrentModel(item.name);
                 return (
                   <TouchableOpacity
@@ -275,8 +275,8 @@ export default function PaddlePickerModal({ visible, onSelect, onClose, initial 
       {/* ── THICKNESS (typed models, or models with no listed thickness) ── */}
       {step === 'thickness' && (
         <View>
-          <Text style={[t.hint, styles.center, styles.preview]}>{brand?.name} · {modelName}</Text>
-          <Text style={[t.caption, styles.hintLine]}>Thicker = more control · Thinner = more power</Text>
+          <Text style={[t.hint, styles.center, styles.preview]}>{brand?.name}, {modelName}</Text>
+          <Text style={[t.caption, styles.hintLine]}>Thicker = more control, thinner = more power</Text>
           {THICKNESS_OPTIONS.map(v => {
             const active = currentMm != null && Number(currentMm) === v;
             return (

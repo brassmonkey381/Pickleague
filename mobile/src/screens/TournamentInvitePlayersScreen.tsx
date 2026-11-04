@@ -349,7 +349,7 @@ export default function TournamentInvitePlayersScreen({ navigation, route }: Pro
                 <View style={{ flex: 1 }}>
                   <Text style={S.name} numberOfLines={1}>{item.full_name}</Text>
                   <Text style={S.sub} numberOfLines={1}>
-                    @{item.username} · {formatPlupr(item.rating, item.total_matches_played)} PLUPR · {ratingDeltaTxt}
+                    @{item.username}, {formatPlupr(item.rating, item.total_matches_played)} PLUPR, {ratingDeltaTxt}
                   </Text>
                   {item.playsAt ? <Text style={S.playsAt} numberOfLines={1}>{item.playsAt}</Text> : null}
                 </View>

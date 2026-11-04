@@ -63,7 +63,7 @@ export function crowdLineText(
   if (band) parts.push(`mostly ${band}`);
   const f = opts.showFriends === false ? 0 : Math.max(0, Math.floor(c.friends_here ?? 0));
   if (f > 0) parts.push(plural(f, 'friend'));
-  return parts.join(' · ');
+  return parts.join(', ');
 }
 
 // ── Roster rows (court_presence) ──────────────────────────────────────────────
@@ -89,7 +89,7 @@ export function ratingBand(r: number | null | undefined): { low: number; high: n
  *  rating), or "Player" when no rating came with it. */
 export function anonymousPlayerLabel(rating: number | null | undefined): string {
   const b = ratingBand(rating);
-  return b ? `Player · ${bandLabel(b.low, b.high)}` : 'Player';
+  return b ? `Player, ${bandLabel(b.low, b.high)}` : 'Player';
 }
 
 /** A named row's label. A close friend is no longer marked in the text: the
