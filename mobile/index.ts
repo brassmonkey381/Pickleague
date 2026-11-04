@@ -8,13 +8,17 @@ import { StartupErrorScreen, installFatalErrorHandler } from './src/lib/StartupE
 // stamps this flag so the redirect never loops). Runs before the app graph
 // loads. `document` discriminates web from native (RN has a `window` global
 // but no DOM).
-// Dev web only: /?sharelab draws the share card QA grid (src/dev/ShareLabWeb).
+// Dev web only: /?sharelab draws the share card QA grid (src/dev/ShareLabWeb),
+// /?lookslab the shared parts in the current look (src/dev/LooksLabWeb).
 const shareLab =
   __DEV__ && typeof document !== 'undefined' && new URLSearchParams(window.location.search).has('sharelab');
+const looksLab =
+  __DEV__ && typeof document !== 'undefined' && new URLSearchParams(window.location.search).has('lookslab');
 
 if (
   typeof document !== 'undefined' &&
   !shareLab &&
+  !looksLab &&
   window.location.pathname === '/' &&
   !window.localStorage.getItem('pickleague_landing_seen')
 ) {
@@ -34,7 +38,10 @@ try {
   Root = shareLab
     ? // eslint-disable-next-line @typescript-eslint/no-var-requires
       require('./src/dev/ShareLabWeb').default
-    : require('./App').default;
+    : looksLab
+      ? // eslint-disable-next-line @typescript-eslint/no-var-requires
+        require('./src/dev/LooksLabWeb').default
+      : require('./App').default;
 } catch (error) {
   Root = () =>
     React.createElement(StartupErrorScreen, { error, phase: 'while loading the app bundle' });

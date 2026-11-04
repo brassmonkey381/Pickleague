@@ -3,7 +3,7 @@
 // redesign was chosen in; status colours (danger, success, rarity, medals) stay
 // the app's own across every look. Kept out of lib/theme so the vitest suites
 // that import LIGHT/DARK never load images or fonts.
-import type { Skin, Theme } from '@just-messin-around/expo-foundation/theme';
+import type { Skin, Theme, ThemeParts } from '@just-messin-around/expo-foundation/theme';
 import { LIGHT, DARK } from './theme';
 import { FONT } from './fonts';
 
@@ -13,6 +13,22 @@ type Tokens = {
   primary: string; primaryDark: string; primaryInk: string;
   band: string; bandInk: string; line: string; tint: string; edge: string;
   highlight: string; onHighlight: string;
+  /** Text on the primary button when it differs from primaryInk. */
+  buttonInk?: string;
+};
+
+// The shared parts as picked in round 2, the same in every look; each look's
+// colours, corners and fonts make them its own.
+const PARTS: ThemeParts = {
+  card: 'raised',
+  button: 'sticker',
+  chip: 'tag',
+  segments: 'track',
+  sheet: 'band',
+  sectionHeader: 'marker',
+  toast: 'sticker',
+  empty: 'ball',
+  titleFont: 'body',
 };
 
 type Look = {
@@ -40,6 +56,7 @@ function palette(base: Theme, t: Tokens, look: Look): Theme {
     textMuted: t.muted,
     border: t.line,
     textInverse: t.primaryInk,
+    primaryInk: t.buttonInk ?? t.primaryInk,
     headerBg: t.band,
     headerText: t.bandInk,
     headerSub: hexAlpha(t.bandInk, 0.72),
@@ -53,6 +70,7 @@ function palette(base: Theme, t: Tokens, look: Look): Theme {
     radiusChip: look.radii.chip,
     radiusSheet: look.radii.sheet,
     texture: look.texture,
+    parts: PARTS,
   };
 }
 
@@ -60,18 +78,18 @@ function skin(id: string, label: string, look: Look, light: Tokens, dark: Tokens
   return { id, label, light: palette(LIGHT, light, look), dark: palette(DARK, dark, look) };
 }
 
-// Text on a filled primary in the light looks stays white: the picker's yellow
-// ink belongs to the one sticker button (highlight), and white keeps filled
-// success/danger buttons readable too.
+// Text on filled success/danger controls in the light looks stays white
+// (primaryInk); the primary button's own ink (buttonInk) is the look's yellow
+// where the picker had it.
 export const SKINS: Skin[] = [
   skin('rally', 'Rally', {
     display: FONT.lilita, number: FONT.lilita,
-    radii: { card: 18, button: 14, chip: 999, sheet: 24 },
+    radii: { card: 18, button: 14, chip: 8, sheet: 24 },
     texture: require('../../assets/textures/rally-holes.png'),
   }, {
     bg: '#fffdf5', surface: '#ffffff', surfaceAlt: '#fffefa',
     ink: '#0f3d2a', sub: '#4a6458', muted: '#60766b',
-    primary: '#0f3d2a', primaryDark: '#0b2e20', primaryInk: '#ffffff',
+    primary: '#0f3d2a', primaryDark: '#0b2e20', primaryInk: '#ffffff', buttonInk: '#e8f03c',
     band: '#e8f03c', bandInk: '#0f3d2a', line: '#d9dfc4', tint: '#f1f6c4', edge: '#0f3d2a',
     highlight: '#e8f03c', onHighlight: '#0f3d2a',
   }, {
@@ -83,7 +101,7 @@ export const SKINS: Skin[] = [
   }),
   skin('court', 'Court', {
     display: FONT.barlowCondensed, number: FONT.barlowCondensed,
-    radii: { card: 10, button: 8, chip: 8, sheet: 14 },
+    radii: { card: 10, button: 8, chip: 6, sheet: 14 },
     texture: require('../../assets/textures/court-lines.png'),
   }, {
     bg: '#eef1ea', surface: '#ffffff', surfaceAlt: '#f7f8f5',
@@ -122,7 +140,7 @@ export const SKINS: Skin[] = [
   }, {
     bg: '#eef2ec', surface: '#ffffff', surfaceAlt: '#f7f9f6',
     ink: '#0b1a0d', sub: '#4c5e50', muted: '#5f7063',
-    primary: '#133a22', primaryDark: '#0e2c1a', primaryInk: '#ffffff',
+    primary: '#133a22', primaryDark: '#0e2c1a', primaryInk: '#ffffff', buttonInk: '#d8e84a',
     band: '#0b1a0d', bandInk: '#e9f2e9', line: '#d5ded4', tint: '#e1eada', edge: '#0b1a0d',
     highlight: '#d8e84a', onHighlight: '#0b1a0d',
   }, {
