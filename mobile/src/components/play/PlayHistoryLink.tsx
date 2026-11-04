@@ -13,12 +13,15 @@ import type { RootStackParamList } from '../../types';
 /** The strip row's height: the same as Profile's other strip rows. */
 const ROW_HEIGHT = 48;
 
-export default function PlayHistoryLink({ style }: { style?: StyleProp<ViewStyle> }) {
+/** grouped: the last row of a grouped card (ListCard variant 'row') instead of its own card. */
+export default function PlayHistoryLink({ style, grouped = false }: { style?: StyleProp<ViewStyle>; grouped?: boolean }) {
   const { colors: c } = useTheme();
   const navigation = useNavigation<NativeStackNavigationProp<RootStackParamList>>();
   return (
     <ListCard
       density="compact"
+      variant={grouped ? 'row' : undefined}
+      lastRow={grouped}
       minHeight={ROW_HEIGHT}
       style={style}
       leading={<Icon name="clock" size={18} color={c.primary} />}

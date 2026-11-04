@@ -61,6 +61,7 @@ import AppRefreshControl from '../components/AppRefreshControl';
 import { SkeletonList } from '../components/Skeleton';
 import EmptyState from '../components/EmptyState';
 import { useLeagueJoin } from '../lib/useLeagueJoin';
+import { groupedRowEdges, groupedRowStyle } from '../lib/groupedRows';
 import LeagueRow, { LeagueJoinButton } from '../components/LeagueRow';
 import {
   LEAGUE_CHIPS,
@@ -600,7 +601,7 @@ export default function LeaguesScreen({ navigation, route, active = true, routeM
     navigation.navigate('LeagueDetail', { leagueId: l.id, leagueName: l.name });
   };
 
-  function renderRow(l: PlayLeagueRow, section: 'mine' | 'discover') {
+  function renderRow(l: PlayLeagueRow, section: 'mine' | 'discover', edges: { first: boolean; last: boolean }) {
     const isMember = l.myRole != null;
     let action: React.ReactNode;
     // A pending request sits in MINE: its button reads "Requested · Withdraw".
@@ -631,6 +632,10 @@ export default function LeaguesScreen({ navigation, route, active = true, routeM
     return (
       <LeagueRow
         league={l}
+        // Each section's leagues in one card, a divider between rows.
+        layout="row"
+        lastRow={edges.last}
+        style={groupedRowStyle(c, edges)}
         role={l.myRole}
         // The button says "Requested" itself (MINE and DISCOVER alike), so no
         // chip; a dev fixture row in MINE has no button and keeps the chip.
@@ -643,7 +648,7 @@ export default function LeaguesScreen({ navigation, route, active = true, routeM
     );
   }
 
-  const renderItem = ({ item }: ListRenderItemInfo<Item>) => {
+  const renderItem = ({ item, index }: ListRenderItemInfo<Item>) => {
     switch (item.kind) {
       case 'mineHeader': {
         const capped = !searching && split.mine.length > MINE_PREVIEW;
@@ -687,7 +692,7 @@ export default function LeaguesScreen({ navigation, route, active = true, routeM
           />
         );
       case 'row':
-        return renderRow(item.league, item.section);
+        return renderRow(item.league, item.section, groupedRowEdges(items, index));
     }
   };
 

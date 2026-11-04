@@ -26,8 +26,7 @@ import {
 } from '@just-messin-around/expo-foundation/supabase';
 import {
   Badge, ErrorState, FilterChipRow, FilterSearchField, ListCard, Panel, SectionHeader, StatusBanner,
-  type FilterChipOption,
-} from '@just-messin-around/expo-foundation/ui';
+  type FilterChipOption, listGroupItemStyle } from '@just-messin-around/expo-foundation/ui';
 import { Icon } from '@just-messin-around/expo-foundation/icons';
 import { Button } from '@just-messin-around/expo-foundation/forms';
 import { SPACE, RADIUS, HAIRLINE, SMALL_TEXT_MAX_SCALE } from '@just-messin-around/expo-foundation/styles';
@@ -528,7 +527,7 @@ export default function LeagueMembersScreen({ navigation, route }: Props) {
           )}
         </>
       }
-      renderItem={({ item }) => {
+      renderItem={({ item, index }) => {
         const role = item.role as LeagueRole;
         // Only the roles worth flagging: "Member" on every row is noise.
         const chip = role === 'admin' || role === 'co-admin' ? leagueRoleChip(role) : null;
@@ -537,10 +536,16 @@ export default function LeagueMembersScreen({ navigation, route }: Props) {
         const name = item.profile?.full_name || 'Player';
         const isMe = item.user_id === myUserId;
         return (
+          // One card for the whole list, a divider between rows (the
+          // redesign's grouped rows); my own row keeps its tint.
           <ListCard
-            density="compact"
-            style={(wagered > 0 || manageable) ? S.actionRow : undefined}
-            highlighted={isMe}
+            variant="row"
+            lastRow={index === visibleMembers.length - 1}
+            style={[
+              listGroupItemStyle(colors, index, visibleMembers.length),
+              isMe ? { backgroundColor: colors.primaryLight } : null,
+              (wagered > 0 || manageable) ? S.actionRow : null,
+            ]}
             onPress={() => navigation.navigate('PlayerProfile', { userId: item.user_id, userName: name })}
             leading={
               <View style={S.avatar}>

@@ -50,6 +50,7 @@ import AppRefreshControl from '../components/AppRefreshControl';
 import { SkeletonList } from '../components/Skeleton';
 import EmptyState from '../components/EmptyState';
 import ConfirmModal from '../components/ConfirmModal';
+import { groupedRowEdges, groupedRowStyle } from '../lib/groupedRows';
 import TournamentRow from '../components/TournamentRow';
 import {
   MINE_PREVIEW,
@@ -451,7 +452,7 @@ export default function TournamentsScreen({ navigation, route, active = true, ro
 
   const firstDiscoverSection: Section | null = split.open.length > 0 ? 'open' : split.inProgress.length > 0 ? 'inProgress' : null;
 
-  function renderRow(item: Tournament, section: Section) {
+  function renderRow(item: Tournament, section: Section, edges: { first: boolean; last: boolean }) {
     const reg = myRegs[item.id];
     const invited = isInvite(reg);
     const full = isFull(item);
@@ -482,6 +483,10 @@ export default function TournamentsScreen({ navigation, route, active = true, ro
     return (
       <TournamentRow
         tournament={item}
+        // Each section's tournaments in one card, a divider between rows.
+        layout="row"
+        lastRow={edges.last}
+        style={groupedRowStyle(c, edges)}
         leagueName={leagueId ? null : (item.league_id ? leagueNames[item.league_id] : null)}
         facts={[entryFact, fmt, type]}
         myStatus={reg?.status ?? null}
@@ -494,13 +499,13 @@ export default function TournamentsScreen({ navigation, route, active = true, ro
     );
   }
 
-  const renderItem = ({ item }: ListRenderItemInfo<TItem>) => {
+  const renderItem = ({ item, index }: ListRenderItemInfo<TItem>) => {
     if (item.kind === 'discoverEmpty') {
       return (
         <EmptyState compact iconName="search" title="No tournaments match your filters." actionLabel="Clear filters" onAction={clearAll} />
       );
     }
-    if (item.kind === 'row') return renderRow(item.t, item.section);
+    if (item.kind === 'row') return renderRow(item.t, item.section, groupedRowEdges(items, index));
 
     const { section } = item;
     const isFirst = itemKey(items[0]) === itemKey(item);

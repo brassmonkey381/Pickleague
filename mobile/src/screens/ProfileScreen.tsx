@@ -935,16 +935,18 @@ export default function ProfileScreen({ navigation }: Props) {
         />
       </View>
 
-      {/* ── 3. Status strip: next unlock (tour 'profile/rewards') ─── */}
+      {/* ── 3. Status strips: one card, a divider between rows (the redesign's
+          grouped rows). Play history is always last, so it closes the card. */}
+      <Panel padded={false} style={[styles.block, styles.clip]}>
+      {/* Next unlock (tour 'profile/rewards') */}
       <View
         ref={rewardsAnchor}
         collapsable={false}
         onLayout={anchorOnLayout('rewards', rewardsAnchor)}
       >
         <ListCard
-          density="compact"
+          variant="row"
           minHeight={STRIP_HEIGHT}
-          style={styles.block}
           leading={<Icon name="lock-open" size={18} color={colors.primary} />}
           title={unlock?.kind === 'next' ? (
             <ProgressBar
@@ -970,9 +972,8 @@ export default function ProfileScreen({ navigation }: Props) {
           belongs with (was the Badges grid in Reference; the page has the
           medals, progress, and the hide-from-profile toggles). */}
       <ListCard
-        density="compact"
+        variant="row"
         minHeight={STRIP_HEIGHT}
-        style={styles.block}
         leading={<Icon name="medal" size={18} color={colors.primary} />}
         // The count sits in the title: a ListCard `trailing` replaces the chevron
         // the strips above and below keep.
@@ -989,13 +990,12 @@ export default function ProfileScreen({ navigation }: Props) {
       />
 
       {/* Friends (renders nothing while FRIENDS_AT_COURTS_ENABLED is off). */}
-      <FriendsLink style={styles.block} />
+      <FriendsLink grouped />
 
       {/* My Place (docs/my-place.md): my decoratable room. */}
       <ListCard
-        density="compact"
+        variant="row"
         minHeight={STRIP_HEIGHT}
-        style={styles.block}
         leading={<Icon name="home" size={18} color={colors.primary} />}
         title={<Text style={styles.stripLabel} numberOfLines={1}>My Place</Text>}
         chevron
@@ -1008,9 +1008,8 @@ export default function ProfileScreen({ navigation }: Props) {
           strip row as Friends and the next unlock. */}
       {ROUTINES_ENABLED ? (
         <ListCard
-          density="compact"
+          variant="row"
           minHeight={STRIP_HEIGHT}
-          style={styles.block}
           leading={<Icon name="calendar-event" size={18} color={colors.primary} />}
           title={<Text style={styles.stripLabel} numberOfLines={1}>My routine</Text>}
           chevron
@@ -1019,7 +1018,8 @@ export default function ProfileScreen({ navigation }: Props) {
           accessibilityLabel="My routine"
         />
       ) : null}
-      <PlayHistoryLink style={styles.block} />
+      <PlayHistoryLink grouped />
+      </Panel>
 
       {/* ── 4. Coming up ────────────────────────────────────────── */}
       {comingCount > 0 && (
@@ -1369,6 +1369,7 @@ function makeStyles(c: Colors) {
     // A glyph beside a short text (gift line, Equipped, Saved).
     inlineRow: { flexDirection: 'row', alignItems: 'center', gap: SPACE.xs },
     block:     { marginBottom: SPACE.md },
+    clip:      { overflow: 'hidden' },
 
     // 1. Identity: avatar 64 beside name / @username / tagline.
     identity:        { flexDirection: 'row', alignItems: 'center', gap: SPACE.md },

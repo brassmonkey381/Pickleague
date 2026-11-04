@@ -28,6 +28,8 @@ type Props = {
   /** Default "Friends". */
   label?: string;
   style?: StyleProp<ViewStyle>;
+  /** 'row' only: a row inside a grouped card (ListCard variant 'row') instead of its own card. */
+  grouped?: boolean;
   /** Analytics or other side effects; the navigation happens either way. */
   onPress?: () => void;
 };
@@ -35,7 +37,7 @@ type Props = {
 /** The strip row's height: the same one-line strip as Profile's next unlock. */
 const ROW_HEIGHT = 48;
 
-export function FriendsLink({ variant = 'row', label = 'Friends', style, onPress }: Props) {
+export function FriendsLink({ variant = 'row', label = 'Friends', style, grouped = false, onPress }: Props) {
   const { colors: c } = useTheme();
   const navigation = useNavigation<NativeStackNavigationProp<RootStackParamList>>();
   // Shares the Friends screen's cached list, so this is a cache read on every
@@ -67,6 +69,7 @@ export function FriendsLink({ variant = 'row', label = 'Friends', style, onPress
   return (
     <ListCard
       density="compact"
+      variant={grouped ? 'row' : undefined}
       minHeight={ROW_HEIGHT}
       style={style}
       leading={<Icon name="handshake" size={18} color={c.primary} />}

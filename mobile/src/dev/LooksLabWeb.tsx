@@ -16,6 +16,7 @@ import {
   EmptyState,
   FilterPill,
   HeadlineStat,
+  ListCard,
   ListGroup,
   Panel,
   SectionHeader,
@@ -31,6 +32,7 @@ import { DayBands, dayBandDate, dayBandTile } from '@just-messin-around/expo-fou
 import HomeGreeting from '../components/home/HomeGreeting';
 import QuickRow from '../components/home/QuickRow';
 import HomeStatCard from '../components/home/HomeStatCard';
+import { groupedRowStyle } from '../lib/groupedRows';
 import type { Profile } from '../types';
 
 const PEOPLE = [
@@ -85,6 +87,21 @@ function Lab() {
         onCourtPass={() => {}}
       />
       <QuickRow showRecord onPress={() => {}} />
+      <SectionHeader title="Mine" count={3} />
+      <View>
+        {PEOPLE.map(([n, l, r], i) => (
+          <ListCard
+            key={n}
+            variant="row"
+            lastRow={i === PEOPLE.length - 1}
+            style={groupedRowStyle(c, { first: i === 0, last: i === PEOPLE.length - 1 })}
+            title={l}
+            subtitle={`${n}, ${r}`}
+            chevron
+            onPress={() => {}}
+          />
+        ))}
+      </View>
       <Panel>
         <DayBands
           bands={(['today', 'tomorrow', 'later'] as const).map((k) => ({
