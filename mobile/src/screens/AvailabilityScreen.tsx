@@ -8,7 +8,7 @@
 //   Paint  [ Play | Drill | Either ]
 //   ■ Play  ■ Drill  ■ Either                         Saved
 //   presets ... [Edit]
-//   the grid
+//   the grid, with this week's drill sessions and matches painted over it
 //   "Drill times show to partners while Open to drilling is on (Drills)."
 import React, { useEffect, useRef, useState } from 'react';
 import { ScrollView, StyleSheet, Text, View } from 'react-native';
@@ -22,6 +22,7 @@ import { supabase } from '../lib/supabase';
 import { useTheme } from '../lib/ThemeContext';
 import { PRESETS } from '../components/AvailabilityGrid';
 import { KIND, PAINT_KINDS, fromKinds, kindsSummary, toKinds } from '../lib/availabilityKinds';
+import { loadCommitments, type Commitments } from '../data/availabilityCommitments';
 import type { RootStackParamList } from '../types';
 
 type Props = NativeStackScreenProps<RootStackParamList, 'Availability'>;
@@ -37,6 +38,8 @@ export default function AvailabilityScreen({ navigation }: Props) {
   const [locked, setLocked] = useState(false);
   const [loadError, setLoadError] = useState<unknown>(null);
   const [save, setSave] = useState<Save>('idle');
+  // What's already booked this week, over the grid (best effort).
+  const [booked, setBooked] = useState<Commitments | null>(null);
   const userId = useRef<string | null>(null);
   const saveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   // Edits save in order: a newer save never lands under an older one.
@@ -59,6 +62,7 @@ export default function AvailabilityScreen({ navigation }: Props) {
       );
       setKinds(toKinds(data?.availability, data?.drill_availability));
       setDrilling(data?.drilling_enabled !== false);
+      loadCommitments(id).then(setBooked, () => setBooked(null));
     } catch (e) {
       setLoadError(e);
     }
@@ -148,6 +152,11 @@ export default function AvailabilityScreen({ navigation }: Props) {
           presets={PRESETS}
           dragSelect="rectangle"
           showSummary={false}
+          highlightToday
+          overlays={booked ? [
+            { label: 'Drill session', color: c.rarityRare, slots: booked.drills },
+            { label: 'Match or tournament', color: c.danger, slots: booked.matches },
+          ] : undefined}
           hoursLabel={() => kindsSummary(kinds)}
         />
       </Panel>
