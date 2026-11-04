@@ -10,19 +10,18 @@ import { supabase } from '../lib/supabase';
 import { drillCalledOff } from '../lib/agenda';
 import { useTheme } from '../lib/ThemeContext';
 import { DrillSession, RootStackParamList } from '../types';
-import DrillAvailabilityGrid from '../components/DrillAvailabilityGrid';
 import StatusBanner from '../components/StatusBanner';
 import DrillReviewModal from '../components/DrillReviewModal';
 import DrillShareStudio, { type DrillShareTarget } from '../components/share/DrillShareStudio';
 import { useStatusMessage } from '../lib/useStatusMessage';
-import { isoDate, rollingDates, durationLabel, spanToDailyOverlays, toWeeklyTemplate, WEEKLY_CELLS } from '../lib/drillTime';
+import { isoDate, durationLabel } from '../lib/drillTime';
 import { drillWhenRangeLabel } from '../lib/drillWhen';
 import { SHOT_PREFS, PARTNER_PREFS, type DrillPref } from '../data/drillOptions';
 import { useRefresh } from '../lib/useRefresh';
 import AppRefreshControl from '../components/AppRefreshControl';
 import { SkeletonList } from '../components/Skeleton';
 import EmptyState from '../components/EmptyState';
-import { Chip, ErrorState, Panel, SegmentedToggle, ShortcutGrid, ThemedSwitch } from '@just-messin-around/expo-foundation/ui';
+import { Chip, ErrorState, ListCard, Panel, SegmentedToggle, ShortcutGrid, ThemedSwitch } from '@just-messin-around/expo-foundation/ui';
 import { Button } from '@just-messin-around/expo-foundation/forms';
 import { Icon } from '@just-messin-around/expo-foundation/icons';
 import { FONT, textStyles } from '@just-messin-around/expo-foundation/typography';
@@ -40,13 +39,11 @@ export default function DrillScreen({ navigation }: Props) {
 
   const [userId, setUserId]                   = useState<string | null>(null);
   const [enabled, setEnabled]                 = useState(false);
-  const [availability, setAvailability]       = useState<boolean[]>(() => Array(WEEKLY_CELLS).fill(false));
   const [shotPrefs, setShotPrefs]             = useState<string[]>([]);
   const [partnerPrefs, setPartnerPrefs]       = useState<string[]>([]);
   const [customTags, setCustomTags]           = useState<string[]>([]);
   const [customDraft, setCustomDraft]         = useState('');
   const [pendingCount, setPendingCount]       = useState(0);
-  const [scrollLocked, setScrollLocked]       = useState(false);
   const [loading, setLoading]                 = useState(true);
   // A failed read must not render as "drilling off, no sessions".
   const [loadError, setLoadError]             = useState<string | null>(null);
@@ -56,7 +53,6 @@ export default function DrillScreen({ navigation }: Props) {
 
   const [sessions, setSessions]               = useState<SessionWithPartner[]>([]);
   const [sessionFilter, setSessionFilter]     = useState<'upcoming' | 'past'>('upcoming');
-  const [scheduledMatches, setScheduledMatches] = useState<{ date: string; slot: number; length_minutes: number }[]>([]);
   const [reviewTarget, setReviewTarget]       = useState<SessionWithPartner | null>(null);
   // Share your drill, from the review's thanks (PKL-013).
   const [drillShare, setDrillShare]           = useState<DrillShareTarget | null>(null);
@@ -88,10 +84,10 @@ export default function DrillScreen({ navigation }: Props) {
     if (!uid) return;
     setUserId(uid);
 
-    const [profileRes, requestsRes, sessionsRes, matchesRes, tournamentsRes] = await Promise.all([
+    const [profileRes, requestsRes, sessionsRes] = await Promise.all([
       supabase
         .from('profiles')
-        .select('drilling_enabled, drill_availability, drill_shot_prefs, drill_partner_prefs, drill_custom_tags')
+        .select('drilling_enabled, drill_shot_prefs, drill_partner_prefs, drill_custom_tags')
         .eq('id', uid)
         .single(),
       supabase
@@ -111,30 +107,16 @@ export default function DrillScreen({ navigation }: Props) {
         .or(`player1_id.eq.${uid},player2_id.eq.${uid}`)
         .order('session_date')
         .order('session_slot'),
-      // Scheduled matches I'm part of (any of the 4 player slots), still upcoming.
-      supabase
-        .from('matches')
-        .select('scheduled_at, player1_id, partner1_id, player2_id, partner2_id, status')
-        .eq('status', 'scheduled')
-        .gte('scheduled_at', new Date().toISOString())
-        .or(`player1_id.eq.${uid},partner1_id.eq.${uid},player2_id.eq.${uid},partner2_id.eq.${uid}`),
-      // Tournaments I'm approved into that have a known start time + expected length.
-      supabase
-        .from('tournament_registrations')
-        .select('tournament:tournaments(start_time, expected_length_hours, status)')
-        .eq('user_id', uid)
-        .eq('status', 'approved'),
     ]);
 
     // Fail loud instead of rendering a failed read as "nothing configured".
-    const firstError = [profileRes, requestsRes, sessionsRes, matchesRes, tournamentsRes]
+    const firstError = [profileRes, requestsRes, sessionsRes]
       .map(r => (r as { error?: unknown }).error)
       .find(Boolean);
     if (firstError) throw firstError;
 
     if (profileRes.data) {
       setEnabled(profileRes.data.drilling_enabled ?? false);
-      setAvailability(toWeeklyTemplate(profileRes.data.drill_availability ?? []));
       setShotPrefs(profileRes.data.drill_shot_prefs ?? []);
       setPartnerPrefs(profileRes.data.drill_partner_prefs ?? []);
       setCustomTags(profileRes.data.drill_custom_tags ?? []);
@@ -151,29 +133,6 @@ export default function DrillScreen({ navigation }: Props) {
       reviewed: (r.drill_session_reviews ?? []).some((rv: any) => rv.user_id === uid),
       calledOff: drillCalledOff(r.drill_session_rsvps),
     })));
-
-    // Build the red overlay list:
-    //  - Scheduled matches: 60-min default since `matches` has no length yet.
-    //  - Tournaments I'm approved into: full expected window, split per-day
-    //    so weekend-long events paint each day's cells correctly.
-    const matchRows = ((matchesRes as any).data ?? []) as { scheduled_at: string | null }[];
-    const matchOverlays = matchRows
-      .filter(m => m.scheduled_at != null)
-      .map(m => {
-        const d = new Date(m.scheduled_at as string);
-        const slot = d.getHours() * 2 + (d.getMinutes() >= 30 ? 1 : 0);
-        return { date: isoDate(d), slot, length_minutes: 60 };
-      });
-
-    const tRows = ((tournamentsRes as any).data ?? []) as { tournament: { start_time: string | null; expected_length_hours: number | null; status: string } | null }[];
-    const tournamentOverlays = tRows.flatMap(r => {
-      const t = r.tournament;
-      if (!t || !t.start_time || t.expected_length_hours == null) return [];
-      if (t.status === 'completed' || t.status === 'cancelled') return [];
-      return spanToDailyOverlays(new Date(t.start_time), Number(t.expected_length_hours));
-    });
-
-    setScheduledMatches([...matchOverlays, ...tournamentOverlays]);
   }
 
   async function persist(updates: Record<string, any>) {
@@ -197,11 +156,6 @@ export default function DrillScreen({ navigation }: Props) {
   function toggleEnabled(val: boolean) {
     setEnabled(val);
     persist({ drilling_enabled: val });
-  }
-
-  function onAvailabilityChange(av: boolean[]) {
-    setAvailability(av);
-    persist({ drill_availability: av });
   }
 
   function toggleShotPref(slug: string) {
@@ -257,14 +211,6 @@ export default function DrillScreen({ navigation }: Props) {
   const pastSessions     = sessions.filter(s => s.session_date <  today).reverse();
   const visibleSessions  = sessionFilter === 'upcoming' ? upcomingSessions : pastSessions;
 
-  // Paint the grid (warning amber) for upcoming sessions inside the rolling 7-day window.
-  const visibleDates = new Set(rollingDates());
-  const confirmedSlots = upcomingSessions
-    .filter(s => visibleDates.has(s.session_date))
-    .map(s => ({ date: s.session_date, slot: s.session_slot, length_minutes: s.length_minutes }));
-  // Red-paint scheduled matches inside the same window.
-  const matchOverlay = scheduledMatches.filter(m => visibleDates.has(m.date));
-
   // One preference chip: the glyph + label, brand-tinted when picked.
   const prefChip = (p: DrillPref, active: boolean, onToggle: () => void) => (
     <Chip
@@ -283,7 +229,6 @@ export default function DrillScreen({ navigation }: Props) {
     <ScrollView
       style={{ flex: 1, backgroundColor: colors.bg }}
       contentContainerStyle={S.scrollContent}
-      scrollEnabled={!scrollLocked}
       refreshControl={<AppRefreshControl {...refresh} />}
     >
       {/* Hero */}
@@ -422,20 +367,19 @@ export default function DrillScreen({ navigation }: Props) {
             )}
           </Panel>
 
-          {/* Availability grid */}
-          <Panel style={S.card}>
-            <Text style={t.title}>Your Drill Availability</Text>
-            <Text style={[t.hint, S.cardSub]}>Recurring weekly. Drag to paint your usual free slots. Amber = drill, red = match/tournament (next 7 days)</Text>
-            <View style={S.gridWrap}>
-              <DrillAvailabilityGrid
-                availability={availability}
-                onChange={onAvailabilityChange}
-                onScrollLock={setScrollLocked}
-                confirmedSlots={confirmedSlots}
-                scheduledMatchSlots={matchOverlay}
-              />
-            </View>
-          </Panel>
+          {/* Availability: its own page now, one grid of play, drill and
+              either time (the user, 2026-11-04). */}
+          <ListCard
+            density="compact"
+            leading={<Icon name="clock" size={18} color={colors.primary} />}
+            title="Availability"
+            subtitle="When you can drill and play"
+            chevron
+            onPress={() => navigation.navigate('Availability')}
+            accessibilityRole="button"
+            accessibilityLabel="Availability, when you can drill and play"
+            style={S.gutter}
+          />
 
           {/* Shot prefs */}
           <Panel style={S.card}>

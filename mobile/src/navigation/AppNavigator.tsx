@@ -130,6 +130,7 @@ import AdminBoundaryEditorScreen from '../screens/AdminBoundaryEditorScreen';
 import { CourtsRouteScreen } from '../screens/CourtsScreen';
 import CourtDetailScreen from '../screens/CourtDetailScreen';
 import CourtRoutinesScreen from '../screens/CourtRoutinesScreen';
+import AvailabilityScreen from '../screens/AvailabilityScreen';
 
 const Stack = createNativeStackNavigator<RootStackParamList>();
 
@@ -469,6 +470,7 @@ export default function AppNavigator() {
                 <Stack.Screen name="CourtPass" component={CourtPassScreen} options={{ title: 'Court Pass' }} />
                 <Stack.Screen name="PicklesCalendar" component={PicklesCalendarScreen} options={{ title: 'Pickle Calendar' }} />
                 <Stack.Screen name="PlayHistory" component={PlayHistoryScreen} options={{ title: 'Play history' }} />
+                <Stack.Screen name="Availability" component={AvailabilityScreen} options={{ title: 'Availability' }} />
                 <Stack.Screen name="ScoringAlgo" component={ScoringAlgoScreen} options={{ title: 'Scoring Algo' }} />
                 <Stack.Screen name="GiftPickles" component={GiftPicklesScreen} options={{ title: 'Gift Pickles' }} />
                 <Stack.Screen name="Godmode" component={GodmodeScreen} options={{ title: 'Godmode' }} />

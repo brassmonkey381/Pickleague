@@ -138,6 +138,8 @@ begin
         'list_my_friends','list_presence_hidden','remove_friend','resolve_court',
         'respond_friend_request','send_friend_request','set_close_friend','set_court_favorite',
         'set_presence_settings','suggest_friends','venue_crowd','venue_players_here',
+        -- migration_profile_playing_since.sql
+        'set_playing_since',
         -- Presence Phase 1.5 (migration_validity_rules.sql).
         'my_session_validity',
         -- Court outlines editor (migration_admin_venue_boundary.sql): shipped

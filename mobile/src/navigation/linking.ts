@@ -133,6 +133,7 @@ export const linking: LinkingOptions<RootStackParamList> = {
       CourtPass: 'court-pass',
       PicklesCalendar: 'pickles/calendar',
       PlayHistory: 'play/history',
+      Availability: 'availability',
       GiftPickles: 'gift-pickles',
       ScoringAlgo: 'scoring-algo',
       UnlockProgress: 'unlock-progress',

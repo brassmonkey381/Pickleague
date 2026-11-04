@@ -21,7 +21,7 @@ export const TOURS: Record<TourKey, TourStep[]> = {
   ],
   profile: [
     { stepKey: 'edit',    title: 'Set up your profile', body: 'Add an avatar and details here.' },
-    { stepKey: 'rewards', title: 'Unlockable rewards',   body: 'Your next unlock. Tap to see all your achievements.' },
+    { stepKey: 'rewards', title: 'Badges',               body: 'Your badges. Tap to see your next unlock and every achievement.' },
   ],
 };
 

@@ -12,7 +12,8 @@ import { FlatList, Pressable, StyleSheet, Text, View } from 'react-native';
 import { useFocusEffect } from '@react-navigation/native';
 import { NativeStackScreenProps } from '@react-navigation/native-stack';
 import { classifySbError, friendlySbMessage } from '@just-messin-around/expo-foundation/supabase';
-import { Badge, ConfirmModal, EmptyState, ErrorState, ListCard } from '@just-messin-around/expo-foundation/ui';
+import { Badge, ConfirmModal, EmptyState, ErrorState, ListCard, SegmentedToggle, TextLink } from '@just-messin-around/expo-foundation/ui';
+import { CalendarAnalyticsView } from './CalendarAnalyticsScreen';
 import { Button } from '@just-messin-around/expo-foundation/forms';
 import { Icon } from '@just-messin-around/expo-foundation/icons';
 import { SPACE, SMALL_TEXT_MAX_SCALE } from '@just-messin-around/expo-foundation/styles';
@@ -49,7 +50,32 @@ import type { RootStackParamList } from '../types';
 
 type Props = NativeStackScreenProps<RootStackParamList, 'PlayHistory'>;
 
-export default function PlayHistoryScreen(_props: Props) {
+// Play history and the match calendar are one page (the user, 2026-11-04:
+// "play history and calendar could just be play history > list view |
+// calendar view"): a List / Calendar switch over the two.
+export default function PlayHistoryScreen({ route, navigation }: Props) {
+  const { colors: c } = useTheme();
+  const [view, setView] = useState<'list' | 'calendar'>(route.params?.view ?? 'list');
+  return (
+    <View style={[S.screen, { backgroundColor: c.bg }]}>
+      <View style={S.switch}>
+        <SegmentedToggle
+          options={[{ value: 'list', label: 'List' }, { value: 'calendar', label: 'Calendar' }]}
+          value={view}
+          onChange={(v) => setView(v as 'list' | 'calendar')}
+          fullWidth
+        />
+      </View>
+      {view === 'list' ? <PlayHistoryList /> : <CalendarAnalyticsView />}
+      {/* Availability (also on Drills and Settings): when I can play next. */}
+      <View style={S.availLink}>
+        <TextLink label="My availability" onPress={() => navigation.navigate('Availability')} />
+      </View>
+    </View>
+  );
+}
+
+function PlayHistoryList() {
   const { colors: c } = useTheme();
   const t = textStyles(c);
   const toast = useToast();
@@ -327,6 +353,8 @@ export default function PlayHistoryScreen(_props: Props) {
 
 const S = StyleSheet.create({
   screen: { flex: 1 },
+  switch: { paddingHorizontal: SPACE.lg, paddingTop: SPACE.md },
+  availLink: { alignItems: 'center', paddingBottom: SPACE.md },
   pad: { padding: SPACE.lg, gap: SPACE.sm },
   header: { marginBottom: SPACE.sm },
   row: { marginBottom: SPACE.sm },

@@ -430,6 +430,14 @@ export default function SettingsScreen({ navigation, route }: Props) {
           onPress={() => navigation.navigate('Profile', {})}
         />
         <Divider S={S} />
+        {/* One grid of play, drill and either time (also on Drills and Play history). */}
+        <SettingActionRow
+          iconName="clock"
+          label="Availability"
+          desc="When you can play and when you can drill"
+          onPress={() => navigation.navigate('Availability')}
+        />
+        <Divider S={S} />
         {/* Email (read-only) */}
         <View style={S.row}>
           <Text style={[S.rowLabel, S.rowText]}>Email</Text>

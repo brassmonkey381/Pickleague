@@ -12,6 +12,8 @@ export type Profile = {
   avatar_url: string | null;
   avatar_id: number;
   tagline: string | null;
+  /** The month they started playing pickleball ('YYYY-MM-01'; migration_profile_playing_since.sql). */
+  playing_since?: string | null;
   selected_tags: string[];
   badges_public: boolean;
   availability: boolean[];
@@ -645,7 +647,8 @@ export type RootStackParamList = {
   CourtPass: undefined;
   // The pickles viewer's Calendar (Home balance): a month of daily pickle totals.
   PicklesCalendar: undefined;
-  PlayHistory: undefined;
+  // view: open on the List (default) or the Calendar of my matches.
+  PlayHistory: { view?: 'list' | 'calendar' } | undefined;
   QrWallet: undefined;
   QrPass: { passId: string };
   ScoringAlgo: undefined;
@@ -673,6 +676,8 @@ export type RootStackParamList = {
   CourtDetail: { venueId: string };
   // My routine (ROUTINES_ENABLED). newVenue opens the add sheet with that
   // starred court picked ("Make it a routine" on a court).
+  // One weekly grid of play, drill and either time (lib/availabilityKinds).
+  Availability: undefined;
   Routines: { newVenue?: { venueId: string; venueName: string } } | undefined;
 };
 

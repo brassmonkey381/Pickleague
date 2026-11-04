@@ -1,32 +1,41 @@
-// Your own profile (plan section 5, "Profile"): about 600px collapsed, down
-// from 3,500-4,700px. The one section order every detail screen uses:
-//   1. Identity    avatar 64 (opens the Edit sheet; tour 'profile/edit'), name,
-//                  @username, tagline, pickle balance (-> Shop), tag chips (+N)
-//   2. Quick row   [Edit profile] [Match history] [Calendar]
-//   3. Status      "Next unlock: Ninja avatar 3/5 >" (tour 'profile/rewards';
-//                  replaces the ~900px Unlockable Rewards card, whose rows all
-//                  live on Achievements; the row opens it on that badge),
-//                  then "Achievements · 3 of 42 unlocked" (the page)
-//   4. Coming up   my leagues & live tournaments -> their detail screens
-//   5. Reference   collapsed: Availability · Paddle · Inventory ·
-//                  Doubles chemistry. Content mounts only when opened (the
-//                  672px availability grid included).
+// Your own profile, the Me tab (the redesign's option E, the user's pick
+// 2026-11-04: "E, but fewer buttons, combine some pages"):
+//   1. Player card  components/profile/PlayerCard: the look's textured strip
+//                   with "SINCE MAR 2021" (when they started playing; tap to
+//                   set it, PlayingSinceSheet) and Share (my player link),
+//                   the framed avatar (opens the Edit sheet; tour
+//                   'profile/edit'), name, @username and tagline, tag chips
+//                   (+N), then Matches | Badges (tour 'profile/rewards') |
+//                   Pickles (the Shop).
+//   2. Tabs         Play: Matches, Play history (its List | Calendar holds
+//                   the old Calendar), Drills (holds Availability), Routine.
+//                   Collection: next unlock, Achievements, My Place, Paddle,
+//                   Inventory. People: Friends, Invite and earn, Doubles
+//                   chemistry.
+// Coming up is gone (the Pickleague Feed on Home has it), and so is the
+// Availability section (its own page, from Drills). PLUPR stays off the
+// profile: it is kept inside each league.
 // Every edit of who you are (avatar, name, username, tagline, gender, tags,
-// badge privacy) goes through EditProfileSheet's single Save. Both tour anchors
-// sit outside the collapsible sections, so collapsing never unmounts them.
+// badge privacy) goes through EditProfileSheet's single Save. Both tour
+// anchors sit on the card, outside the tabs, so switching tabs never hides
+// them.
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
-  View, Text, TouchableOpacity, StyleSheet, ScrollView,
+  View, Text, TouchableOpacity, StyleSheet, ScrollView, Platform,
 } from 'react-native';
+import { setClipboard } from '@just-messin-around/expo-foundation/platform';
+import { shareInvite } from '../lib/share';
+import PlayerCard from '../components/profile/PlayerCard';
+import PlayingSinceSheet from '../components/profile/PlayingSinceSheet';
+import { sinceLabel } from '../lib/playingSince';
 import { CachedImage } from '@just-messin-around/expo-foundation/ui/CachedImage';
-import { Panel, SectionHeader, CollapsibleSection, Chip, ListCard, TextLink } from '@just-messin-around/expo-foundation/ui';
+import { Panel, CollapsibleSection, ListCard, TextLink, SegmentedToggle, ShortcutGrid } from '@just-messin-around/expo-foundation/ui';
 import { Icon, IconValue, EmojiGlyph } from '@just-messin-around/expo-foundation/icons';
 import InviteEarnSection from '../components/referrals/InviteEarnSection';
 import { Button } from '@just-messin-around/expo-foundation/forms';
 import { ProgressBar } from '@just-messin-around/expo-foundation/gamification';
 import { SPACE, RADIUS, HAIRLINE, SMALL_TEXT_MAX_SCALE } from '@just-messin-around/expo-foundation/styles';
 import { FONT, textStyles } from '@just-messin-around/expo-foundation/typography';
-import { PickleBalance } from '../components/PickleAmount';
 import Svg, { Polyline, Line as SvgLine, Text as SvgText, Circle } from 'react-native-svg';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { useFocusEffect, useIsFocused } from '@react-navigation/native';
@@ -43,13 +52,10 @@ import FlairName from '../components/FlairName';
 import PaddlePickerModal, { PaddleSelection } from '../components/PaddlePickerModal';
 import { PremiumAvatar } from '../components/AvatarPickerModal';
 import EditProfileSheet, { EditProfileSaved, EditProfileValues } from '../components/EditProfileSheet';
-import AvailabilityGrid from '../components/AvailabilityGrid';
-import LeagueRow, { LeagueRowRole } from '../components/LeagueRow';
-import TournamentRow from '../components/TournamentRow';
 import StatusBanner from '../components/StatusBanner';
 import { useStatusMessage } from '../lib/useStatusMessage';
+import { useToast } from '../lib/useToast';
 import { AVATARS, PLAY_TAGS, computeMaxTagSlots } from '../data/profileCustomization';
-import { TOTAL_CELLS } from '../lib/availability';
 // Kept for the hidden PLUPR card (see the note in the render): restoring it is
 // re-adding the block, not re-plumbing these.
 import { computeReliability } from '../lib/reliability';
@@ -60,13 +66,11 @@ import {
 } from '../lib/chemistry';
 import { computeBadgeProgress } from '../lib/unlockProgress';
 import { nextUnlockTeaser, NextUnlockResult } from '../lib/profileSummary';
-import { availabilityShortSummary } from '@just-messin-around/expo-foundation/scheduling/availability';
 import { trackSectionToggle } from '../lib/analytics';
 import { useRefresh } from '../lib/useRefresh';
 import AppRefreshControl from '../components/AppRefreshControl';
 import { SkeletonList } from '../components/Skeleton';
 import FriendsLink from '../components/FriendsLink';
-import PlayHistoryLink from '../components/play/PlayHistoryLink';
 import { ROUTINES_ENABLED } from '../lib/features';
 import { sbCall, currentUserId, friendlySbMessage } from '@just-messin-around/expo-foundation/supabase';
 
@@ -331,34 +335,15 @@ type PurchaseWithItem = {
   item: ShopItem;
 };
 
-/** "Coming up": my active leagues and my live tournament registrations. */
-type ComingLeague = {
-  id: string; name: string; home_court: string | null; is_open: boolean | null; role: LeagueRowRole;
-};
-type ComingTournament = {
-  id: string; name: string; location_name: string | null; status: string | null;
-  start_time: string | null; leagueName: string | null; myStatus: string; invited: boolean;
-};
-
-/** Rows shown before "Show N more" (content rule 4: nothing is cut silently). */
-const COMING_UP_CAP = 4;
-
-/** "Sat 9 AM" within the coming week, else "Nov 2". */
-function shortWhen(iso: string | null): string | null {
-  if (!iso) return null;
-  const d = new Date(iso);
-  if (Number.isNaN(d.getTime())) return null;
-  const days = (d.getTime() - Date.now()) / 86_400_000;
-  if (days > -1 && days < 6) {
-    const day = d.toLocaleDateString(undefined, { weekday: 'short' });
-    const time = d.toLocaleTimeString(undefined, { hour: 'numeric', minute: '2-digit' }).replace(':00', '');
-    return `${day} ${time}`;
-  }
-  return d.toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
-}
-
 /** Tag chips shown under the name before collapsing the rest into "+N". */
 const TAG_CHIPS_SHOWN = 2;
+
+type ProfileTab = 'play' | 'collection' | 'people';
+const PROFILE_TABS: { value: ProfileTab; label: string }[] = [
+  { value: 'play', label: 'Play' },
+  { value: 'collection', label: 'Collection' },
+  { value: 'people', label: 'People' },
+];
 
 type Props = { navigation: NativeStackNavigationProp<RootStackParamList, 'Profile'> };
 
@@ -367,15 +352,13 @@ export default function ProfileScreen({ navigation }: Props) {
   const t = textStyles(colors);
   const styles = useMemo(() => makeStyles(colors), [colors]);
   const status = useStatusMessage();
+  const toast = useToast();
   const [profile, setProfile]             = useState<Profile | null>(null);
   // "+N" on the tag row expands it to every tag; "Show less" folds it back.
   const [tagsExpanded, setTagsExpanded]   = useState(false);
   const [locationRatings, setLocationRatings] = useState<PlayerLocationRating[]>([]);
   const [badges, setBadges]               = useState<BadgeItem[]>([]);
   const [defaultPaddle, setDefaultPaddle] = useState<(PaddleSelection & { paddleId: string }) | null>(null);
-  const [availability, setAvailability]   = useState<boolean[]>(Array(TOTAL_CELLS).fill(false));
-  const [avSaveStatus, setAvSaveStatus]   = useState<'idle' | 'saving' | 'saved' | 'error' | 'needs-migration'>('idle');
-  const avSaveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   // Serialises the paddle writes: they read-modify-write the same is_default
   // flag across rows, so two overlapping saves can leave zero (or two) defaults.
   const paddleSaving = useRef(false);
@@ -388,12 +371,10 @@ export default function ProfileScreen({ navigation }: Props) {
   const [unlock, setUnlock] = useState<NextUnlockResult | undefined>(undefined);
   // The Achievements row's "12 of 40 unlocked"; null until known.
   const [achCount, setAchCount] = useState<{ earned: number; total: number } | null>(null);
-  const [comingLeagues, setComingLeagues] = useState<ComingLeague[]>([]);
-  const [comingTournaments, setComingTournaments] = useState<ComingTournament[]>([]);
-  const [showAllComing, setShowAllComing] = useState(false);
   const [showPaddlePicker, setShowPaddlePicker]   = useState(false);
   const [editOpen, setEditOpen]                   = useState(false);
-  const [gridScrollLocked, setGridScrollLocked]   = useState(false);
+  const [tab, setTab]                             = useState<ProfileTab>('play');
+  const [sinceOpen, setSinceOpen]                 = useState(false);
   const [loading, setLoading]             = useState(true);
   const [userId, setUserId]               = useState<string | null>(null);
 
@@ -430,7 +411,6 @@ export default function ProfileScreen({ navigation }: Props) {
   const refresh = useRefresh(loadProfile);
 
   useEffect(() => { loadProfile(); }, []);
-  useEffect(() => () => { if (avSaveTimer.current) clearTimeout(avSaveTimer.current); }, []);
 
   // What changes on screens reached from here re-reads on every return:
   //   - Coming up (join a league, get approved into a tournament);
@@ -476,8 +456,6 @@ export default function ProfileScreen({ navigation }: Props) {
     if (profileRes.data) {
       const d = profileRes.data;
       setProfile(d);
-      const av = d.availability;
-      setAvailability(Array.isArray(av) && av.length === TOTAL_CELLS ? av : Array(TOTAL_CELLS).fill(false));
     }
     setLocationRatings((locRes.data ?? []) as PlayerLocationRating[]);
     setBadges((badgesRes.data ?? []) as BadgeItem[]);
@@ -489,7 +467,6 @@ export default function ProfileScreen({ navigation }: Props) {
     loadAchievementCount(user.id);
     loadEloHistory(user.id);
     loadShopPurchases(user.id);
-    loadComingUp(user.id);
   }
 
   async function loadShopPurchases(uid: string) {
@@ -528,53 +505,6 @@ export default function ProfileScreen({ navigation }: Props) {
     }
   }
 
-  async function loadComingUp(uid: string) {
-    try {
-      const [memberRows, regRows] = await Promise.all([
-        sbCall(() => supabase
-          .from('league_members')
-          .select('role, league:leagues(id, name, home_court, is_open, is_active)')
-          .eq('user_id', uid)),
-        sbCall(() => supabase
-          .from('tournament_registrations')
-          .select('status, invited_by, tournament:tournaments(id, name, location_name, start_time, status, league:leagues(name))')
-          .eq('user_id', uid)
-          .in('status', ['approved', 'pending', 'waitlisted'])),
-      ]);
-
-      const leagues: ComingLeague[] = [];
-      for (const r of (memberRows ?? []) as any[]) {
-        const l = r.league;
-        if (!l || l.is_active === false) continue;
-        leagues.push({ id: l.id, name: l.name, home_court: l.home_court ?? null, is_open: l.is_open ?? null, role: r.role ?? 'member' });
-      }
-      leagues.sort((a, b) => a.name.localeCompare(b.name));
-
-      const tournaments: ComingTournament[] = [];
-      for (const r of (regRows ?? []) as any[]) {
-        const tn = r.tournament;
-        // Only what's still ahead or running (completed / cancelled are history).
-        if (!tn || tn.status === 'completed' || tn.status === 'cancelled') continue;
-        tournaments.push({
-          id: tn.id, name: tn.name, location_name: tn.location_name ?? null, status: tn.status ?? null,
-          start_time: tn.start_time ?? null, leagueName: tn.league?.name ?? null,
-          myStatus: r.status, invited: r.status === 'pending' && r.invited_by != null,
-        });
-      }
-      tournaments.sort((a, b) => {
-        const am = a.start_time ? new Date(a.start_time).getTime() : Number.MAX_SAFE_INTEGER;
-        const bm = b.start_time ? new Date(b.start_time).getTime() : Number.MAX_SAFE_INTEGER;
-        return am - bm;
-      });
-
-      setComingLeagues(leagues);
-      setComingTournaments(tournaments);
-    } catch {
-      // Best-effort section: on a failed read keep whatever is already shown
-      // (an empty section simply doesn't render).
-    }
-  }
-
   // Only the profile columns other screens write (Getting started claims on Achievements, Shop
   // purchases and equips), merged into the current row. Never touches
   // `availability` or `loading`, so an open grid keeps its state and Back
@@ -589,7 +519,6 @@ export default function ProfileScreen({ navigation }: Props) {
   }
 
   refocusRef.current = (uid: string) => {
-    void loadComingUp(uid);
     void loadVolatileProfile(uid);
     void loadShopPurchases(uid);
     void loadNextUnlock(uid);
@@ -663,33 +592,6 @@ export default function ProfileScreen({ navigation }: Props) {
       const map: Record<string, { full_name: string; avatar_id: number; avatar_url: string | null }> = {};
       for (const p of (profiles ?? []) as any[]) map[p.id] = p;
       setPartnerNames(map);
-    }
-  }
-
-  // Auto-saves availability immediately whenever the grid changes.
-  // Fires once per drag-release or preset tap — no debounce needed.
-  async function handleAvailabilityChange(newAv: boolean[]) {
-    setAvailability(newAv);
-    if (!userId) return;
-
-    setAvSaveStatus('saving');
-    if (avSaveTimer.current) clearTimeout(avSaveTimer.current);
-
-    // sbCall so a hung socket becomes a timeout instead of pinning the status on
-    // 'saving' indefinitely, and so a throw can't skip the status reset.
-    try {
-      await sbCall(() =>
-        supabase.from('profiles').update({ availability: newAv }).eq('id', userId),
-      );
-      setAvSaveStatus('saved');
-      avSaveTimer.current = setTimeout(() => setAvSaveStatus('idle'), 2500);
-    } catch (e: any) {
-      if (e?.code === 'PGRST204' || String(e?.message ?? '').toLowerCase().includes('column')) {
-        setAvSaveStatus('needs-migration');
-      } else {
-        setAvSaveStatus('error');
-        avSaveTimer.current = setTimeout(() => setAvSaveStatus('idle'), 4000);
-      }
     }
   }
 
@@ -780,6 +682,24 @@ export default function ProfileScreen({ navigation }: Props) {
     badgesPublic: profile?.badges_public ?? true,
   };
 
+  // The card's share: my player link, which unfurls into the player's card.
+  // Web copies it (clean paste), phones open the share sheet.
+  async function shareCard() {
+    if (!userId) return;
+    const url = `https://www.pickleague.club/players/${userId}`;
+    try {
+      if (Platform.OS === 'web') {
+        await setClipboard(url);
+        toast.success('Link copied');
+      } else {
+        const res = await shareInvite({ title: 'My Pickleague player card', message: 'My Pickleague player card', url });
+        if (res.copied) toast.success('Link copied');
+      }
+    } catch {
+      // Sheet dismissed or clipboard blocked: nothing to undo.
+    }
+  }
+
   if (loading) return <View style={{ flex: 1, backgroundColor: colors.bg }}><SkeletonList rows={6} variant="row" /></View>;
 
   const earnedBadgeNames = Array.from(new Set(badges.map(b => b.badge.name)));
@@ -798,15 +718,7 @@ export default function ProfileScreen({ navigation }: Props) {
   const tagOverflow = tagLabels.length - TAG_CHIPS_SHOWN;
   const tagsShown = tagsExpanded ? tagLabels : tagLabels.slice(0, TAG_CHIPS_SHOWN);
 
-  // Coming up: tournaments first (they have a date), then leagues.
-  const comingCount = comingTournaments.length + comingLeagues.length;
-  const comingLimit = showAllComing ? comingCount : COMING_UP_CAP;
-  const shownTournaments = comingTournaments.slice(0, comingLimit);
-  const shownLeagues = comingLeagues.slice(0, Math.max(0, comingLimit - shownTournaments.length));
-  const comingHidden = comingCount - shownTournaments.length - shownLeagues.length;
-
   // Reference-section summaries (one line each, shown while collapsed).
-  const availSummary = availabilityShortSummary(availability, { separator: ', ' }) ?? 'Not set';
   const paddleSummary = defaultPaddle ? `${defaultPaddle.brandName} ${defaultPaddle.modelName}` : 'Not set';
   const chemRows = chemistryResults.filter(r => partnerNames[r.partnerId]);
   const bestChem = chemRows.length > 0
@@ -834,33 +746,21 @@ export default function ProfileScreen({ navigation }: Props) {
 
   return (
     <>
-    <ScrollView contentContainerStyle={styles.container} scrollEnabled={!gridScrollLocked} refreshControl={<AppRefreshControl {...refresh} />}>
+    <ScrollView contentContainerStyle={styles.container} refreshControl={<AppRefreshControl {...refresh} />}>
 
       <StatusBanner status={status.value} />
 
-      {/* ── 1. Identity ─────────────────────────────────────────── */}
-      <View style={styles.identity}>
-        <TouchableOpacity
-          ref={editAnchor}
-          onLayout={anchorOnLayout('edit', editAnchor)}
-          onPress={() => setEditOpen(true)}
-          activeOpacity={0.8}
-          accessibilityRole="button"
-          accessibilityLabel="Edit profile"
-        >
-          {photoUrl ? (
-            <CachedImage source={{ uri: photoUrl }} style={styles.avatar} />
-          ) : (
-            <View style={[styles.avatar, { backgroundColor: displayAvatar.bgColor }]}>
-              <Text style={styles.avatarEmoji}>{displayAvatar.emoji}</Text>
-            </View>
-          )}
-          <View style={styles.avatarEditBadge}>
-            <Icon name="edit" size={14} color={colors.textSub} />
+      {/* ── 1. Player card (the redesign's option E) ─────────────────
+          PLUPR stays off the profile: it is kept inside each league. */}
+      <PlayerCard
+        avatar={photoUrl ? (
+          <CachedImage source={{ uri: photoUrl }} style={styles.cardAvatar} />
+        ) : (
+          <View style={[styles.cardAvatar, { backgroundColor: displayAvatar.bgColor }]}>
+            <Text style={styles.avatarEmoji}>{displayAvatar.emoji}</Text>
           </View>
-        </TouchableOpacity>
-        <View style={styles.identityText}>
-          {/* TODO: smoke-test in browser — hero name renders with profile_name_style_id */}
+        )}
+        name={(
           <FlairName
             style={styles.fullName}
             nameColor={profile?.name_color}
@@ -869,468 +769,369 @@ export default function ProfileScreen({ navigation }: Props) {
             name={profile?.full_name ?? ''}
             numberOfLines={1}
           />
-          {profile?.username ? <Text style={t.sub} numberOfLines={1}>@{profile.username}</Text> : null}
-          {profile?.tagline ? <Text style={[t.sub, styles.tagline]} numberOfLines={1}>{profile.tagline}</Text> : null}
-        </View>
-      </View>
-
-      <View style={styles.chipRow}>
-        {/* Pickle balance, drawn as on Home (glyph + number); the 44 box is
-            the tap target. */}
-        <TouchableOpacity
-          style={styles.box44}
-          onPress={() => navigation.navigate('Shop')}
-          accessibilityRole="button"
-          accessibilityLabel={`${(profile?.pickles ?? 0).toLocaleString()} pickles. Open the Pickle Shop`}
-        >
-          <PickleBalance balance={profile ? profile.pickles ?? 0 : null} preset="title" decorative />
-        </TouchableOpacity>
-        {tagsShown.map(label => (
-          <Chip key={label} label={label} tone="brand" size="sm" align="center" maxFontSizeMultiplier={SMALL_TEXT_MAX_SCALE} />
-        ))}
-        {tagOverflow > 0 ? (
-          <Chip
-            label={tagsExpanded ? 'Show less' : `+${tagOverflow}`}
-            tone="neutral"
-            size="sm"
-            align="center"
-            hitBox
-            onPress={() => setTagsExpanded(v => !v)}
-            accessibilityRole="button"
-            accessibilityLabel={tagsExpanded ? 'Show fewer tags' : `Show ${tagOverflow} more tags`}
-            maxFontSizeMultiplier={SMALL_TEXT_MAX_SCALE}
-          />
-        ) : null}
-      </View>
-
-      {/* ── PLUPR ratings (hidden) ──────────────────────────────────
-          The global PLUPR card — overall/singles/doubles/mixed values,
-          reliability pill, and the trajectory chart — is intentionally not
-          rendered. PLUPR is being kept contained within a league rather than
-          surfaced on the profile. The EloHistoryChart component, eloHistory
-          loader, reliability helper, and formatPlupr import are left intact
-          so this card can be restored by re-adding the block.
-          ── Court ratings (hidden) ──────────────────────────────────
-          Per-court PLUPR ratings are intentionally not rendered — PLUPR is
-          being kept contained within a league. The locationRatings state and
-          its loader query are left intact so this card can be restored by
-          re-adding the block. */}
-
-      {/* ── 2. Quick row ────────────────────────────────────────── */}
-      <View style={styles.quickRow}>
-        <Button size="sm" title="Edit profile" onPress={() => setEditOpen(true)} style={styles.quickBtn} />
-        <Button
-          size="sm"
-          variant="outline"
-          title="Match history"
-          onPress={() => userId && navigation.navigate('MatchHistory', { userId, title: 'My Match History' })}
-          style={styles.quickBtn}
-        />
-        <Button
-          size="sm"
-          variant="outline"
-          title="Calendar"
-          onPress={() => userId && navigation.navigate('CalendarAnalytics', { userId, title: 'My Calendar' })}
-          style={styles.quickBtn}
-        />
-      </View>
-
-      {/* ── 3. Status strips: one card, a divider between rows (the redesign's
-          grouped rows). Play history is always last, so it closes the card. */}
-      <Panel padded={false} style={[styles.block, styles.clip]}>
-      {/* Next unlock (tour 'profile/rewards') */}
-      <View
-        ref={rewardsAnchor}
-        collapsable={false}
-        onLayout={anchorOnLayout('rewards', rewardsAnchor)}
-      >
-        <ListCard
-          variant="row"
-          minHeight={STRIP_HEIGHT}
-          leading={<Icon name="lock-open" size={18} color={colors.primary} />}
-          title={unlock?.kind === 'next' ? (
-            <ProgressBar
-              layout="inline"
-              progress={unlock.pct}
-              minFill={0.02}
-              height={6}
-              trackColor={colors.border}
-              label={`Next unlock: ${unlock.reward}`}
-              labelStyle={styles.stripLabel}
-              valueText={unlock.valueText}
-            />
-          ) : <Text style={styles.stripLabel} numberOfLines={1}>{unlockText}</Text>}
-          chevron
-          // Opens Achievements on the badge it names (its detail sheet).
-          onPress={() => navigation.navigate('Achievements', unlock?.kind === 'next' ? { focus: unlock.badge } : undefined)}
-          accessibilityRole="button"
-          accessibilityLabel={unlockA11y}
-        />
-      </View>
-
-      {/* Achievements: one strip row to the page, under the next unlock it
-          belongs with (was the Badges grid in Reference; the page has the
-          medals, progress, and the hide-from-profile toggles). */}
-      <ListCard
-        variant="row"
-        minHeight={STRIP_HEIGHT}
-        leading={<Icon name="medal" size={18} color={colors.primary} />}
-        // The count sits in the title: a ListCard `trailing` replaces the chevron
-        // the strips above and below keep.
-        title={(
-          <Text style={styles.stripLabel} numberOfLines={1}>
-            Achievements
-            {achCount ? <Text style={styles.stripCount}>, {achCount.earned} of {achCount.total} unlocked</Text> : null}
-          </Text>
         )}
-        chevron
-        onPress={() => navigation.navigate('Achievements')}
-        accessibilityRole="button"
-        accessibilityLabel={achCount ? `Achievements, ${achCount.earned} of ${achCount.total} unlocked` : 'Achievements'}
+        handle={[profile?.username ? `@${profile.username}` : null, profile?.tagline || null].filter(Boolean).join(', ') || null}
+        since={sinceLabel(profile?.playing_since)}
+        tags={tagsShown}
+        tagToggle={tagOverflow > 0 ? {
+          label: tagsExpanded ? 'Show less' : `+${tagOverflow}`,
+          a11y: tagsExpanded ? 'Show fewer tags' : `Show ${tagOverflow} more tags`,
+          onPress: () => setTagsExpanded(v => !v),
+        } : null}
+        stats={[
+          {
+            value: (profile?.total_matches_played ?? 0).toLocaleString(),
+            label: 'Matches',
+            a11y: `${profile?.total_matches_played ?? 0} matches. Open match history`,
+            onPress: () => userId && navigation.navigate('MatchHistory', { userId, title: 'My Match History' }),
+          },
+          {
+            value: achCount ? `${achCount.earned}/${achCount.total}` : '—',
+            label: 'Badges',
+            a11y: achCount ? `${achCount.earned} of ${achCount.total} badges. Open achievements` : 'Open achievements',
+            onPress: () => navigation.navigate('Achievements', unlock?.kind === 'next' ? { focus: unlock.badge } : undefined),
+            // Tour 'profile/rewards': the badges and the next unlock.
+            anchorRef: rewardsAnchor,
+            onLayout: anchorOnLayout('rewards', rewardsAnchor),
+          },
+          {
+            value: profile ? (profile.pickles ?? 0).toLocaleString() : '—',
+            label: 'Pickles',
+            a11y: `${(profile?.pickles ?? 0).toLocaleString()} pickles. Open the Pickle Shop`,
+            onPress: () => navigation.navigate('Shop'),
+          },
+        ]}
+        onEdit={() => setEditOpen(true)}
+        onSince={() => setSinceOpen(true)}
+        onShare={() => { void shareCard(); }}
+        editAnchorRef={editAnchor}
+        onEditLayout={anchorOnLayout('edit', editAnchor)}
       />
 
-      {/* Friends (renders nothing while FRIENDS_AT_COURTS_ENABLED is off). */}
-      <FriendsLink grouped />
-
-      {/* My Place (docs/my-place.md): my decoratable room. */}
-      <ListCard
-        variant="row"
-        minHeight={STRIP_HEIGHT}
-        leading={<Icon name="home" size={18} color={colors.primary} />}
-        title={<Text style={styles.stripLabel} numberOfLines={1}>My Place</Text>}
-        chevron
-        onPress={() => navigation.navigate('MyPlace')}
-        accessibilityRole="button"
-        accessibilityLabel="My Place, your room"
+      {/* ── 2. Tabs: a few buttons at a time (the user: fewer buttons,
+          combined pages) ──────────────────────────────────────────── */}
+      <SegmentedToggle
+        options={PROFILE_TABS}
+        value={tab}
+        onChange={(v) => setTab(v as ProfileTab)}
+        fullWidth
+        style={styles.tabs}
       />
 
-      {/* My routine (Doggle's Profile button; ROUTINES_ENABLED): the same
-          strip row as Friends and the next unlock. */}
-      {ROUTINES_ENABLED ? (
-        <ListCard
-          variant="row"
-          minHeight={STRIP_HEIGHT}
-          leading={<Icon name="calendar-event" size={18} color={colors.primary} />}
-          title={<Text style={styles.stripLabel} numberOfLines={1}>My routine</Text>}
-          chevron
-          onPress={() => navigation.navigate('Routines')}
-          accessibilityRole="button"
-          accessibilityLabel="My routine"
+      {tab === 'play' ? (
+        // Play history holds the calendar (List | Calendar); Drills holds
+        // Availability.
+        <ShortcutGrid
+          columns={4}
+          gap={8}
+          fitLabels
+          tileRadius={colors.radiusButton ?? 12}
+          items={[
+            { key: 'matches', label: 'Matches', a11y: 'Match history', iconName: 'clipboard',
+              onPress: () => userId && navigation.navigate('MatchHistory', { userId, title: 'My Match History' }) },
+            { key: 'history', label: 'Play history', a11y: 'Play history and calendar', iconName: 'calendar',
+              onPress: () => navigation.navigate('PlayHistory') },
+            { key: 'drills', label: 'Drills', a11y: 'Drills and availability', iconName: 'target',
+              onPress: () => navigation.navigate('Drill') },
+            ...(ROUTINES_ENABLED ? [{ key: 'routine', label: 'Routine', a11y: 'My routine', iconName: 'calendar-event' as const,
+              onPress: () => navigation.navigate('Routines') }] : []),
+          ]}
         />
       ) : null}
-      <PlayHistoryLink grouped />
-      </Panel>
 
-      {/* ── 4. Coming up ────────────────────────────────────────── */}
-      {comingCount > 0 && (
-        <View style={styles.block}>
-          <SectionHeader title="Coming up" count={comingCount} />
-          <Panel padded={false}>
-            {shownTournaments.map((tn, i) => (
-              <TournamentRow
-                key={`t-${tn.id}`}
-                layout="row"
-                tournament={{ id: tn.id, name: tn.name, location_name: tn.location_name, status: tn.status }}
-                leagueName={tn.leagueName}
-                myStatus={tn.myStatus}
-                invited={tn.invited}
-                trailingText={shortWhen(tn.start_time)}
-                onPress={() => navigation.navigate('TournamentDetail', { tournamentId: tn.id, tournamentName: tn.name })}
-                lastRow={comingHidden === 0 && shownLeagues.length === 0 && i === shownTournaments.length - 1}
-              />
-            ))}
-            {shownLeagues.map((l, i) => (
-              <LeagueRow
-                key={`l-${l.id}`}
-                layout="row"
-                league={{ id: l.id, name: l.name, home_court: l.home_court, is_open: l.is_open }}
-                role={l.role}
-                onPress={() => navigation.navigate('LeagueDetail', { leagueId: l.id, leagueName: l.name })}
-                lastRow={comingHidden === 0 && i === shownLeagues.length - 1}
-              />
-            ))}
-            {comingHidden > 0 && (
-              <TouchableOpacity
-                style={styles.moreRow}
-                onPress={() => setShowAllComing(true)}
-                accessibilityRole="button"
-              >
-                <Text style={[t.meta, { color: colors.primary }]} maxFontSizeMultiplier={SMALL_TEXT_MAX_SCALE}>
-                  Show {comingHidden} more
-                </Text>
-              </TouchableOpacity>
-            )}
-          </Panel>
-        </View>
-      )}
-
-      {/* ── 5. Reference (collapsed; content mounts on open) ──────── */}
-      <View style={styles.reference}>
-        {/* Renders nothing while REFERRALS_ENABLED is off, and for guests. */}
-        <InviteEarnSection onToggle={onSectionToggle('invite')} />
-
-        <CollapsibleSection
-          compact
-          iconName="clock"
-          title="Availability"
-          summary={availSummary}
-          // The grid unmounts on collapse; it releases the page scroll lock
-          // itself if that happens mid-Edit.
-          onToggle={onSectionToggle('availability')}
-        >
-          <View style={styles.availHead}>
-            <Text style={[t.sub, styles.flexText]} numberOfLines={2}>
-              Auto-saved, used for event filters and player matching
-            </Text>
-            {avSaveStatus === 'saving' && <Text style={t.meta}>Saving…</Text>}
-            {avSaveStatus === 'saved' && (
-              <View style={styles.inlineRow}>
-                <Icon name="check-mark" size={12} color={colors.success} />
-                <Text style={[t.meta, { color: colors.success }]}>Saved</Text>
-              </View>
-            )}
-            {avSaveStatus === 'error' && (
-              <View style={styles.inlineRow}>
-                <Icon name="warning" size={12} color={colors.warning} />
-                <Text style={[t.meta, { color: colors.warning }]}>Save failed</Text>
-              </View>
-            )}
-            {avSaveStatus === 'needs-migration' && (
-              <Text style={[t.meta, { color: colors.warning }]}>Run migration_add_availability.sql</Text>
-            )}
-          </View>
-          <AvailabilityGrid
-            availability={availability}
-            onChange={handleAvailabilityChange}
-            onScrollLock={setGridScrollLocked}
-          />
-        </CollapsibleSection>
-
-        <CollapsibleSection
-          compact
-          iconName="paddle"
-          title="Paddle"
-          summary={paddleSummary}
-          onToggle={onSectionToggle('paddle')}
-        >
-          {defaultPaddle ? (
-            <View style={styles.paddleRow}>
-              <View style={styles.flexText}>
-                <Text style={t.meta} numberOfLines={1}>{defaultPaddle.brandName}</Text>
-                <Text style={t.title} numberOfLines={1}>{defaultPaddle.modelName}</Text>
-                {defaultPaddle.thicknessMm != null && (
-                  <Text style={t.sub}>{defaultPaddle.thicknessMm} mm core</Text>
-                )}
-              </View>
-              <Button size="sm" variant="outline" title="Change" onPress={() => setShowPaddlePicker(true)} />
-              <Button size="sm" variant="danger" title="Remove" onPress={removePaddle} />
-            </View>
-          ) : (
-            <View style={styles.paddleRow}>
-              <Text style={[t.sub, styles.flexText]} numberOfLines={2}>
-                Auto-filled when recording matches. Editable within 72 hours.
+      {tab === 'collection' ? (
+        <View style={styles.reference}>
+          <Panel padded={false} style={[styles.block, styles.clip]}>
+            <ListCard
+              variant="row"
+              minHeight={STRIP_HEIGHT}
+              leading={<Icon name="lock-open" size={18} color={colors.primary} />}
+              title={unlock?.kind === 'next' ? (
+                <ProgressBar
+                  layout="inline"
+                  progress={unlock.pct}
+                  minFill={0.02}
+                  height={6}
+                  trackColor={colors.border}
+                  label={`Next unlock: ${unlock.reward}`}
+                  labelStyle={styles.stripLabel}
+                  valueText={unlock.valueText}
+                />
+              ) : <Text style={styles.stripLabel} numberOfLines={1}>{unlockText}</Text>}
+              chevron
+              // Opens Achievements on the badge it names (its detail sheet).
+              onPress={() => navigation.navigate('Achievements', unlock?.kind === 'next' ? { focus: unlock.badge } : undefined)}
+              accessibilityRole="button"
+              accessibilityLabel={unlockA11y}
+            />
+          <ListCard
+            variant="row"
+            minHeight={STRIP_HEIGHT}
+            leading={<Icon name="medal" size={18} color={colors.primary} />}
+            // The count sits in the title: a ListCard `trailing` replaces the chevron
+            // the strips above and below keep.
+            title={(
+              <Text style={styles.stripLabel} numberOfLines={1}>
+                Achievements
+                {achCount ? <Text style={styles.stripCount}>, {achCount.earned} of {achCount.total} unlocked</Text> : null}
               </Text>
-              <Button size="sm" title="Set paddle" onPress={() => setShowPaddlePicker(true)} />
-            </View>
-          )}
-        </CollapsibleSection>
-
-        {shopPurchases.length > 0 && (
+            )}
+            chevron
+            onPress={() => navigation.navigate('Achievements')}
+            accessibilityRole="button"
+            accessibilityLabel={achCount ? `Achievements, ${achCount.earned} of ${achCount.total} unlocked` : 'Achievements'}
+          />
+          <ListCard
+            variant="row"
+            lastRow
+            minHeight={STRIP_HEIGHT}
+            leading={<Icon name="home" size={18} color={colors.primary} />}
+            title={<Text style={styles.stripLabel} numberOfLines={1}>My Place</Text>}
+            chevron
+            onPress={() => navigation.navigate('MyPlace')}
+            accessibilityRole="button"
+            accessibilityLabel="My Place, your room"
+          />
+          </Panel>
           <CollapsibleSection
             compact
-            iconName="bag"
-            title="Inventory"
-            count={shopPurchases.length}
-            summary="Tap to equip"
-            onToggle={onSectionToggle('inventory')}
+            iconName="paddle"
+            title="Paddle"
+            summary={paddleSummary}
+            onToggle={onSectionToggle('paddle')}
           >
-            {inv.avatars.length > 0 && (
-              <View>
-                <Text style={[t.fieldLabel, styles.groupLabel]} maxFontSizeMultiplier={SMALL_TEXT_MAX_SCALE}>Avatars</Text>
-                {inv.avatars.map(p => {
-                  const equipped = profile?.avatar_emoji === p.item.payload?.emoji
-                                && profile?.avatar_bg_color === p.item.payload?.bgColor;
-                  return (
-                    <InvRow
-                      key={p.id}
-                      icon={p.item.icon}
-                      bgColor={p.item.payload?.bgColor ?? colors.surfaceAlt}
-                      name={p.item.name}
-                      gift={p.gifted_by_user_id}
-                      message={p.gift_message}
-                      isHidden={p.is_hidden}
-                      onToggleHidden={() => togglePurchaseHidden(p.id, p.is_hidden)}
-                      actionLabel={equipped ? 'Equipped' : 'Equip'}
-                      equipped={equipped}
-                      onAction={() => equipItem(p.item)}
-                      styles={styles}
-                    />
-                  );
-                })}
-                {profile?.avatar_emoji && (
-                  <TextLink iconName="undo" tone="sub" chevron={false} label="Revert to cartoon avatar" onPress={() => unequip('avatar')} />
-                )}
-              </View>
-            )}
-
-            {inv.flairs.length > 0 && (
-              <View>
-                <Text style={[t.fieldLabel, styles.groupLabel]} maxFontSizeMultiplier={SMALL_TEXT_MAX_SCALE}>Name color flair</Text>
-                {inv.flairs.map(p => {
-                  const value    = p.item.payload?.value as string | undefined;
-                  const equipped = !!value && profile?.name_color === value;
-                  return (
-                    <InvRow
-                      key={p.id}
-                      icon={p.item.icon}
-                      bgColor={value ?? colors.surfaceAlt}
-                      name={p.item.name}
-                      gift={p.gifted_by_user_id}
-                      message={p.gift_message}
-                      isHidden={p.is_hidden}
-                      onToggleHidden={() => togglePurchaseHidden(p.id, p.is_hidden)}
-                      actionLabel={equipped ? 'Active' : 'Apply'}
-                      equipped={equipped}
-                      onAction={() => equipItem(p.item)}
-                      styles={styles}
-                    />
-                  );
-                })}
-                {profile?.name_color && (
-                  <TextLink iconName="undo" tone="sub" chevron={false} label="Revert to default name color" onPress={() => unequip('flair')} />
-                )}
-              </View>
-            )}
-
-            {inv.listStyles.length > 0 && (
-              <View>
-                <Text style={[t.fieldLabel, styles.groupLabel]} maxFontSizeMultiplier={SMALL_TEXT_MAX_SCALE}>List name styles</Text>
-                {inv.listStyles.map(p => {
-                  const slug     = p.item.slug;
-                  const equipped = profile?.list_name_style_id === slug;
-                  return (
-                    <InvRow
-                      key={p.id}
-                      icon={p.item.icon}
-                      bgColor={p.item.payload?.bgColor ?? colors.surfaceAlt}
-                      name={p.item.name}
-                      gift={p.gifted_by_user_id}
-                      message={p.gift_message}
-                      isHidden={p.is_hidden}
-                      onToggleHidden={() => togglePurchaseHidden(p.id, p.is_hidden)}
-                      actionLabel={equipped ? 'Equipped' : 'Equip'}
-                      equipped={equipped}
-                      onAction={() => equipItem(p.item)}
-                      styles={styles}
-                    />
-                  );
-                })}
-                {profile?.list_name_style_id && (
-                  <TextLink iconName="undo" tone="sub" chevron={false} label="Revert to default list name style" onPress={() => unequip('list_name_style')} />
-                )}
-              </View>
-            )}
-
-            {inv.profileStyles.length > 0 && (
-              <View>
-                <Text style={[t.fieldLabel, styles.groupLabel]} maxFontSizeMultiplier={SMALL_TEXT_MAX_SCALE}>Profile name styles</Text>
-                {inv.profileStyles.map(p => {
-                  const slug     = p.item.slug;
-                  const equipped = profile?.profile_name_style_id === slug;
-                  return (
-                    <InvRow
-                      key={p.id}
-                      icon={p.item.icon}
-                      bgColor={p.item.payload?.bgColor ?? colors.surfaceAlt}
-                      name={p.item.name}
-                      gift={p.gifted_by_user_id}
-                      message={p.gift_message}
-                      isHidden={p.is_hidden}
-                      onToggleHidden={() => togglePurchaseHidden(p.id, p.is_hidden)}
-                      actionLabel={equipped ? 'Equipped' : 'Equip'}
-                      equipped={equipped}
-                      onAction={() => equipItem(p.item)}
-                      styles={styles}
-                    />
-                  );
-                })}
-                {profile?.profile_name_style_id && (
-                  <TextLink iconName="undo" tone="sub" chevron={false} label="Revert to default profile name style" onPress={() => unequip('profile_name_style')} />
-                )}
-              </View>
-            )}
-
-            {inv.badges.length > 0 && (
-              <View>
-                <Text style={[t.fieldLabel, styles.groupLabel]} maxFontSizeMultiplier={SMALL_TEXT_MAX_SCALE}>Cosmetic badges</Text>
-                {inv.badges.map(p => (
-                  <InvRow
-                    key={p.id}
-                    icon={p.item.icon}
-                    glyphify
-                    bgColor={p.item.payload?.bgColor ?? colors.surfaceAlt}
-                    name={p.item.name}
-                    gift={p.gifted_by_user_id}
-                    message={p.gift_message}
-                    isHidden={p.is_hidden}
-                    onToggleHidden={() => togglePurchaseHidden(p.id, p.is_hidden)}
-                    styles={styles}
-                  />
-                ))}
-              </View>
-            )}
-          </CollapsibleSection>
-        )}
-
-        {chemRows.length > 0 && (
-          <CollapsibleSection
-            compact
-            iconName="handshake"
-            title="Doubles chemistry"
-            count={chemRows.length}
-            summary={bestChem ? `Best: ${partnerNames[bestChem.partnerId]?.full_name} ${fmtDelta(bestChem.overallDelta)}` : undefined}
-            onToggle={onSectionToggle('chemistry')}
-          >
-            <Text style={t.sub} numberOfLines={2}>Win-rate boost vs your baseline when playing with each partner</Text>
-            {chemRows.map(r => {
-              const partner = partnerNames[r.partnerId];
-              const av = AVATARS.find(a => a.id === (partner.avatar_id ?? 1)) ?? AVATARS[0];
-              const tone = chemistryTone(r.overallDelta, colors);
-              return (
-                <View key={r.partnerId} style={styles.chemRow}>
-                  <View style={[styles.chemAvatar, { backgroundColor: av.bgColor }]}>
-                    <Text style={styles.chemAvatarEmoji}>{av.emoji}</Text>
-                  </View>
-                  <View style={styles.flexText}>
-                    <Text style={styles.rowTitle} numberOfLines={1}>{partner.full_name}</Text>
-                    <Text style={styles.rowSub} numberOfLines={1}>
-                      {r.insights[0] ?? `${r.matchesTogether} match${r.matchesTogether !== 1 ? 'es' : ''} together`}
-                    </Text>
-                  </View>
-                  <IconValue
-                    iconName="pickleball"
-                    value={r.matchesTogether}
-                    preset="meta"
-                    iconColor={colors.textMuted}
-                    maxFontSizeMultiplier={SMALL_TEXT_MAX_SCALE}
-                    accessibilityLabel={`${r.matchesTogether} ${r.matchesTogether === 1 ? 'match' : 'matches'} together`}
-                  />
-                  <View style={[styles.chemBadge, { backgroundColor: tone.bg, borderColor: tone.fg }]}>
-                    <Text style={[t.meta, { color: tone.fg }]} maxFontSizeMultiplier={SMALL_TEXT_MAX_SCALE}>
-                      {fmtDelta(r.overallDelta)}
-                    </Text>
-                  </View>
+            {defaultPaddle ? (
+              <View style={styles.paddleRow}>
+                <View style={styles.flexText}>
+                  <Text style={t.meta} numberOfLines={1}>{defaultPaddle.brandName}</Text>
+                  <Text style={t.title} numberOfLines={1}>{defaultPaddle.modelName}</Text>
+                  {defaultPaddle.thicknessMm != null && (
+                    <Text style={t.sub}>{defaultPaddle.thicknessMm} mm core</Text>
+                  )}
                 </View>
-              );
-            })}
-            {!chemRows.some(r => r.significant) && (
-              <Text style={t.meta}>Play 5+ doubles matches with a partner to unlock deeper insights</Text>
+                <Button size="sm" variant="outline" title="Change" onPress={() => setShowPaddlePicker(true)} />
+                <Button size="sm" variant="danger" title="Remove" onPress={removePaddle} />
+              </View>
+            ) : (
+              <View style={styles.paddleRow}>
+                <Text style={[t.sub, styles.flexText]} numberOfLines={2}>
+                  Auto-filled when recording matches. Editable within 72 hours.
+                </Text>
+                <Button size="sm" title="Set paddle" onPress={() => setShowPaddlePicker(true)} />
+              </View>
             )}
           </CollapsibleSection>
-        )}
-      </View>
+          {shopPurchases.length > 0 && (
+            <CollapsibleSection
+              compact
+              iconName="bag"
+              title="Inventory"
+              count={shopPurchases.length}
+              summary="Tap to equip"
+              onToggle={onSectionToggle('inventory')}
+            >
+              {inv.avatars.length > 0 && (
+                <View>
+                  <Text style={[t.fieldLabel, styles.groupLabel]} maxFontSizeMultiplier={SMALL_TEXT_MAX_SCALE}>Avatars</Text>
+                  {inv.avatars.map(p => {
+                    const equipped = profile?.avatar_emoji === p.item.payload?.emoji
+                                  && profile?.avatar_bg_color === p.item.payload?.bgColor;
+                    return (
+                      <InvRow
+                        key={p.id}
+                        icon={p.item.icon}
+                        bgColor={p.item.payload?.bgColor ?? colors.surfaceAlt}
+                        name={p.item.name}
+                        gift={p.gifted_by_user_id}
+                        message={p.gift_message}
+                        isHidden={p.is_hidden}
+                        onToggleHidden={() => togglePurchaseHidden(p.id, p.is_hidden)}
+                        actionLabel={equipped ? 'Equipped' : 'Equip'}
+                        equipped={equipped}
+                        onAction={() => equipItem(p.item)}
+                        styles={styles}
+                      />
+                    );
+                  })}
+                  {profile?.avatar_emoji && (
+                    <TextLink iconName="undo" tone="sub" chevron={false} label="Revert to cartoon avatar" onPress={() => unequip('avatar')} />
+                  )}
+                </View>
+              )}
+
+              {inv.flairs.length > 0 && (
+                <View>
+                  <Text style={[t.fieldLabel, styles.groupLabel]} maxFontSizeMultiplier={SMALL_TEXT_MAX_SCALE}>Name color flair</Text>
+                  {inv.flairs.map(p => {
+                    const value    = p.item.payload?.value as string | undefined;
+                    const equipped = !!value && profile?.name_color === value;
+                    return (
+                      <InvRow
+                        key={p.id}
+                        icon={p.item.icon}
+                        bgColor={value ?? colors.surfaceAlt}
+                        name={p.item.name}
+                        gift={p.gifted_by_user_id}
+                        message={p.gift_message}
+                        isHidden={p.is_hidden}
+                        onToggleHidden={() => togglePurchaseHidden(p.id, p.is_hidden)}
+                        actionLabel={equipped ? 'Active' : 'Apply'}
+                        equipped={equipped}
+                        onAction={() => equipItem(p.item)}
+                        styles={styles}
+                      />
+                    );
+                  })}
+                  {profile?.name_color && (
+                    <TextLink iconName="undo" tone="sub" chevron={false} label="Revert to default name color" onPress={() => unequip('flair')} />
+                  )}
+                </View>
+              )}
+
+              {inv.listStyles.length > 0 && (
+                <View>
+                  <Text style={[t.fieldLabel, styles.groupLabel]} maxFontSizeMultiplier={SMALL_TEXT_MAX_SCALE}>List name styles</Text>
+                  {inv.listStyles.map(p => {
+                    const slug     = p.item.slug;
+                    const equipped = profile?.list_name_style_id === slug;
+                    return (
+                      <InvRow
+                        key={p.id}
+                        icon={p.item.icon}
+                        bgColor={p.item.payload?.bgColor ?? colors.surfaceAlt}
+                        name={p.item.name}
+                        gift={p.gifted_by_user_id}
+                        message={p.gift_message}
+                        isHidden={p.is_hidden}
+                        onToggleHidden={() => togglePurchaseHidden(p.id, p.is_hidden)}
+                        actionLabel={equipped ? 'Equipped' : 'Equip'}
+                        equipped={equipped}
+                        onAction={() => equipItem(p.item)}
+                        styles={styles}
+                      />
+                    );
+                  })}
+                  {profile?.list_name_style_id && (
+                    <TextLink iconName="undo" tone="sub" chevron={false} label="Revert to default list name style" onPress={() => unequip('list_name_style')} />
+                  )}
+                </View>
+              )}
+
+              {inv.profileStyles.length > 0 && (
+                <View>
+                  <Text style={[t.fieldLabel, styles.groupLabel]} maxFontSizeMultiplier={SMALL_TEXT_MAX_SCALE}>Profile name styles</Text>
+                  {inv.profileStyles.map(p => {
+                    const slug     = p.item.slug;
+                    const equipped = profile?.profile_name_style_id === slug;
+                    return (
+                      <InvRow
+                        key={p.id}
+                        icon={p.item.icon}
+                        bgColor={p.item.payload?.bgColor ?? colors.surfaceAlt}
+                        name={p.item.name}
+                        gift={p.gifted_by_user_id}
+                        message={p.gift_message}
+                        isHidden={p.is_hidden}
+                        onToggleHidden={() => togglePurchaseHidden(p.id, p.is_hidden)}
+                        actionLabel={equipped ? 'Equipped' : 'Equip'}
+                        equipped={equipped}
+                        onAction={() => equipItem(p.item)}
+                        styles={styles}
+                      />
+                    );
+                  })}
+                  {profile?.profile_name_style_id && (
+                    <TextLink iconName="undo" tone="sub" chevron={false} label="Revert to default profile name style" onPress={() => unequip('profile_name_style')} />
+                  )}
+                </View>
+              )}
+
+              {inv.badges.length > 0 && (
+                <View>
+                  <Text style={[t.fieldLabel, styles.groupLabel]} maxFontSizeMultiplier={SMALL_TEXT_MAX_SCALE}>Cosmetic badges</Text>
+                  {inv.badges.map(p => (
+                    <InvRow
+                      key={p.id}
+                      icon={p.item.icon}
+                      glyphify
+                      bgColor={p.item.payload?.bgColor ?? colors.surfaceAlt}
+                      name={p.item.name}
+                      gift={p.gifted_by_user_id}
+                      message={p.gift_message}
+                      isHidden={p.is_hidden}
+                      onToggleHidden={() => togglePurchaseHidden(p.id, p.is_hidden)}
+                      styles={styles}
+                    />
+                  ))}
+                </View>
+              )}
+            </CollapsibleSection>
+          )}
+        </View>
+      ) : null}
+
+      {tab === 'people' ? (
+        <View style={styles.reference}>
+          <FriendsLink style={styles.block} />
+          {/* Renders nothing while REFERRALS_ENABLED is off, and for guests. */}
+          <InviteEarnSection onToggle={onSectionToggle('invite')} />
+          {chemRows.length > 0 && (
+            <CollapsibleSection
+              compact
+              iconName="handshake"
+              title="Doubles chemistry"
+              count={chemRows.length}
+              summary={bestChem ? `Best: ${partnerNames[bestChem.partnerId]?.full_name} ${fmtDelta(bestChem.overallDelta)}` : undefined}
+              onToggle={onSectionToggle('chemistry')}
+            >
+              <Text style={t.sub} numberOfLines={2}>Win-rate boost vs your baseline when playing with each partner</Text>
+              {chemRows.map(r => {
+                const partner = partnerNames[r.partnerId];
+                const av = AVATARS.find(a => a.id === (partner.avatar_id ?? 1)) ?? AVATARS[0];
+                const tone = chemistryTone(r.overallDelta, colors);
+                return (
+                  <View key={r.partnerId} style={styles.chemRow}>
+                    <View style={[styles.chemAvatar, { backgroundColor: av.bgColor }]}>
+                      <Text style={styles.chemAvatarEmoji}>{av.emoji}</Text>
+                    </View>
+                    <View style={styles.flexText}>
+                      <Text style={styles.rowTitle} numberOfLines={1}>{partner.full_name}</Text>
+                      <Text style={styles.rowSub} numberOfLines={1}>
+                        {r.insights[0] ?? `${r.matchesTogether} match${r.matchesTogether !== 1 ? 'es' : ''} together`}
+                      </Text>
+                    </View>
+                    <IconValue
+                      iconName="pickleball"
+                      value={r.matchesTogether}
+                      preset="meta"
+                      iconColor={colors.textMuted}
+                      maxFontSizeMultiplier={SMALL_TEXT_MAX_SCALE}
+                      accessibilityLabel={`${r.matchesTogether} ${r.matchesTogether === 1 ? 'match' : 'matches'} together`}
+                    />
+                    <View style={[styles.chemBadge, { backgroundColor: tone.bg, borderColor: tone.fg }]}>
+                      <Text style={[t.meta, { color: tone.fg }]} maxFontSizeMultiplier={SMALL_TEXT_MAX_SCALE}>
+                        {fmtDelta(r.overallDelta)}
+                      </Text>
+                    </View>
+                  </View>
+                );
+              })}
+              {!chemRows.some(r => r.significant) && (
+                <Text style={t.meta}>Play 5+ doubles matches with a partner to unlock deeper insights</Text>
+              )}
+            </CollapsibleSection>
+          )}
+        </View>
+      ) : null}
 
     </ScrollView>
+
+    <PlayingSinceSheet
+      visible={sinceOpen}
+      value={profile?.playing_since ?? null}
+      onClose={() => setSinceOpen(false)}
+      onSaved={(v) => setProfile(p => (p ? { ...p, playing_since: v } : p))}
+    />
 
     <PaddlePickerModal
       visible={showPaddlePicker}
@@ -1376,6 +1177,8 @@ function makeStyles(c: Colors) {
     identityText:    { flex: 1, minWidth: 0, gap: SPACE.xxs },
     avatar:          { width: AVATAR, height: AVATAR, borderRadius: RADIUS.pill, alignItems: 'center', justifyContent: 'center' },
     avatarEmoji:     { fontSize: 34 },
+    cardAvatar:      { width: '100%', height: '100%', alignItems: 'center', justifyContent: 'center' },
+    tabs:            { marginTop: SPACE.lg, marginBottom: SPACE.md },
     avatarEditBadge: {
       position: 'absolute', bottom: -SPACE.xxs, right: -SPACE.xxs, width: 24, height: 24, borderRadius: RADIUS.pill,
       backgroundColor: c.surface, alignItems: 'center', justifyContent: 'center',

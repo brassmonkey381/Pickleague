@@ -12,7 +12,7 @@ type Props = {
 
 // Pickleague's preset set matches the kit's defaults except the lunch chip,
 // which the kit renamed "Lunch Crew" — keep the original "Lunch League" label.
-const PRESETS = AVAILABILITY_PRESETS.map(p =>
+export const PRESETS = AVAILABILITY_PRESETS.map(p =>
   p.id === 'lunch_league' ? { ...p, label: 'Lunch League' } : p,
 );
 
