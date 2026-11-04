@@ -123,7 +123,9 @@ export function earlierRewardsToast(cycleId: string, locale?: string): string {
 
 /** What the Home chip and the My Place link need (a slice of the kit model). */
 export type CourtPassSummary =
-  | { kind: 'running'; tier: number; xpToNext: number; finished: boolean; newCount: number }
+  | { kind: 'running'; tier: number; xpToNext: number; finished: boolean; newCount: number;
+      /** 0..1 of the way from this tier to the next (Home's stat card bar). */
+      progress: number }
   | { kind: 'next'; startsAt: string };
 
 /** "Court Pass · Tier 7 · 22 to next"; "Court Pass · starts December 1" between passes. */

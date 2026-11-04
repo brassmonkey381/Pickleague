@@ -61,6 +61,7 @@ export function courtPassSummary(
       kind: 'running',
       tier: model.currentTier,
       xpToNext: model.xpToNext,
+      progress: model.progressToNext,
       finished: model.finished,
       newCount: unseenGrants(d).length,
     };

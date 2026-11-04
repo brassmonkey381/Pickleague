@@ -5,7 +5,6 @@
 // They are the equivalent of places in Doggle"). Doggle's DoggleFeedSection:
 //
 //   Pickleague Feed
-//   📅 My routine: Tue, Thu 6 PM at Lakeside ›
 //   NEEDS YOU · 3 ...... votes, RSVPs, scores to confirm, invites, requests
 //   [Today  Thu, Oct 22                    5 ^]
 //     ★ Lakeside                     [On my way ▾]  [Check in ▾]
@@ -19,7 +18,7 @@
 //        (🏆)   Fall Classic · The HUB · registered         Sat 9 AM
 //   [Tomorrow  Fri, Oct 23                    1 v]
 //   [Later this week                          2 v]
-//   My tournaments ›  My routine ›
+//   My tournaments ›  My routine ›  Drills ›
 //
 // What qualifies is lib/pickleagueFeed.ts (tested): my leagues, tournaments I
 // signed up for, starred and routine courts, and my accepted friends. The
@@ -37,7 +36,7 @@ import { CommonActions, useIsFocused, useNavigation } from '@react-navigation/na
 import { useCachedQuery } from '@just-messin-around/expo-foundation/cache';
 import { usePollWhileActive, useSignal, useTicker } from '@just-messin-around/expo-foundation/hooks';
 import { Icon } from '@just-messin-around/expo-foundation/icons';
-import { ActionSheetModal, Panel, SectionHeader, SingleSelectModal, TextLink, TITLE_ICON_COLUMN, type ActionSheetAction } from '@just-messin-around/expo-foundation/ui';
+import { ActionSheetModal, Panel, SectionHeader, SingleSelectModal, TextLink, type ActionSheetAction } from '@just-messin-around/expo-foundation/ui';
 import { RADIUS, SPACE } from '@just-messin-around/expo-foundation/styles';
 import { DayBands, FeedActionPill, dayBandDate, dayBandTile, type DayBand } from '@just-messin-around/expo-foundation/ui/feed';
 import { textStyles } from '@just-messin-around/expo-foundation/typography';
@@ -90,7 +89,6 @@ import {
   buildPickleagueFeed,
   placeLabel,
   previewRows,
-  routineHeaderLine,
   type DayBandKey,
   type FeedCourtCard as CourtCard,
   type FeedSheetLine,
@@ -831,31 +829,12 @@ export default function PickleagueFeedSection(props: PickleagueFeedProps) {
     else if (privilegedLeagues.length > 1) setPickerOpen(true);
   };
 
-  const routineLine = ROUTINES_ENABLED ? routineHeaderLine(routines) : null;
   const hasTournaments = home.myTournaments.length > 0;
 
   return (
     <Panel>
       {/* The shared Home card header (Get started uses the same one). */}
       <SectionHeader title="Pickleague Feed" size="title" icon="pickle" />
-      {routineLine ? (
-        <TouchableOpacity
-          style={styles.routineLine}
-          onPress={() => { tap('routine_line'); openRoutines(); }}
-          accessibilityRole="button"
-          accessibilityLabel={`${routineLine}. Open My routine`}
-        >
-          {/* In the header's 32 glyph column, centred under its pickle, so the text lines up with the title. */}
-          <View style={styles.lineGlyph}>
-            <Icon name="calendar-event" size={14} color={c.textSub} />
-          </View>
-          <Text style={[t.meta, styles.flex, { color: c.textSub }]} numberOfLines={2}>
-            {routineLine}
-          </Text>
-          <Icon name="chevron-right" size={14} color={c.textMuted} />
-        </TouchableOpacity>
-      ) : null}
-
       <View style={styles.body}>
         {feed.needsYou.length > 0 ? (
           <View style={styles.day}>
@@ -893,6 +872,7 @@ export default function PickleagueFeedSection(props: PickleagueFeedProps) {
             <TextLink label="My tournaments" onPress={() => { tap('my_tournaments'); openDiscover(navigation, { tab: 'tournaments', mine: true }); }} />
           ) : null}
           {ROUTINES_ENABLED ? <TextLink label="My routine" onPress={() => { tap('routines'); openRoutines(); }} /> : null}
+          <TextLink label="Drills" onPress={() => { tap('drills'); navigation.dispatch(CommonActions.navigate('Drill')); }} />
         </View>
       </View>
 
@@ -956,8 +936,6 @@ export default function PickleagueFeedSection(props: PickleagueFeedProps) {
 const styles = StyleSheet.create({
   flex: { flex: 1 },
   // The routine line sits under the header, its calendar glyph under the pickle.
-  routineLine: { flexDirection: 'row', alignItems: 'center', gap: TITLE_ICON_COLUMN.gap, minHeight: 32 },
-  lineGlyph: { width: TITLE_ICON_COLUMN.width, alignItems: 'center' },
   body: { marginTop: SPACE.sm, gap: SPACE.md },
   day: { gap: SPACE.sm },
   needsBand: {

@@ -5,7 +5,6 @@ import {
   courtOfPlace,
   placeLabel,
   previewRows,
-  routineHeaderLine,
   signedUpTournaments,
   COURT_ROWS_CAP,
   MAX_FEED_COURTS,
@@ -501,17 +500,6 @@ describe('caps', () => {
     expect(previewRows([1, 2, 3, 4, 5], 3, false)).toEqual({ shown: [1, 2, 3], more: 2 });
     expect(previewRows([1, 2, 3, 4, 5], 3, true)).toEqual({ shown: [1, 2, 3, 4, 5], more: 0 });
     expect(previewRows([1], 3, false)).toEqual({ shown: [1], more: 0 });
-  });
-});
-
-describe('routineHeaderLine', () => {
-  it('names the first live routine and counts the rest', () => {
-    expect(routineHeaderLine([])).toBe('Set up a routine');
-    expect(routineHeaderLine([routine({ active: false })])).toBe('Set up a routine');
-    const one = routineHeaderLine([routine({ days: 2 | 8 })]);
-    expect(one.startsWith('My routine: ')).toBe(true);
-    expect(one.endsWith(' at Lakeside')).toBe(true);
-    expect(routineHeaderLine([routine(), routine({ id: 'r2' })]).endsWith(', +1 more')).toBe(true);
   });
 });
 

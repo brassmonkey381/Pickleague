@@ -41,6 +41,7 @@ import AppRefreshControl from '../components/AppRefreshControl';
 import { useStatusMessage } from '../lib/useStatusMessage';
 import { useRefresh } from '../lib/useRefresh';
 import { PickleAmount, PickleBalance, picklesLabel } from '../components/PickleAmount';
+import PicklesViewer from '../components/home/PicklesViewer';
 import { cosmeticColumns, equipShopItem } from '../data/cosmetics';
 import { explainRefusal } from '../lib/refusalNotices';
 import { ToastOutlet } from '@just-messin-around/expo-foundation/toast';
@@ -80,6 +81,7 @@ export default function ShopScreen({ navigation }: Props) {
   // an unknown balance as 0 told users who could afford an item that they
   // couldn't — so every affordability check requires a real number.
   const [pickles, setPickles] = useState<number | null>(null);
+  const [historyOpen, setHistoryOpen] = useState(false);
   const [items, setItems]     = useState<ShopItem[]>([]);
   const [owned, setOwned]     = useState<Set<string>>(new Set());
   const [tab, setTab]         = useState<ShopCategory>('avatar');
@@ -440,15 +442,25 @@ export default function ShopScreen({ navigation }: Props) {
   return (
     <View style={S.root}>
       {/* Balance (the header already says "Pickle Shop") */}
-      <View style={S.balanceRow}>
+      {/* Tap for the pickle history (Home's pickles open the Shop straight away now). */}
+      <TouchableOpacity
+        style={S.balanceRow}
+        onPress={() => setHistoryOpen(true)}
+        accessibilityRole="button"
+        accessibilityLabel={`${pickles == null ? 'Balance unavailable' : picklesLabel(pickles)}. Open your pickle history`}
+      >
         <Text style={[t.sub, S.flexText]}>Your balance</Text>
-        <View
-          accessible
-          accessibilityLabel={pickles == null ? 'Balance unavailable' : picklesLabel(pickles)}
-        >
-          <PickleBalance balance={pickles} preset="title" />
-        </View>
-      </View>
+        <PickleBalance balance={pickles} preset="title" decorative />
+        <Icon name="chevron-right" size={14} color={c.textMuted} />
+      </TouchableOpacity>
+
+      <PicklesViewer
+        visible={historyOpen}
+        onClose={() => setHistoryOpen(false)}
+        balance={pickles}
+        onReloadBalance={() => { void load(); }}
+        onOpenCalendar={() => navigation.navigate('PicklesCalendar')}
+      />
 
       <SegmentedToggle
         variant="underline"

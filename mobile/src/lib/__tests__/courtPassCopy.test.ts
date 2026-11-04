@@ -54,14 +54,14 @@ const way = (title: string) => {
 
 describe('the chip and the screen lines', () => {
   it('the chip reads "Court Pass, Tier 7, 22 to next"', () => {
-    const s = { kind: 'running' as const, tier: 7, xpToNext: 22, finished: false, newCount: 0 };
+    const s = { kind: 'running' as const, tier: 7, xpToNext: 22, finished: false, newCount: 0, progress: 0.4 };
     expect(courtPassChipLabel(s)).toBe('Court Pass, Tier 7, 22 to next');
     expect(courtPassChipA11y(s)).toBe('Court Pass, tier 7, 22 pickleballs to the next tier. Open Court Pass');
     expect(courtPassChipA11y({ ...s, xpToNext: 1 })).toMatch(/1 pickleball to the next tier/);
   });
 
   it('a finished pass says so; a new reward is read aloud', () => {
-    const s = { kind: 'running' as const, tier: 30, xpToNext: 0, finished: true, newCount: 1 };
+    const s = { kind: 'running' as const, tier: 30, xpToNext: 0, finished: true, newCount: 1, progress: 0 };
     expect(courtPassChipLabel(s)).toBe('Court Pass, Tier 30, all tiers done');
     expect(courtPassChipA11y(s)).toMatch(/every tier reached\. 1 new reward\./);
     expect(courtPassChipA11y({ ...s, newCount: 3 })).toMatch(/3 new rewards\./);

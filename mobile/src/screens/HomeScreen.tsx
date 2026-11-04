@@ -1,10 +1,10 @@
 // Home (plan section 3): what's yours first, about 660px tall for an active
 // member instead of ~1,590.
 //
-//   top bar ...... PICKLEAGUE            [Saved] [Bell] [Gear]   fixed, 44
-//   greeting ..... (avatar) Hi, Brian ›          🔥 5  🥒 1,240 ›   44
-//   court pass ... (ball) Court Pass · Tier 7 · 22 to next ›  (docs/court-pass.md;
-//                  nothing while loading, on an error or with no pass seeded)
+//   band ......... (avatar) Hi, Brian          [QR] [Bell] [Gear]   44, on the
+//                  look's band colour and texture
+//   stats ........ streak | pickles (the Shop) | My Place, Court Pass bar at
+//                  its foot (components/home/HomeStatCard.tsx)
 //   NOW .......... check-in / prompt / play session / live event (when any)
 //   GET STARTED .. starter quests + guest / DUPR offers (until all claimed)
 //   UP NEXT ...... votes, RSVPs, tournaments, drills, and the requests waiting
@@ -14,7 +14,7 @@
 //                  its next event / open vote, "All my leagues", "My tournaments"
 //                  (components/home/LeagueSpotlight.tsx)
 //     or JOIN A LEAGUE (no league yet): code, browse, 3 leagues with [Join]
-//   quick row .... Record · Play · Drill · Shop · History
+//   quick row .... Record, Leagues, Events, Standings, History
 //   court row .... "At the courts?  Find my court ›" (idle check-in)
 //   FRIENDS AT THE COURTS  friends playing now + YOUR COURTS with their crowd
 //                  (components/home/FriendsAtCourtsSection.tsx)
@@ -48,7 +48,7 @@ import { useFocusEffect, useIsFocused, useRoute, type RouteProp } from '@react-n
 import { setStatusBarStyle } from 'expo-status-bar';
 import { sbCall, currentUserId, friendlySbMessage } from '@just-messin-around/expo-foundation/supabase';
 import { useCachedQuery, setQueryData, peekQuery } from '@just-messin-around/expo-foundation/cache';
-import { AppTopBar, BrandBand, ConfirmModal, ErrorState, Panel, SkeletonList, SectionHeader } from '@just-messin-around/expo-foundation/ui';
+import { AppTopBar, BrandBand, ConfirmModal, ErrorState, Panel, SkeletonList, SectionHeader, SingleSelectModal } from '@just-messin-around/expo-foundation/ui';
 import { rainReward } from '@just-messin-around/expo-foundation/ui/rewardRain';
 import { SPACE } from '@just-messin-around/expo-foundation/styles';
 import { FONT, textStyles } from '@just-messin-around/expo-foundation/typography';
@@ -89,7 +89,7 @@ import {
   StreakResult,
 } from '../lib/loginStreak';
 import { useLeagueJoin, type LeagueJoinedEvent } from '../lib/useLeagueJoin';
-import { openPlayStart, playSession } from '../lib/playSession';
+import { playSession } from '../lib/playSession';
 import { useFtueChecklist } from '../components/FtueChecklistCard';
 import { useIsGuest } from '../components/GuestUpgradeBanner';
 import { useDuprImportOffer } from '../components/DuprImportBanner';
@@ -97,7 +97,7 @@ import CourtCheckinCard, { type CourtCardMode } from '../components/CourtCheckin
 import ClosestUnlocksCard from '../components/ClosestUnlocksCard';
 import { EMPTY_HOME, HOME_KEY, loadHome, type HomeData } from '../components/home/homeData';
 import HomeGreeting from '../components/home/HomeGreeting';
-import CourtPassChip from '../components/home/CourtPassChip';
+import HomeStatCard from '../components/home/HomeStatCard';
 import { useCourtPass } from '../lib/useCourtPass';
 import PicklesViewer from '../components/home/PicklesViewer';
 import GetStartedPanel from '../components/home/GetStartedPanel';
@@ -238,6 +238,8 @@ export default function HomeScreen({ navigation }: Props) {
   // on Android and web, where it is only a short pause.
   const [queue, setQueue] = useState<QueuedModal[]>([]);
   const [codeOpen, setCodeOpen] = useState(false);
+  // Standings with more than one league: which league's table.
+  const [standingsPick, setStandingsPick] = useState(false);
   const [pickerOpen, setPickerOpen] = useState(false);
   // The pickles viewer (the balance's tap): a sheet the user opened, so it holds the queue.
   const [picklesOpen, setPicklesOpen] = useState(false);
@@ -590,18 +592,16 @@ export default function HomeScreen({ navigation }: Props) {
       // Not in a league yet: Join takes Record's tile and opens the code sheet
       // (the same one as JOIN A LEAGUE's [Enter code]).
       case 'join': setCodeOpen(true); break;
-      // Discover (plan §8): Play opens its Leagues tab (the old Play hub's
-      // first tab), the Discover tile its Places tab (the old Courts screen).
-      // With the bottom bar (P1), Play = Doggle's WALK: the ▶ Play sheet
-      // (leagues and tournaments live in Discover).
-      case 'play':
-        if (PLAY_NAV_ENABLED) openPlayStart();
+      case 'leagues': openDiscover(navigation, { tab: 'leagues', mine: true }); break;
+      case 'tournaments': openDiscover(navigation, { tab: 'tournaments', mine: true }); break;
+      // One league: its standings, scrolled to me. Several: pick one first.
+      // None: Discover's leagues, to find one.
+      case 'standings':
+        if (myLeagues.length === 1) {
+          navigation.navigate('SeasonStandings', { leagueId: myLeagues[0].id, leagueName: myLeagues[0].name, focusMe: true });
+        } else if (myLeagues.length > 1) setStandingsPick(true);
         else openDiscover(navigation, { tab: 'leagues' });
         break;
-      case 'courts': openDiscover(navigation, { tab: 'places' }); break;
-      case 'drill': navigation.navigate('Drill'); break;
-      case 'shop': navigation.navigate('Shop'); break;
-      case 'wagers': navigation.navigate('MyWagers'); break;
       // Defaults to this user's own matches, matching where a tapped match push
       // lands (resolvePushTarget in lib/push).
       case 'history': navigation.navigate('MatchHistory', { title: 'Match History', initialMyMatchesOnly: true }); break;
@@ -625,7 +625,8 @@ export default function HomeScreen({ navigation }: Props) {
   // ── Sections (keyed: see the file header) ──
   const sections: React.ReactElement[] = [];
 
-  // The greeting lives in the brand band above the sections (see the render).
+  // The greeting is the brand band's title (see the render); the numbers are
+  // the first card under it.
   const greeting = (
     <HomeGreeting
       variant="band"
@@ -636,15 +637,21 @@ export default function HomeScreen({ navigation }: Props) {
       onStreak={() => { tap('greeting', 'streak'); void openStreak(); }}
     />
   );
-  if (courtPass.summary) {
-    sections.push(
-      <CourtPassChip
-        key="court-pass"
-        summary={courtPass.summary}
-        onPress={() => { tap('greeting', 'court_pass'); navigation.navigate('CourtPass'); }}
-      />,
-    );
-  }
+  sections.push(
+    <HomeStatCard
+      key="stats"
+      streak={claimedStreak ?? data.streak}
+      balance={profile ? profile.pickles ?? 0 : null}
+      courtPass={courtPass.summary}
+      onStreak={() => { tap('greeting', 'streak'); void openStreak(); }}
+      onShop={() => { tap('greeting', 'pickles_shop'); navigation.navigate('Shop'); }}
+      onMyPlace={() => { tap('greeting', 'my_place'); navigation.navigate('MyPlace'); }}
+      onCourtPass={() => { tap('greeting', 'court_pass'); navigation.navigate('CourtPass'); }}
+    />,
+  );
+
+  // Quick tiles, one row of 5, right under the numbers.
+  sections.push(<QuickRow key="quick" showRecord={isMember} onPress={onQuick} />);
 
   // A label-height header (24, not the 32 default) so NOW sits close to its
   // panel without a negative margin. The NOW blocks stay flat siblings: the
@@ -697,8 +704,6 @@ export default function HomeScreen({ navigation }: Props) {
     );
   }
 
-  // Quick tiles, two rows of 3, above the feed.
-  sections.push(<QuickRow key="quick" showRecord={isMember} onPress={onQuick} />);
 
   if (loadFailed) {
     // Only true once a fetch has failed with nothing cached: say so plainly
@@ -853,8 +858,8 @@ export default function HomeScreen({ navigation }: Props) {
         <BrandBand>
           <View style={styles.bandColumn}>
           <AppTopBar
-            // The wordmark in the look's display face, on the band.
-            title={<Text style={[t.h3, { color: c.headerText }]}>Pickleague</Text>}
+            // "Hi, Brian" with the avatar, in the look's display face, on the band.
+            title={greeting}
             // Clear: the brand band behind it is the bar's background.
             style={styles.topBar}
             // The app's web column (AppNavigator's WebMaxWidth).
@@ -876,12 +881,6 @@ export default function HomeScreen({ navigation }: Props) {
                     onPress: () => { tap('top_bar', 'discover'); openDiscover(navigation, { tab: 'places' }); },
                   }]
                 : []),
-              {
-                key: 'saved',
-                icon: 'bookmark',
-                a11yLabel: 'Saved',
-                onPress: () => { tap('top_bar', 'saved'); navigation.navigate('Bookmarks'); },
-              },
               // QR codes live only on the phone (device storage), so web has no wallet.
               ...(Platform.OS === 'web'
                 ? []
@@ -910,7 +909,6 @@ export default function HomeScreen({ navigation }: Props) {
               },
             ]}
           />
-            {greeting}
           </View>
         </BrandBand>
         <View style={styles.content}>{sections}</View>
@@ -925,6 +923,20 @@ export default function HomeScreen({ navigation }: Props) {
         // The kit closes the sheet first, then these run.
         onOpenShop={() => { tap('greeting', 'pickles_shop'); navigation.navigate('Shop'); }}
         onOpenCalendar={() => { tap('greeting', 'pickles_calendar'); navigation.navigate('PicklesCalendar'); }}
+      />
+
+      <SingleSelectModal
+        visible={standingsPick}
+        title="Standings for"
+        items={myLeagues.map(l => ({ id: l.id, name: l.name }))}
+        selectedId={null}
+        searchable={false}
+        onPick={(id) => {
+          setStandingsPick(false);
+          const l = myLeagues.find(x => x.id === id);
+          if (l) navigation.navigate('SeasonStandings', { leagueId: l.id, leagueName: l.name, focusMe: true });
+        }}
+        onClose={() => setStandingsPick(false)}
       />
 
       <JoinCodeModal

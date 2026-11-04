@@ -43,7 +43,6 @@
 // PURE: no React, no Supabase, no clock of its own. The vitest suite is
 // lib/__tests__/pickleagueFeed.test.ts.
 import { dayBandOf, DAY_BAND_TITLE, type DayBandKey } from '@just-messin-around/expo-foundation/scheduling/dayBands';
-import { formatClockTime, formatWeekdayMask } from '@just-messin-around/expo-foundation/scheduling/weekdayMask';
 import { matchPlace, placeNameWords, type KnownPlace } from '@just-messin-around/expo-foundation/places/matchPlace';
 import {
   buildAgenda,
@@ -333,14 +332,6 @@ export function capCourtLines(lines: readonly FeedCourtLine[], cap = COURT_ROWS_
 export function previewRows<T>(rows: readonly T[], n: number, expanded: boolean): { shown: T[]; more: number } {
   const shown = expanded ? [...rows] : rows.slice(0, n);
   return { shown, more: rows.length - shown.length };
-}
-
-/** "My routine: Tue, Thu 9 AM at Lakeside, +1 more", or the way to set one up. */
-export function routineHeaderLine(routines: readonly CourtRoutine[]): string {
-  const on = routines.filter((r) => r.active && r.starred);
-  if (on.length === 0) return 'Set up a routine';
-  const first = `${formatWeekdayMask(on[0].days)} ${formatClockTime(on[0].localTime)} at ${on[0].venueName}`;
-  return on.length === 1 ? `My routine: ${first}` : `My routine: ${first}, +${on.length - 1} more`;
 }
 
 /** The court of mine an item happens at (id, then coordinates, then a name

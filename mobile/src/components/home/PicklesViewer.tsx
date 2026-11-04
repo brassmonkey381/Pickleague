@@ -80,7 +80,8 @@ type Props = {
   balanceError?: unknown;
   /** Try again for the balance (Home's reload). */
   onReloadBalance?: () => void;
-  onOpenShop: () => void;
+  /** "Open the Shop"; left out inside the Shop itself. */
+  onOpenShop?: () => void;
   onOpenCalendar: () => void;
   onDismissed?: () => void;
 };

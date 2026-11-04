@@ -30,6 +30,7 @@ import { useBootLook } from '../lib/fonts';
 import { DayBands, dayBandDate, dayBandTile } from '@just-messin-around/expo-foundation/ui/feed';
 import HomeGreeting from '../components/home/HomeGreeting';
 import QuickRow from '../components/home/QuickRow';
+import HomeStatCard from '../components/home/HomeStatCard';
 import type { Profile } from '../types';
 
 const PEOPLE = [
@@ -53,25 +54,36 @@ function Lab() {
     <ScrollView style={{ flex: 1 }} contentContainerStyle={{ paddingBottom: 120 }}>
       <BrandBand>
         <AppTopBar
-          title={<Text style={[t.h3, { color: c.headerText }]}>Pickleague</Text>}
+          title={
+            <HomeGreeting
+              variant="band"
+              profile={{ full_name: 'Brian Lab', pickles: 53601 } as unknown as Profile}
+              streak={11}
+              onProfile={() => {}}
+              onBalance={() => {}}
+              onStreak={() => {}}
+            />
+          }
           style={{ backgroundColor: 'transparent' }}
           iconSize={24}
           iconColor={c.headerText}
           actions={[
+            { key: 'qr', icon: 'ticket', a11yLabel: 'QR wallet', onPress: () => {} },
             { key: 'bell', icon: 'bell', a11yLabel: 'Notifications', badge: 2, onPress: () => {} },
             { key: 'gear', icon: 'gear', a11yLabel: 'Settings', onPress: () => {} },
           ]}
         />
-        <HomeGreeting
-          variant="band"
-          profile={{ full_name: 'Brian Lab', pickles: 53601 } as unknown as Profile}
-          streak={11}
-          onProfile={() => {}}
-          onBalance={() => {}}
-          onStreak={() => {}}
-        />
       </BrandBand>
       <View style={{ padding: 16, gap: 14 }}>
+      <HomeStatCard
+        streak={12}
+        balance={52791}
+        courtPass={{ kind: 'running', tier: 1, xpToNext: 15, finished: false, newCount: 1, progress: 0.4 }}
+        onStreak={() => {}}
+        onShop={() => {}}
+        onMyPlace={() => {}}
+        onCourtPass={() => {}}
+      />
       <QuickRow showRecord onPress={() => {}} />
       <Panel>
         <DayBands
