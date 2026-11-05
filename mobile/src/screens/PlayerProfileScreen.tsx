@@ -1,8 +1,11 @@
-// Another player's profile (plan section 8, P6: "row header, merged badges,
-// Leagues in common"). Order:
-//   1. Row header   avatar 64 beside name / @username · matches / tagline, then
-//                   one chip row (DUPR, tags +N) with Share · Save · ⋯ at its end,
-//                   then Add friend (FriendButton; friends at the courts only)
+// Another player's profile (plan section 8, P6; the redesign, 2026-11-04).
+// Order:
+//   1. Player card  the same card as your own Profile (components/profile/
+//                   PlayerCard), read-only: "SINCE MAR 2021" (or PICKLEAGUE
+//                   PLAYER), share their link, avatar, name, @username and
+//                   tagline, DUPR and tag chips (+N), then Matches | Badges
+//                   (or Private) | Together (leagues in common; not on yourself)
+//      then Add friend (FriendButton) beside Save and the menu (report, block)
 //   2. Quick row    [Head-to-head] (not on yourself) [Match history]
 //   3. Chemistry    your doubles chemistry together, when you've partnered
 //   4. Leagues in common  rows -> LeagueDetail (hidden when none / yourself)
@@ -10,10 +13,10 @@
 //                   left out), View all / a medal -> their Achievements page
 import React, { useState, useCallback, useMemo } from 'react';
 import {
-  View, Text, ScrollView, StyleSheet, TouchableOpacity,
+  View, Text, ScrollView, StyleSheet, TouchableOpacity, Platform,
 } from 'react-native';
 import { CachedImage } from '@just-messin-around/expo-foundation/ui/CachedImage';
-import { Panel, SectionHeader, Chip, ErrorState } from '@just-messin-around/expo-foundation/ui';
+import { Panel, SectionHeader, ErrorState } from '@just-messin-around/expo-foundation/ui';
 import { Icon } from '@just-messin-around/expo-foundation/icons';
 import { Button } from '@just-messin-around/expo-foundation/forms';
 import { SPACE, RADIUS, HAIRLINE, SMALL_TEXT_MAX_SCALE } from '@just-messin-around/expo-foundation/styles';
@@ -39,7 +42,11 @@ import LeagueRow, { LeagueRowRole } from '../components/LeagueRow';
 import { AVATARS, PLAY_TAGS } from '../data/profileCustomization';
 import { computeChemistry, fmtDelta, chemistryColor, DoublesMatch } from '../lib/chemistry';
 import BookmarkButton from '../components/BookmarkButton';
-import ShareLinkButton from '../components/ShareLinkButton';
+import PlayerCard from '../components/profile/PlayerCard';
+import { sinceLabel } from '../lib/playingSince';
+import { shareInvite } from '../lib/share';
+import { useToast } from '../lib/useToast';
+import { setClipboard } from '@just-messin-around/expo-foundation/platform';
 import PlayerModerationMenu from '../components/PlayerModerationMenu';
 import ClaimAccountButton from '../components/ClaimAccountButton';
 import FriendButton from '../components/FriendButton';
@@ -74,6 +81,7 @@ export default function PlayerProfileScreen({ navigation, route }: Props) {
   const { colors } = useTheme();
   const t = textStyles(colors);
   const styles = makeStyles(colors);
+  const toast = useToast();
   const [profile, setProfile]             = useState<Profile | null>(null);
   // "+N" on the tag row expands it to every tag; "Show less" folds it back.
   const [tagsExpanded, setTagsExpanded]   = useState(false);
@@ -279,22 +287,40 @@ export default function PlayerProfileScreen({ navigation, route }: Props) {
   const tagsShown = tagsExpanded ? tagLabels : tagLabels.slice(0, TAG_CHIPS_SHOWN);
   const isOther = !!meId && meId !== userId;
 
+  // The card's share: their player link, which unfurls into their card (as
+  // ShareLinkButton does: web copies it, phones open the share sheet).
+  async function shareProfile() {
+    if (!profile) return;
+    const url = `https://www.pickleague.club/players/${userId}`;
+    try {
+      if (Platform.OS === 'web') {
+        await setClipboard(url);
+        toast.success('Link copied');
+      } else {
+        const res = await shareInvite({ title: profile.full_name, message: `${profile.full_name} on Pickleague`, url });
+        if (res.copied) toast.success('Link copied');
+      }
+    } catch {
+      // Sheet dismissed or clipboard blocked: nothing to undo.
+    }
+  }
+
   const shownCommon = showAllCommon ? commonLeagues : commonLeagues.slice(0, COMMON_CAP);
   const commonHidden = commonLeagues.length - shownCommon.length;
 
   return (
     <ScrollView contentContainerStyle={styles.container} refreshControl={<AppRefreshControl {...refresh} />}>
-      {/* ── 1. Row header ─────────────────────────────────────── */}
-      <View style={styles.identity}>
-        {profile.avatar_url ? (
-          <CachedImage source={{ uri: profile.avatar_url }} style={styles.avatar} />
+      {/* ── 1. Player card: the same card as your own Profile, read-only.
+          PLUPR stays off it (kept inside each league). ──────────────── */}
+      <PlayerCard
+        avatar={profile.avatar_url ? (
+          <CachedImage source={{ uri: profile.avatar_url }} style={styles.cardAvatar} />
         ) : (
-          <View style={[styles.avatar, { backgroundColor: avatarDef.bgColor }]}>
+          <View style={[styles.cardAvatar, { backgroundColor: avatarDef.bgColor }]}>
             <Text style={styles.avatarEmoji}>{avatarDef.emoji}</Text>
           </View>
         )}
-        <View style={styles.identityText}>
-          {/* TODO: smoke-test in browser — hero mode FlairName wire-up */}
+        name={(
           <FlairName
             style={styles.fullName}
             nameColor={profile.name_color}
@@ -303,51 +329,48 @@ export default function PlayerProfileScreen({ navigation, route }: Props) {
             name={profile.full_name}
             numberOfLines={1}
           />
-          <Text style={t.sub} numberOfLines={1}>
-            @{profile.username}{matchCount > 0 ? `, ${matchCount} ${matchCount === 1 ? 'match' : 'matches'}` : ''}
-          </Text>
-          {profile.tagline ? <Text style={[t.sub, styles.tagline]} numberOfLines={1}>{profile.tagline}</Text> : null}
-        </View>
-      </View>
+        )}
+        handle={[`@${profile.username}`, profile.tagline || null].filter(Boolean).join(', ')}
+        since={sinceLabel(profile.playing_since)}
+        // The one place a linked DUPR profile is visible (the claim flow's
+        // confirmation surface), first among the tags.
+        tags={[...(profile.dupr_id ? [`DUPR ${profile.dupr_id}`] : []), ...tagsShown]}
+        tagToggle={tagOverflow > 0 ? {
+          label: tagsExpanded ? 'Show less' : `+${tagOverflow}`,
+          a11y: tagsExpanded ? 'Show fewer tags' : `Show ${tagOverflow} more tags`,
+          onPress: () => setTagsExpanded(v => !v),
+        } : null}
+        stats={[
+          {
+            value: matchCount.toLocaleString(),
+            label: 'Matches',
+            a11y: `${matchCount} matches. Open their match history`,
+            onPress: () => navigation.navigate('MatchHistory', { userId, title: `${profile.full_name}'s History` }),
+          },
+          {
+            value: badgesPublic ? String(medalCount) : 'Private',
+            label: 'Badges',
+            a11y: badgesPublic ? `${medalCount} badges. Open their achievements` : 'Badges are private',
+            onPress: badgesPublic ? () => openAchievements() : undefined,
+          },
+          ...(isOther ? [{
+            value: String(commonLeagues.length),
+            label: 'Together',
+            a11y: `${commonLeagues.length} leagues in common`,
+          }] : []),
+        ]}
+        onShare={() => { void shareProfile(); }}
+      />
 
       {/* Seeded from a DUPR roster and not yet claimed? Offer to claim it.
           Self-hides for every normal profile. */}
       <ClaimAccountButton profileId={userId} isUnclaimed={profile.is_unclaimed} />
 
       <View style={styles.chipRow}>
-        <View style={styles.chips}>
-          {/* The one place a linked DUPR profile is visible. Until this existed the
-              claim flow had no confirmation surface at all — profiles.dupr_id was
-              written and never shown. */}
-          {profile.dupr_id ? (
-            <Chip label={`DUPR ${profile.dupr_id}`} tone="neutral" size="sm" align="center" maxFontSizeMultiplier={SMALL_TEXT_MAX_SCALE} />
-          ) : null}
-          {tagsShown.map(label => (
-            <Chip key={label} label={label} tone="brand" size="sm" align="center" maxFontSizeMultiplier={SMALL_TEXT_MAX_SCALE} />
-          ))}
-          {tagOverflow > 0 ? (
-            <Chip
-              label={tagsExpanded ? 'Show less' : `+${tagOverflow}`}
-              tone="neutral"
-              size="sm"
-              align="center"
-              hitBox
-              onPress={() => setTagsExpanded(v => !v)}
-              accessibilityRole="button"
-              accessibilityLabel={tagsExpanded ? 'Show fewer tags' : `Show ${tagOverflow} more tags`}
-              maxFontSizeMultiplier={SMALL_TEXT_MAX_SCALE}
-            />
-          ) : null}
-        </View>
+        {/* Add friend / Requested / Accept / Friends (renders nothing on
+            yourself, unclaimed placeholders, or while friends are off). */}
+        <FriendButton userId={userId} meId={meId} profile={profile} style={styles.friendInRow} />
         <View style={styles.utilities}>
-          {/* The player URL unfurls into their OG card, which mirrors this
-              screen's public view and honours badges_public / hidden badges. */}
-          <ShareLinkButton
-            url={`https://www.pickleague.club/players/${userId}`}
-            title={profile.full_name}
-            message={`${profile.full_name} on Pickleague`}
-            style={styles.shareBtn}
-          />
           <BookmarkButton targetType="profile" targetId={userId} style={styles.box44} />
           {/* Report / block. Hides itself on your own profile. */}
           <PlayerModerationMenu
@@ -365,10 +388,6 @@ export default function PlayerProfileScreen({ navigation, route }: Props) {
           />
         </View>
       </View>
-
-      {/* Add friend / Requested / Accept / Friends (renders nothing on
-          yourself, unclaimed placeholders, or while friends are off). */}
-      <FriendButton userId={userId} meId={meId} profile={profile} style={styles.friendRow} />
 
       {/* God mode only: mark this account as a test account (renders nothing
           for everyone else, or on yourself). */}
@@ -519,6 +538,7 @@ function makeStyles(c: ReturnType<typeof useTheme>['colors']) {
     identityText: { flex: 1, minWidth: 0, gap: SPACE.xxs },
     avatar:       { width: AVATAR, height: AVATAR, borderRadius: RADIUS.pill, alignItems: 'center', justifyContent: 'center' },
     avatarEmoji:  { fontSize: 34 },
+    cardAvatar:   { width: '100%', height: '100%', alignItems: 'center', justifyContent: 'center' },
     fullName:     { fontSize: FONT.size.h2, fontWeight: FONT.weight.bold, color: c.text },
     tagline:      { fontStyle: 'italic' },
 
@@ -528,6 +548,7 @@ function makeStyles(c: ReturnType<typeof useTheme>['colors']) {
     utilities: { flexDirection: 'row', alignItems: 'center', gap: SPACE.xs },
     shareBtn:  { alignSelf: 'center' },
     friendRow: { marginBottom: SPACE.xs },
+    friendInRow: { flex: 1 },
 
     quickRow: { flexDirection: 'row', gap: SPACE.sm, marginBottom: SPACE.sm },
     quickBtn: { flexGrow: 1 },

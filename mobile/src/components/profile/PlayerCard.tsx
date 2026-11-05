@@ -12,7 +12,8 @@
 //     (the look's edge colour, offset behind the card)
 //
 // "Since" is when the player started playing pickleball (PlayingSinceSheet),
-// not when they joined. The strip is the look's band and texture (BrandBand).
+// not when they joined. Another player's card (PlayerProfile) is read-only:
+// no edit, and "Since" only shows ("PICKLEAGUE PLAYER" when unset). The strip is the look's band and texture (BrandBand).
 // Badges opens Achievements and carries the tour's 'rewards' anchor; pickles
 // open the Shop.
 import React from 'react';
@@ -39,8 +40,10 @@ type Props = {
   /** A "+2" / "Show less" chip after the tags, when some are hidden. */
   tagToggle?: { label: string; a11y: string; onPress: () => void } | null;
   stats: Stat[];
-  onEdit: () => void;
-  onSince: () => void;
+  /** Your own card only: the avatar and the pencil open the Edit sheet. */
+  onEdit?: () => void;
+  /** Your own card only: "Since" opens its picker (another player's is read-only). */
+  onSince?: () => void;
   onShare: () => void;
   /** The tour's 'profile/edit' anchor sits on the avatar. */
   editAnchorRef?: React.RefObject<View | null>;
@@ -65,17 +68,25 @@ export default function PlayerCard({
       <View style={[S.card, { backgroundColor: c.surface, borderColor: edge, borderRadius: radius }]}>
         <BrandBand style={S.strip}>
           <View style={S.stripRow}>
-            <TouchableOpacity
-              style={S.since}
-              onPress={onSince}
-              accessibilityRole="button"
-              accessibilityLabel={since ? `${since.toLowerCase()}. Change when you started playing` : 'Add when you started playing'}
-            >
-              <Text style={[t.label, S.sinceText, { color: ink }]} maxFontSizeMultiplier={SMALL_TEXT_MAX_SCALE}>
-                {since ?? 'ADD WHEN YOU STARTED'}
-              </Text>
-              <Icon name={since ? 'edit' : 'plus'} size={12} color={ink} />
-            </TouchableOpacity>
+            {onSince ? (
+              <TouchableOpacity
+                style={S.since}
+                onPress={onSince}
+                accessibilityRole="button"
+                accessibilityLabel={since ? `${since.toLowerCase()}. Change when you started playing` : 'Add when you started playing'}
+              >
+                <Text style={[t.label, S.sinceText, { color: ink }]} maxFontSizeMultiplier={SMALL_TEXT_MAX_SCALE}>
+                  {since ?? 'ADD WHEN YOU STARTED'}
+                </Text>
+                <Icon name={since ? 'edit' : 'plus'} size={12} color={ink} />
+              </TouchableOpacity>
+            ) : (
+              <View style={S.since}>
+                <Text style={[t.label, S.sinceText, { color: ink }]} maxFontSizeMultiplier={SMALL_TEXT_MAX_SCALE}>
+                  {since ?? 'PICKLEAGUE PLAYER'}
+                </Text>
+              </View>
+            )}
             <TouchableOpacity style={S.iconBox} onPress={onShare} accessibilityRole="button" accessibilityLabel="Share your player card">
               <Icon name="share" size={18} color={ink} />
             </TouchableOpacity>
@@ -87,9 +98,10 @@ export default function PlayerCard({
             ref={editAnchorRef as React.RefObject<View>}
             onLayout={onEditLayout}
             onPress={onEdit}
+            disabled={!onEdit}
             activeOpacity={0.8}
-            accessibilityRole="button"
-            accessibilityLabel="Edit profile"
+            accessibilityRole={onEdit ? 'button' : 'image'}
+            accessibilityLabel={onEdit ? 'Edit profile' : 'Avatar'}
             style={[S.frame, { borderColor: edge, borderRadius: Math.min(radius, 12), backgroundColor: c.surface }]}
           >
             {avatar}
@@ -98,9 +110,11 @@ export default function PlayerCard({
             {name}
             {handle ? <Text style={t.sub} numberOfLines={1}>{handle}</Text> : null}
           </View>
-          <TouchableOpacity style={S.iconBox} onPress={onEdit} accessibilityRole="button" accessibilityLabel="Edit profile">
-            <Icon name="edit" size={16} color={c.textSub} />
-          </TouchableOpacity>
+          {onEdit ? (
+            <TouchableOpacity style={S.iconBox} onPress={onEdit} accessibilityRole="button" accessibilityLabel="Edit profile">
+              <Icon name="edit" size={16} color={c.textSub} />
+            </TouchableOpacity>
+          ) : null}
         </View>
 
         {tags.length > 0 || tagToggle ? (
