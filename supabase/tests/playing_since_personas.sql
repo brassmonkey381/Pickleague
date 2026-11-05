@@ -115,8 +115,9 @@ begin
   -- P5 signed out: no execute
   perform pg_temp.as_anon();
   e := pg_temp.err($q$ select public.set_playing_since(date '2020-01-01') $q$);
-  perform pg_temp.ok('P5 anon refused', e is not null, e::text);
+  -- Back to admin first: anon can't write the results table.
   perform pg_temp.as_admin();
+  perform pg_temp.ok('P5 anon refused', e is not null, e::text);
 
   -- P6 grants survive the hardening re-run
   perform pg_temp.ok('P6 authenticated can execute',
