@@ -1,8 +1,10 @@
 // Your own Profile as a collectible player card (the redesign's option E, the
 // user's pick 2026-11-04):
 //
-//   ┌ textured strip ── SINCE MAR 2021 ✎ ──────────────── (share) ┐
+//   ┌ textured strip ─────────────────── SINCE MAR 2021 ✎  (share) ┐
 //   │ [avatar]  Brian Stockman                                  ✎ │
+//   (only the avatar rises into the strip; the name starts below it, and
+//   "Since" sits at the right, clear of the avatar)
 //   │           @brian, Dink first                                │
 //   │ [3.5 player] [Mornings] [+2]                                │
 //   ├┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┤
@@ -108,7 +110,7 @@ export default function PlayerCard({
           </TouchableOpacity>
           <View style={S.nameCol}>
             {name}
-            {handle ? <Text style={t.sub} numberOfLines={1}>{handle}</Text> : null}
+            {handle ? <Text style={t.sub} numberOfLines={2}>{handle}</Text> : null}
           </View>
           {onEdit ? (
             <TouchableOpacity style={S.iconBox} onPress={onEdit} accessibilityRole="button" accessibilityLabel="Edit profile">
@@ -167,13 +169,15 @@ const S = StyleSheet.create({
   lift: { marginRight: 3, marginBottom: 3 },
   card: { borderWidth: 2, overflow: 'hidden' },
   strip: { height: STRIP },
-  stripRow: { flexDirection: 'row', alignItems: 'center', height: STRIP, paddingLeft: SPACE.md },
-  since: { flex: 1, flexDirection: 'row', alignItems: 'center', gap: SPACE.xs, minHeight: 44 },
+  // Left is the avatar's: "Since" and Share sit at the right.
+  stripRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'flex-end', height: STRIP, paddingLeft: AVATAR + SPACE.md * 2 },
+  since: { flexShrink: 1, flexDirection: 'row', alignItems: 'center', gap: SPACE.xs, minHeight: 44 },
   sinceText: { letterSpacing: 1.2 },
   iconBox: { width: 44, height: 44, alignItems: 'center', justifyContent: 'center' },
-  who: { flexDirection: 'row', alignItems: 'flex-end', gap: SPACE.md, paddingHorizontal: SPACE.md, marginTop: -AVATAR / 2.5 },
-  frame: { width: AVATAR, height: AVATAR, borderWidth: 2, overflow: 'hidden', alignItems: 'center', justifyContent: 'center' },
-  nameCol: { flex: 1, minWidth: 0, paddingBottom: SPACE.xxs },
+  who: { flexDirection: 'row', alignItems: 'flex-start', gap: SPACE.md, paddingHorizontal: SPACE.md },
+  // Only the avatar rises into the strip.
+  frame: { width: AVATAR, height: AVATAR, marginTop: -AVATAR / 2, borderWidth: 2, overflow: 'hidden', alignItems: 'center', justifyContent: 'center' },
+  nameCol: { flex: 1, minWidth: 0, paddingTop: SPACE.sm },
   tags: { flexDirection: 'row', flexWrap: 'wrap', gap: SPACE.xs, paddingHorizontal: SPACE.md, paddingTop: SPACE.sm },
   stats: { flexDirection: 'row', marginTop: SPACE.md, borderTopWidth: HAIRLINE, borderStyle: 'dashed' },
   stat: { flex: 1, minWidth: 0, minHeight: 56, alignItems: 'center', justifyContent: 'center', paddingVertical: SPACE.sm },

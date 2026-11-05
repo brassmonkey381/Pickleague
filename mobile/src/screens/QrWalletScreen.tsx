@@ -213,7 +213,7 @@ export default function QrWalletScreen({ navigation }: Props) {
 
       {passes.length === 0 && !adding ? (
         <EmptyState
-          iconName="ticket"
+          iconName="qr"
           title="No QR codes yet"
           subtitle="Add the code your club asks for, and pick its court."
           actionLabel="Add a QR code"

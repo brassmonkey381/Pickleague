@@ -70,7 +70,7 @@ function Lab() {
           iconSize={24}
           iconColor={c.headerText}
           actions={[
-            { key: 'qr', icon: 'ticket', a11yLabel: 'QR wallet', onPress: () => {} },
+            { key: 'qr', icon: 'qr', a11yLabel: 'QR wallet', onPress: () => {} },
             { key: 'bell', icon: 'bell', a11yLabel: 'Notifications', badge: 2, onPress: () => {} },
             { key: 'gear', icon: 'gear', a11yLabel: 'Settings', onPress: () => {} },
           ]}

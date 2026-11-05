@@ -9,9 +9,10 @@
 //                   Pickles (the Shop).
 //   2. Tabs         Play: Matches, Play history (its List | Calendar holds
 //                   the old Calendar), Drills (holds Availability), Routine.
-//                   Collection: next unlock, Achievements, My Place, Paddle,
-//                   Inventory. People: Friends, Invite and earn, Doubles
+//                   Collection: one card of next unlock, Achievements, Edit
+//                   my place, Paddle and Inventory. People: Friends, Invite and earn, Doubles
 //                   chemistry.
+//   3. My Place     my room, read-only, under every tab (MyPlacePreview).
 // Coming up is gone (the Pickleague Feed on Home has it), and so is the
 // Availability section (its own page, from Drills). PLUPR stays off the
 // profile: it is kept inside each league.
@@ -26,10 +27,11 @@ import {
 import { setClipboard } from '@just-messin-around/expo-foundation/platform';
 import { shareInvite } from '../lib/share';
 import PlayerCard from '../components/profile/PlayerCard';
+import MyPlacePreview from '../components/myPlace/MyPlacePreview';
 import PlayingSinceSheet from '../components/profile/PlayingSinceSheet';
 import { sinceLabel } from '../lib/playingSince';
 import { CachedImage } from '@just-messin-around/expo-foundation/ui/CachedImage';
-import { Panel, CollapsibleSection, ListCard, TextLink, SegmentedToggle, ShortcutGrid } from '@just-messin-around/expo-foundation/ui';
+import { Panel, CollapsibleSection, ListCard, ListGroup, TextLink, SegmentedToggle, ShortcutGrid } from '@just-messin-around/expo-foundation/ui';
 import { Icon, IconValue, EmojiGlyph } from '@just-messin-around/expo-foundation/icons';
 import InviteEarnSection from '../components/referrals/InviteEarnSection';
 import { Button } from '@just-messin-around/expo-foundation/forms';
@@ -841,9 +843,12 @@ export default function ProfileScreen({ navigation }: Props) {
 
       {tab === 'collection' ? (
         <View style={styles.reference}>
-          <Panel padded={false} style={[styles.block, styles.clip]}>
+          {/* One card: the strips, then Paddle and Inventory as its last rows
+              (ListGroup draws the dividers). */}
+          <ListGroup style={styles.block}>
             <ListCard
               variant="row"
+              lastRow
               minHeight={STRIP_HEIGHT}
               leading={<Icon name="lock-open" size={18} color={colors.primary} />}
               title={unlock?.kind === 'next' ? (
@@ -866,6 +871,7 @@ export default function ProfileScreen({ navigation }: Props) {
             />
           <ListCard
             variant="row"
+            lastRow
             minHeight={STRIP_HEIGHT}
             leading={<Icon name="medal" size={18} color={colors.primary} />}
             // The count sits in the title: a ListCard `trailing` replaces the chevron
@@ -886,15 +892,15 @@ export default function ProfileScreen({ navigation }: Props) {
             lastRow
             minHeight={STRIP_HEIGHT}
             leading={<Icon name="home" size={18} color={colors.primary} />}
-            title={<Text style={styles.stripLabel} numberOfLines={1}>My Place</Text>}
+            title={<Text style={styles.stripLabel} numberOfLines={1}>Edit my place</Text>}
             chevron
             onPress={() => navigation.navigate('MyPlace')}
             accessibilityRole="button"
-            accessibilityLabel="My Place, your room"
+            accessibilityLabel="Edit my place"
           />
-          </Panel>
           <CollapsibleSection
             compact
+            grouped
             iconName="paddle"
             title="Paddle"
             summary={paddleSummary}
@@ -924,6 +930,7 @@ export default function ProfileScreen({ navigation }: Props) {
           {shopPurchases.length > 0 && (
             <CollapsibleSection
               compact
+              grouped
               iconName="bag"
               title="Inventory"
               count={shopPurchases.length}
@@ -1067,6 +1074,7 @@ export default function ProfileScreen({ navigation }: Props) {
               )}
             </CollapsibleSection>
           )}
+          </ListGroup>
         </View>
       ) : null}
 
@@ -1123,6 +1131,10 @@ export default function ProfileScreen({ navigation }: Props) {
           )}
         </View>
       ) : null}
+
+      {/* My room, read-only, under every tab: people see their place here
+          (the user, 2026-11-04). A tap opens My Place to edit it. */}
+      {userId ? <MyPlacePreview userId={userId} onOpen={() => navigation.navigate('MyPlace')} /> : null}
 
     </ScrollView>
 

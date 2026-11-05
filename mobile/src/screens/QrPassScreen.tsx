@@ -75,7 +75,7 @@ function SavedPass({ navigation, route }: Props) {
     return (
       <View style={styles.missing}>
         <EmptyState
-          iconName="ticket"
+          iconName="qr"
           title="This QR code isn't on this phone"
           subtitle="It was removed, or saved while signed in to another account."
           actionLabel="Open QR wallet"

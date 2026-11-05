@@ -886,7 +886,7 @@ export default function HomeScreen({ navigation }: Props) {
                 ? []
                 : [{
                     key: 'wallet',
-                    icon: 'ticket' as const,
+                    icon: 'qr' as const,
                     a11yLabel: 'QR wallet',
                     onPress: () => { tap('top_bar', 'wallet'); navigation.navigate('QrWallet'); },
                   }]),
