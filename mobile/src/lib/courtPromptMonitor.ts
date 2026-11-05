@@ -9,7 +9,8 @@
 // one without gets a fixed 100 m. An older saved distance only means on.)
 // One prompt per court per 2 hours from here. A starred court the geofence
 // saw me arrive at in the last 2 hours is left to it (native, automatic
-// check-in on), so that arrival doesn't also get a prompt. Its prompts show
+// check-in on), so that arrival doesn't also get a prompt; so is a nearby
+// court while "Check me in without asking" is on. Its prompts show
 // while the app is open (lib/push), unlike Doggle's: this scan runs only then,
 // so hidden they would never be seen. At a court with a saved QR code
 // (lib/qrWallet, "Show these codes when I arrive" on) the prompt is the QR
@@ -26,7 +27,7 @@ import { getForegroundLocationStatus } from '@just-messin-around/expo-foundation
 import { playSession } from './playSession';
 import { arrivedRecently, promptCourtFromMonitor } from './courtArrival';
 import { courtRegionInfo, isStarredCourtRegion } from './courtGeofence';
-import { MONITOR_COOLDOWN_MS, OTHER_COURTS_ON_M, otherCourtsOn, STARRED_CIRCLE_M } from './courtArrivalRules';
+import { MONITOR_COOLDOWN_MS, OTHER_COURTS_ON_M, otherCourtsAuto, otherCourtsOn, STARRED_CIRCLE_M } from './courtArrivalRules';
 import { traceArrival } from './courtArrivalTrace';
 import { courtPromptScan, loadCourtArrivalSettings } from '../data/courtArrival';
 
@@ -94,10 +95,15 @@ export async function courtPromptTick(): Promise<void> {
     if (!settings) return;
     const starRadius = settings.court_radius_m > 0 ? STARRED_CIRCLE_M : 0;
     const otherRadius = otherCourtsOn(settings) ? OTHER_COURTS_ON_M : 0;
-    // A starred court the geofence just handled (native, automatic check-in on).
+    // A court the geofence just handled (native, automatic check-in on): a
+    // starred one, or a nearby one with "Check me in without asking".
     const autoStar = Platform.OS !== 'web' && starRadius > 0 && settings.auto_checkin !== false;
+    const autoNearby = Platform.OS !== 'web' && otherCourtsAuto(settings);
     const leftToGeofence = async (id: string) =>
-      autoStar && (await isStarredCourtRegion(id)) && (await arrivedRecently(id));
+      (autoStar || autoNearby) &&
+      (await arrivedRecently(id)) &&
+      ((autoStar && (await isStarredCourtRegion(id))) ||
+        (autoNearby && (await courtRegionInfo(id).catch(() => null))?.nearby === true));
 
     const loc = await readPosition();
     if (!loc) return;

@@ -594,6 +594,7 @@ describe('settings', () => {
     ).toEqual({
       court_radius_m: 250,
       other_court_radius_m: 0,
+      other_court_auto: false,
       auto_checkin: false,
       auto_checkin_set_at: '2026-10-20T00:00:00Z',
       departure_reminder: true,

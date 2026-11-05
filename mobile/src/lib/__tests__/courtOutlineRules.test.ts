@@ -7,6 +7,8 @@ import {
   isOutlineGeometry,
   MAX_REGION_RADIUS_M,
   nearbyCandidates,
+  normalizeCourtArrivalSettings,
+  otherCourtsAuto,
   otherCourtsOn,
   PL_OUTLINE_RULE,
   type ArrivalFacts,
@@ -80,7 +82,7 @@ describe('the outline gate (decideOutlineGate)', () => {
 });
 
 describe('a nearby court in a spare slot (decideArrival)', () => {
-  it('asks on a real arrival, never queues a check-in', () => {
+  it('asks on a real arrival while "Check me in without asking" is off', () => {
     expect(decideArrival(facts())).toEqual({ mark: true, action: 'prompt' });
   });
 
@@ -96,6 +98,22 @@ describe('a nearby court in a spare slot (decideArrival)', () => {
 
   it('unreadable settings: asks (it was only fenced with the switch on)', () => {
     expect(decideArrival(facts({ settings: null }))).toEqual({ mark: true, action: 'prompt' });
+  });
+
+  it('"Check me in without asking" on: queues, as at a starred court', () => {
+    const auto = settings({ other_court_radius_m: 100, other_court_auto: true });
+    expect(decideArrival(facts({ settings: auto }))).toEqual({ mark: true, action: 'queue' });
+    // Who sees me not chosen: asks, and says why.
+    expect(decideArrival(facts({ settings: auto, consent: 'no' }))).toEqual({
+      mark: true,
+      action: 'prompt',
+      reason: 'no_consent',
+    });
+    // The same quiet cases still win.
+    expect(decideArrival(facts({ settings: auto, arrival: false }))).toMatchObject({ action: 'quiet' });
+    expect(decideArrival(facts({ settings: auto, playSessionActive: true }))).toMatchObject({ action: 'quiet' });
+    // "Starred courts" switch off doesn't matter here.
+    expect(decideArrival(facts({ settings: { ...auto, auto_checkin: false } }))).toMatchObject({ action: 'queue' });
   });
 });
 
@@ -119,5 +137,16 @@ describe('the three switches', () => {
   it('"Ask me when I\'m at other courts" is any saved distance', () => {
     expect(otherCourtsOn(settings())).toBe(false);
     expect(otherCourtsOn(settings({ other_court_radius_m: 250 }))).toBe(true);
+  });
+
+  it('"Check me in without asking" only counts while asking is on', () => {
+    expect(otherCourtsAuto(settings({ other_court_auto: true }))).toBe(false);
+    expect(otherCourtsAuto(settings({ other_court_radius_m: 100, other_court_auto: true }))).toBe(true);
+    expect(otherCourtsAuto(settings({ other_court_radius_m: 100 }))).toBe(false);
+  });
+
+  it('an older server without other_court_auto reads as off', () => {
+    expect(normalizeCourtArrivalSettings({ other_court_radius_m: 100 }).other_court_auto).toBe(false);
+    expect(normalizeCourtArrivalSettings({ other_court_auto: true }).other_court_auto).toBe(true);
   });
 });

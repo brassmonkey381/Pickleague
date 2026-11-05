@@ -82,6 +82,7 @@ export async function setCourtArrivalSettings(p: {
   otherRadiusM?: number;
   auto?: boolean;
   departure?: boolean;
+  otherAuto?: boolean;
 }): Promise<CourtArrivalSettings> {
   const s = normalizeCourtArrivalSettings(
     await sbCall(
@@ -91,6 +92,8 @@ export async function setCourtArrivalSettings(p: {
           p_other_radius_m: p.otherRadiusM ?? null,
           p_auto: p.auto ?? null,
           p_departure: p.departure ?? null,
+          // Only when set: a server without migration_other_courts_auto_checkin.sql has no such argument.
+          ...(p.otherAuto === undefined ? {} : { p_other_auto: p.otherAuto }),
         }),
       BOUND,
     ),

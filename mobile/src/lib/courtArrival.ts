@@ -74,6 +74,7 @@ import {
   exitCancels,
   NAME_LOOKUP_TIMEOUT_MS,
   NEARBY_PROMPT_TITLE,
+  otherCourtsAuto,
   nearbyPromptBody,
   PREFS_LOOKUP_TIMEOUT_MS,
   PROMPT_COVERS_ARRIVAL_MS,
@@ -409,12 +410,18 @@ export async function handleCourtArrival(
     // Only a starred (or nearby) court needs the rest; the rules don't read them otherwise.
     const starred = info?.starred === true;
     const asks = starred || info?.nearby === true;
+    // Who-sees-me matters wherever an arrival can check me in: a starred court,
+    // or a nearby one with "Check me in without asking" (read before consent).
+    const settingsP = asks ? settingsOrNull() : Promise.resolve(null);
+    const mayQueue = settingsP.then((s) => starred || (!!s && otherCourtsAuto(s)));
     const [settings, recently, session, consent, walletThrottled, routine] = await Promise.all([
-      asks ? settingsOrNull() : Promise.resolve(null),
+      settingsP,
       starred && !opts.arrival ? arrivedRecently(regionId) : Promise.resolve(false),
       asks && opts.arrival ? playSessionRunning() : Promise.resolve(false),
-      starred && opts.arrival
-        ? withTimeout(presenceConsentState(), NAME_LOOKUP_TIMEOUT_MS).catch(() => 'unknown' as const)
+      opts.arrival && asks
+        ? mayQueue.then((q) =>
+            q ? withTimeout(presenceConsentState(), NAME_LOOKUP_TIMEOUT_MS).catch(() => 'unknown' as const) : ('unknown' as const),
+          )
         : Promise.resolve('unknown' as const),
       info?.passId ? walletNotices.within(regionId).catch(() => false) : Promise.resolve(false),
       // A routine stop due here, from this phone's copy (no network wait).
@@ -520,8 +527,10 @@ export async function handleCourtDeparture(
     if (await signedOut()) return;
 
     let cancel: Awaited<ReturnType<typeof cancelCourtArrivalOrQueue>> | null = null;
-    // A nearby court only ever asked: there is no arrival there to take back.
-    const nearbyOnly = (await infoP)?.nearby === true;
+    // A nearby court that only asks: there is no arrival there to take back.
+    // With "Check me in without asking" on there may be (a drive-by).
+    const nearbyOnly =
+      (await infoP)?.nearby === true && !(await settingsOrNull().then((s) => !!s && otherCourtsAuto(s)).catch(() => false));
     if (!nearbyOnly && exitCancels(regionId, await arrivedRecently(regionId, CANCEL_WINDOW_MS))) {
       cancel = await cancelCourtArrivalOrQueue(regionId).catch(() => null);
       traceArrival('cancel', {

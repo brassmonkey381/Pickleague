@@ -103,6 +103,8 @@ export type CourtArrivalSettings = {
   court_radius_m: number;
   /** "Prompt me near other courts": the same choices, default Off. */
   other_court_radius_m: number;
+  /** "Check me in without asking" at other courts (needs other_court_radius_m > 0). */
+  other_court_auto: boolean;
   /** "Check me in when I arrive". */
   auto_checkin: boolean;
   auto_checkin_set_at: string | null;
@@ -115,6 +117,7 @@ export type CourtArrivalSettings = {
 export const DEFAULT_COURT_ARRIVAL_SETTINGS: CourtArrivalSettings = {
   court_radius_m: DEFAULT_COURT_RADIUS_M,
   other_court_radius_m: 0,
+  other_court_auto: false,
   auto_checkin: true,
   auto_checkin_set_at: null,
   departure_reminder: true,
@@ -131,6 +134,7 @@ export function normalizeCourtArrivalSettings(raw: unknown): CourtArrivalSetting
   return {
     court_radius_m: isRadiusChoice(r.court_radius_m) ? r.court_radius_m : d.court_radius_m,
     other_court_radius_m: isRadiusChoice(r.other_court_radius_m) ? r.other_court_radius_m : d.other_court_radius_m,
+    other_court_auto: r.other_court_auto === true,
     auto_checkin: typeof r.auto_checkin === 'boolean' ? r.auto_checkin : d.auto_checkin,
     auto_checkin_set_at: typeof r.auto_checkin_set_at === 'string' ? r.auto_checkin_set_at : null,
     departure_reminder: typeof r.departure_reminder === 'boolean' ? r.departure_reminder : d.departure_reminder,
@@ -228,12 +232,15 @@ function arrivalAction(f: ArrivalFacts): ArrivalAction {
   if (!info) return { action: 'quiet', why: 'not_member' };
   // A nearby court in a spare slot: "Check in nearby?" on a real arrival,
   // while "Ask me at other courts" is on (unreadable settings: as fenced).
+  // "Check me in without asking" on: checked in as at a starred court.
   if (info.nearby && !info.starred && !info.passId) {
     if (!f.arrival) return { action: 'quiet', why: 'nearby_re_report' };
     if (f.settings && !(f.settings.other_court_radius_m > 0)) return { action: 'quiet', why: 'nearby_off' };
     if (f.promptedRecently) return { action: 'quiet', why: 'prompt_covers' };
     if (f.playSessionActive) return { action: 'quiet', why: 'play_session' };
-    return { action: 'prompt' };
+    if (!f.settings || !otherCourtsAuto(f.settings)) return { action: 'prompt' };
+    if (f.consent === 'no') return { action: 'prompt', reason: 'no_consent' };
+    return { action: 'queue' };
   }
   // A QR wallet court only: today's notice, on arrivals only, 3 h apart.
   if (!info.starred) {
@@ -973,4 +980,9 @@ export function arrivalCheckinOn(s: CourtArrivalSettings): boolean {
 /** "Ask me when I'm at other courts". */
 export function otherCourtsOn(s: CourtArrivalSettings): boolean {
   return s.other_court_radius_m > 0;
+}
+
+/** Other courts check me in without asking (only while "Ask me at other courts" is on). */
+export function otherCourtsAuto(s: CourtArrivalSettings): boolean {
+  return otherCourtsOn(s) && s.other_court_auto;
 }

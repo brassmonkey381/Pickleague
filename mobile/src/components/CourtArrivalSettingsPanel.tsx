@@ -1,7 +1,7 @@
 // Settings > Check-in automation (state/court-arrival-doggle-parity.md section
 // F): Doggle's FavoriteCheckinSettingsPanel without walks. At starred and
 // routine courts Pickleague can check you in when you arrive; everywhere else
-// it only asks.
+// it asks, or, with "Check me in without asking" (2026-11-05), checks in too.
 //
 // Three switches since 2026-11-05 (Doggle's 2026-11-04 panel; Brian wanted
 // fewer settings): "Check me in when I arrive" (auto_checkin and
@@ -370,8 +370,8 @@ export default function CourtArrivalSettingsPanel() {
   return (
     <View style={S.wrap}>
       <Text style={t.sub}>
-        Needs Location Services on. At your starred courts we can check you in when you arrive; everywhere else we only
-        send prompts.
+        Needs Location Services on. At your starred courts we can check you in when you arrive; at other courts we ask
+        first, unless you choose otherwise below.
       </Text>
 
       {NATIVE ? <BackgroundLocationRow busy={busy} setBusy={setBusy} /> : null}
@@ -427,6 +427,22 @@ export default function CourtArrivalSettingsPanel() {
               }
               disabled={busy}
             />
+            {otherCourtsOn(s) ? (
+              <SettingSwitchRow
+                label="Check me in without asking"
+                hint="At other courts too: stay on the court a minute and we check you in, with a notification to check out. Leave within 5 minutes and it doesn't count."
+                value={s.other_court_auto}
+                onChange={(on) =>
+                  void apply(async () => {
+                    await setCourtArrivalSettings({ otherAuto: on });
+                    if (!on) void dropWaitingArrivalNotices();
+                  }, on ? "We'll check you in at other courts" : "We'll ask first at other courts")
+                }
+                disabled={busy}
+                footnote={NATIVE ? undefined : PHONE_ONLY_NOTE}
+                style={S.nested}
+              />
+            ) : null}
             <View style={[S.divider, { backgroundColor: c.border }]} />
             <SettingSwitchRow
               label="Remind me to check out when I leave"
@@ -468,6 +484,8 @@ const S = StyleSheet.create({
   group: { overflow: 'hidden' },
   divider: { height: HAIRLINE, marginHorizontal: SPACE.md },
   inset: { paddingHorizontal: SPACE.md },
+  // A switch that belongs to the one above it.
+  nested: { paddingLeft: SPACE.lg },
   listHead: { paddingTop: SPACE.xs, paddingBottom: SPACE.xs },
   starButton: { marginTop: SPACE.xs, marginBottom: SPACE.sm },
   picker: { gap: SPACE.sm, paddingBottom: SPACE.sm },
