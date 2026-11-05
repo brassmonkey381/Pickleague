@@ -65,9 +65,12 @@ exception when others then
   return jsonb_build_object('msg', v_msg, 'hint', v_hint);
 end $$;
 
-create function pg_temp.since(k text) returns date language sql stable as $$
-  select playing_since from public.profiles where id = pg_temp.p(k)
-$$;
+-- plpgsql, not sql: a sql body is checked when it's created, and the column
+-- only exists once the migration below has run.
+create function pg_temp.since(k text) returns date language plpgsql stable as $$
+begin
+  return (select playing_since from public.profiles where id = pg_temp.p(k));
+end $$;
 
 -- ════ Setup ══════════════════════════════════════════════════════════════
 insert into auth.users (id, email, raw_user_meta_data)
