@@ -52,29 +52,41 @@ to it is a change to each of those, and bumps each one.
 
 ## Tracking
 
-What exists today: `mobile/src/lib/analytics.ts` `track(name, props)` writes to `analytics_events`
-(no PII in props). Nothing logs a recommender version yet, and no recommender logs what it showed
-(impressions). Only a few log a tap or an accept.
+Two events, the same shape as Doggle's, written by `mobile/src/lib/analytics.ts` to
+`analytics_events`:
 
-| Recommender | Shown | Accepted | What is missing |
+- `recs.shown`: a recommender's list or card appeared. Props `recommender`, `version`, `surface`,
+  `count`, plus extras. Once per appearance, not per render (`mobile/src/lib/useRecShown.ts`, keyed on
+  the list's ids and props, or fired at the load's completion point). An empty list logs nothing.
+- `recs.acted`: the player took (`action: 'accepted'`) or turned down (`'dismissed'`) a pick. Props
+  `recommender`, `version`, `surface`, `action`, `rank` (1-based in the list as shown, null for a
+  one-item card), plus extras.
+
+Call `trackRecShown(name, { surface, count, ... })` and `trackRecActed(name, { surface, action, rank,
+... })`. The version is never passed: it comes from `mobile/src/lib/recsVersions.ts`, which must equal
+the index above (a vitest, `recsTracking.test.ts`, fails when they differ). Bump it there in the same
+commit as the rule change. Extras are counts, ranks, surface slugs and enums (sort, source, section,
+reason, target) only: never a name, nor another person's id.
+
+| Recommender | Shown (surface, extras) | Acted | Not tracked yet |
 | --- | --- | --- | --- |
-| Suggest friends | `discover.players_view` (view only, `PlayersPanel.tsx:415`) | none | impression with count, Add tap with position, version |
-| Players near | `discover.players_view` (view only) | none | row tap (profile open) with position, version |
-| Player search | none | `discover.players_search_pick` (`PlayersPanel.tsx:333`, no position, no section) | position, section (near or everywhere), version |
-| League invite suggestions | none | none | impression, invite sent with rank, source (place, area, anywhere), version |
-| Tournament invite suggestions | none | none | same as league invites |
-| Invite picker suggestions | none | none | whether a picked player came from the suggested block |
-| Drill partner search | none | none | impression, sort mode, request sent with rank, version |
-| Routine suggestions | none | none | shown, Add, Not now (the dismiss is stored only on the device) |
-| Play chip pick | `play.start_sheet`, `play.quick_start` log `chip` and `why` (`PlayStartSheet.tsx:455`, `quickPlay.ts:57`) | partly | the picked chip is not logged next to the final chip, so an override can't be counted; version |
-| Play group offer | none | `group_session.start` with `from: 'sheet_offer'` (`PlayStartSheet.tsx:450`) | impression of the offer, version |
-| Home league spotlight | none | `home.tap` section `spotlight` (`HomeScreen.tsx:771`) | whether the shown league was the default pick or a remembered chip |
-| Home join a league | none | `home.tap` section `join`, targets `row`, `join`, `request` with position (`HomeScreen.tsx:620`) | impression (which leagues, how many), sort used, version |
-| Home open near you | none | `home.tap` section `open_near_you`, target `league` or `tournament` with position (`HomeScreen.tsx:828`) | impression, sorted or not, version |
-| Discover league order | `discover.tab` (tab only) | none (`trackPlayFilter` exists but has no caller) | sort in effect, row tap with position, join from Discover |
-| Saved league suggestions | none | `saved_suggestion_save` (`BookmarksScreen.tsx:144`), `saved_league_open` with `from: 'suggested'` | impression, position |
-| Courts nearby | `courts.open`, `courts.filter` (sort, radius) | `courts.view` on the court page, no position or source | row tap with position and sort, version |
-| Home feed court cards | none | `home.tap` section `feed`, target `court` (no position, `PickleagueFeedSection.tsx:671`) | card position, why the card is there (star, mine, friend) |
+| Suggest friends | `discover_players` | accepted on Add or row open (`target`), rank | dismiss (none exists) |
+| Players near | `discover_players`, `radius_mi` | accepted on Add or row open (`target`), rank | none |
+| Player search | `find_player` per search result list, `near` count | accepted on pick, rank, `section` (near or everywhere) | other people pickers |
+| League invite suggestions | `league_members` per Suggest load, `source` (place, area, anywhere), `with_overlap` | accepted on Invite, rank | which player was finally invited (Invite opens the invite screen) |
+| Tournament invite suggestions | `tournament_invite` per load, `source` | accepted on Invite of a suggested player, rank, `source`, `searched` | none |
+| Invite picker suggestions | `league_invite_picker` or `tournament_invite_picker` | on Send: accepted when a suggested player was picked (`picked`, `picked_suggested`, `picked_ranks`), else dismissed | none |
+| Drill partner search | `drill_search` per list and sort (not while searching), `sort`, `with_overlap` | accepted when a request is sent, rank, `sort`, `searched` | none |
+| Routine suggestions | `home_card`, `my_routine` | accepted on Add, dismissed on Not now, rank | none |
+| Play chip pick | `play_sheet` (`chip`, `why`), `quick_start` | on Start: accepted when the auto-picked chip is kept, dismissed when changed (`chip`, `picked_chip`, `why`). `play.start_sheet` and `play.quick_start` also carry `version` and `picked_chip` | one-tap Start (applied with no choice, shown only) |
+| Play group offer | `play_sheet`, `kind` | on Start: accepted when taken, dismissed when passed over. `group_session.start` from the offer carries `version` | none |
+| Home league spotlight | not tracked | not tracked | all: the card is not rendered while `HOME_FEED_ENABLED` is on (the feed replaced it); `home.tap` section `spotlight` remains |
+| Home join a league | `home`, `sort` (nearest or open_busiest) | accepted on row, join or request (`target`), rank | none |
+| Home open near you | `home`, `sorted`, `tournaments` | accepted on a row (`target` league or tournament), rank | none |
+| Discover league order | `discover_leagues` per order (not while searching), `sort`, `filters_on` | accepted on row open, join or request (`target`), rank, `sort`, `searched` | none |
+| Saved league suggestions | `saved` per load | accepted on Save or open (`target`), rank | none |
+| Courts nearby | `courts` or `discover_courts` per first page (not while filtering), `sort`, `radius_mi`, `chips` | accepted on a row or a map pin's details (`target`), rank, `sort`, `filtered` | none |
+| Home feed court cards | `home_feed`, `today`, and why each card is there (`star`, `mine`, `friend` counts) | accepted on a card's court open, rank in its day, `day`, `reason` | none |
 
-The cheapest common fix: one helper, `trackRec(name, version, event, props)`, called on show and on
-accept, with the version string from each page.
+The older events (`home.tap`, `discover.players_view`, `discover.players_search_pick`,
+`saved_suggestion_save`, `courts.view`) still fire next to these.

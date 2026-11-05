@@ -43,7 +43,8 @@ import { textStyles } from '@just-messin-around/expo-foundation/typography';
 import { friendlySbMessage } from '@just-messin-around/expo-foundation/supabase';
 import { useTheme } from '../../lib/ThemeContext';
 import { useToast } from '../../lib/useToast';
-import { trackHomeTap } from '../../lib/analytics';
+import { trackHomeTap, trackRecActed } from '../../lib/analytics';
+import { useRecShown } from '../../lib/useRecShown';
 import { openDiscover } from '../../lib/discoverNav';
 import {
   checkinAtRequested,
@@ -173,6 +174,14 @@ export type PickleagueFeedProps = {
 };
 
 const tap = (target: string, position?: number) => trackHomeTap({ section: 'feed', target, position });
+
+/** Why a court card is in the feed (docs/recommendations/home-feed-court-cards.md):
+ *  a star, something of mine there, or friends only. An enum, never who. */
+function courtCardReason(card: CourtCard): 'star' | 'mine' | 'friend' {
+  if (card.starred) return 'star';
+  if (card.routine || card.lines.some((l) => l.kind === 'mine' || l.kind === 'stop' || l.kind === 'plan' || l.kind === 'agenda')) return 'mine';
+  return 'friend';
+}
 
 /** Times a routine stop can move to: every 15 minutes for the rest of its day, plus its own. */
 function timeSlots(atIso: string, nowMs: number): { id: string; name: string }[] {
@@ -337,6 +346,19 @@ export default function PickleagueFeedSection(props: PickleagueFeedProps) {
       }),
     [now, home.events, home.myTournaments, home.drills, home.drillsToday, home.matches, requests, hideKeys, starred, routines, friendsQ.data, friendIds, checkin.mine, plans, friendPlans, autoShare],
   );
+
+  // recs.shown once per set of court cards (their keys, never sent), and each
+  // card's day and 1-based rank in it for recs.acted.
+  const courtCards = React.useMemo(() => feed.days.flatMap((d) => d.courts.map((card, i) => ({ card, day: d.key, rank: i + 1 }))), [feed]);
+  const courtCardAt = React.useMemo(() => new Map(courtCards.map((x) => [x.card, x])), [courtCards]);
+  useRecShown('home-feed-court-cards', focused, courtCards.map((x) => `${x.day}:${x.card.key}`), {
+    surface: 'home_feed',
+    count: courtCards.length,
+    today: courtCards.filter((x) => x.day === 'today').length,
+    star: courtCards.filter((x) => courtCardReason(x.card) === 'star').length,
+    mine: courtCards.filter((x) => courtCardReason(x.card) === 'mine').length,
+    friend: courtCards.filter((x) => courtCardReason(x.card) === 'friend').length,
+  });
 
   // Who is open to play / in a closed group: court_play_modes for today's
   // courts with someone here (at most 6, one call each, cached together).
@@ -668,7 +690,18 @@ export default function PickleagueFeedSection(props: PickleagueFeedProps) {
           if (!running) void runShare(line, card);
         }
       : undefined,
-    openCourt: (card) => { tap('court'); openCourt(card.venueId); },
+    openCourt: (card) => {
+      tap('court');
+      const at = courtCardAt.get(card);
+      trackRecActed('home-feed-court-cards', {
+        surface: 'home_feed',
+        action: 'accepted',
+        rank: at?.rank ?? null,
+        day: at?.day ?? null,
+        reason: courtCardReason(card),
+      });
+      openCourt(card.venueId);
+    },
     checkInOptions: (card) => { if (!running) { tap('check_in_options'); checkin.openCheckin(courtOf(card)); } },
     plan: (card) => { if (!running) { tap('plan_options'); checkin.openPlan(courtOf(card)); } },
     onMyWay: (card) => onMyWay(card),

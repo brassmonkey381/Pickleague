@@ -68,7 +68,8 @@ import { filterBySearchArea, pointOf } from '../lib/searchArea';
 import { RootStackParamList } from '../types';
 import { useRefresh } from '../lib/useRefresh';
 import AppRefreshControl from '../components/AppRefreshControl';
-import { trackHomeTap, trackSectionToggle, type HomeSection } from '../lib/analytics';
+import { trackHomeTap, trackRecActed, trackSectionToggle, type HomeSection } from '../lib/analytics';
+import { useRecShown } from '../lib/useRecShown';
 import {
   buildAgenda,
   drillAgendaItems,
@@ -531,6 +532,21 @@ export default function HomeScreen({ navigation }: Props) {
     return { rows: items.slice(0, OPEN_ROWS), total: items.length };
   }, [openTournaments, openLeagues, distanceTo, coords]);
 
+  // recs.shown (docs/recommendations), once per list while Home shows it:
+  // JOIN A LEAGUE for a player in none, OPEN NEAR YOU for a member.
+  const homeListsVisible = focused && !loadFailed && !firstLoad;
+  useRecShown('home-join-a-league', homeListsVisible && !isMember, joinLeagues.map(r => r.l.id), {
+    surface: 'home',
+    count: joinLeagues.length,
+    sort: joinLeagues.some(r => r.d != null) ? 'nearest' : 'open_busiest',
+  });
+  useRecShown('home-open-near-you', homeListsVisible && isMember, openItems.rows.map(r => r.key), {
+    surface: 'home',
+    count: openItems.rows.length,
+    sorted: !!coords,
+    tournaments: openItems.rows.filter(r => r.kind === 'tournament').length,
+  });
+
   // ── Navigation helpers ──
   const go = useCallback((target: AgendaTarget) => {
     switch (target.screen) {
@@ -617,8 +633,15 @@ export default function HomeScreen({ navigation }: Props) {
       distanceById={joinDistances}
       onEnterCode={() => { tap('join', 'enter_code'); setCodeOpen(true); }}
       onBrowse={() => { tap('join', 'browse'); openDiscover(navigation, { tab: 'leagues' }); }}
-      onLeague={(l, i) => { tap('join', 'row', i); openLeague(l); }}
-      onJoinPressed={(kind, i) => tap('join', kind, i)}
+      onLeague={(l, i) => {
+        tap('join', 'row', i);
+        trackRecActed('home-join-a-league', { surface: 'home', action: 'accepted', rank: i + 1, target: 'row' });
+        openLeague(l);
+      }}
+      onJoinPressed={(kind, i) => {
+        tap('join', kind, i);
+        trackRecActed('home-join-a-league', { surface: 'home', action: 'accepted', rank: i + 1, target: kind });
+      }}
     />
   );
 
@@ -826,6 +849,7 @@ export default function HomeScreen({ navigation }: Props) {
         now={now}
         onPress={(item, i) => {
           tap('open_near_you', item.kind, i);
+          trackRecActed('home-open-near-you', { surface: 'home', action: 'accepted', rank: i + 1, target: item.kind });
           if (item.kind === 'league') openLeague(item.league);
           else navigation.navigate('TournamentDetail', { tournamentId: item.tournament.id, tournamentName: item.tournament.name });
         }}

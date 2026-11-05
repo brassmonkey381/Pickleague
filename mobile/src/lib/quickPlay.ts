@@ -15,7 +15,8 @@ import { PLAY_CHIP_KIND, pickPlayChip, windowsForChip, type ChipPick } from './p
 import { loadChipRoutine, loadChipSchedule, readLastChip, saveLastChip } from './playStartSchedule';
 import { DEFAULT_PLAY_LENGTH_MIN, clockLabel, type PlayMode } from './courtRoutineRules';
 import type { DeviceFix } from './courtCheckinRules';
-import { track } from './analytics';
+import { track, trackRecShown } from './analytics';
+import { RECS_VERSIONS } from './recsVersions';
 
 /** How long the one tap waits for my schedule before it starts open play anyway. */
 const PICK_WAIT_MS = 1_500;
@@ -54,6 +55,8 @@ export async function quickPlayAt(court: { id: string; name: string }, fix: Devi
   });
   saveLastChip(pick.chip);
   planAfterStart(id, { venueId: court.id, lengthMin, windows });
-  track('play.quick_start', { chip: pick.chip, why: pick.why, length_min: lengthMin });
+  track('play.quick_start', { chip: pick.chip, why: pick.why, length_min: lengthMin, version: RECS_VERSIONS['play-chip-pick'] });
+  // The pick is applied with no choice offered, so recs.shown only (no recs.acted).
+  trackRecShown('play-chip-pick', { surface: 'quick_start', count: 1, chip: pick.chip, why: pick.why });
   return id;
 }

@@ -23,6 +23,7 @@ import { RootStackParamList } from '../types';
 import { AVATARS } from '../data/profileCustomization';
 import { formatPlupr } from '../lib/plupr';
 import { useRefresh } from '../lib/useRefresh';
+import { trackRecActed, trackRecShown } from '../lib/analytics';
 import { useSearchArea } from '../lib/useSearchArea';
 import { searchAreaKey } from '../lib/searchArea';
 import { playerMatchesQuery, playsAtLabel } from '../lib/playersNear';
@@ -140,6 +141,14 @@ export default function TournamentInvitePlayersScreen({ navigation, route }: Pro
       setSource(next.source);
       setHeading(next.heading);
       setLoadError(null);
+      // Once per load (each focus, a new area): recs.shown.
+      if (next.suggested.length) {
+        trackRecShown('tournament-invite-suggestions', {
+          surface: 'tournament_invite',
+          count: next.suggested.length,
+          source: next.source,
+        });
+      }
     } catch (e) {
       if (!newest()) return;
       // Critically, a failed registration read would leave `excluded` empty and
@@ -210,6 +219,18 @@ export default function TournamentInvitePlayersScreen({ navigation, route }: Pro
   }
 
   async function invite(c: Candidate) {
+    // A suggested player (not one found only by a search): recs.acted with
+    // their rank among the suggestions.
+    const rank = candidates.findIndex(x => x.id === c.id) + 1;
+    if (rank > 0) {
+      trackRecActed('tournament-invite-suggestions', {
+        surface: 'tournament_invite',
+        action: 'accepted',
+        rank,
+        source,
+        searched: query.trim().length > 0,
+      });
+    }
     setBusy(c.id);
     // Clear any prior error on this row before retrying.
     setInvites(prev => ({ ...prev, [c.id]: { invited: false, error: null } }));

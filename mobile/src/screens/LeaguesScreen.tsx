@@ -27,7 +27,9 @@ import {
   type LayoutChangeEvent, type ListRenderItemInfo,
 } from 'react-native';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
-import { RouteProp, useFocusEffect } from '@react-navigation/native';
+import { RouteProp, useFocusEffect, useIsFocused } from '@react-navigation/native';
+import { trackRecActed } from '../lib/analytics';
+import { useRecShown } from '../lib/useRecShown';
 import { supabase } from '../lib/supabase';
 import { sbCall, currentUserId, friendlySbMessage } from '@just-messin-around/expo-foundation/supabase';
 import { refusalMessage } from '../lib/refusals';
@@ -435,6 +437,23 @@ export default function LeaguesScreen({ navigation, route, active = true, routeM
 
   const shownDiscover = pagedCount(split.discover.length, pages);
   const discoverPage = split.discover.slice(0, shownDiscover);
+
+  // recs.shown once per Discover order (a new sort, filter or area is a new
+  // list; a search is not the recommender's order and logs nothing). The
+  // 1-based rank per league feeds recs.acted.
+  const focused = useIsFocused();
+  useRecShown(
+    'discover-league-order',
+    active && focused && !areaPending && query.data !== undefined && !split.hideDiscover && !searching,
+    split.discover.map((l) => l.id),
+    { surface: 'discover_leagues', count: split.discover.length, sort: split.sort, filters_on: split.filtersOn },
+  );
+  const discoverRank = useMemo(() => new Map(split.discover.map((l, i) => [l.id, i + 1])), [split.discover]);
+  const trackDiscoverPick = (l: PlayLeagueRow, target: 'row' | 'join' | 'request') => {
+    const rank = discoverRank.get(l.id);
+    if (rank == null) return;
+    trackRecActed('discover-league-order', { surface: 'discover_leagues', action: 'accepted', rank, sort: split.sort, target, searched: searching });
+  };
   const radius = areaLimited ? null : distanceMiles(filters.sheet.distance);
 
   // ── Overlays (only one RN Modal at a time) ────────────────────────────────
@@ -624,6 +643,7 @@ export default function LeaguesScreen({ navigation, route, active = true, routeM
           leagueJoin={leagueJoin}
           requested={l.hasRequested}
           requestLabel="Request code"
+          onPressed={(kind) => trackDiscoverPick(l, kind)}
           anchorRef={l.id === firstJoinableId ? tour.joinRef : undefined}
           onAnchorLayout={l.id === firstJoinableId ? tour.registerJoin : undefined}
         />
@@ -643,7 +663,10 @@ export default function LeaguesScreen({ navigation, route, active = true, routeM
         memberCount={l.memberCount}
         facts={leagueFacts(l, Date.now())}
         action={action}
-        onPress={() => openLeague(l)}
+        onPress={() => {
+          if (section === 'discover') trackDiscoverPick(l, 'row');
+          openLeague(l);
+        }}
       />
     );
   }

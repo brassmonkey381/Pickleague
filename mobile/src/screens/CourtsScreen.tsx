@@ -62,7 +62,8 @@ import { textStyles } from '@just-messin-around/expo-foundation/typography';
 import { Icon } from '@just-messin-around/expo-foundation/icons';
 import { useTheme } from '../lib/ThemeContext';
 import { useToast } from '../lib/useToast';
-import { track } from '../lib/analytics';
+import { track, trackRecActed } from '../lib/analytics';
+import { useRecShown } from '../lib/useRecShown';
 import { explainRefusal } from '../lib/refusalNotices';
 import {
   COURT_RADIUS_MILES,
@@ -204,6 +205,24 @@ export default function CourtsScreen({ navigation, route, active = true, inDisco
     () => visibleCourts(rows, { query: filterText, chips, starredIds, sort }),
     [rows, filterText, chips, starredIds, sort],
   );
+  // recs.shown once per first page and sort while the tab shows (a typed
+  // filter is not the recommender's order). Load more is not a new list.
+  useRecShown(
+    'courts-nearby',
+    live && !filterText && page1 !== undefined,
+    (page1 ?? []).map((r) => r.id),
+    { surface: inDiscover ? 'discover_courts' : 'courts', count: page1?.length ?? 0, sort, radius_mi: radiusMi, chips: chips.length },
+  );
+  const courtRank = useMemo(() => new Map(visible.map((r, i) => [r.id, i + 1])), [visible]);
+  const trackCourtPick = (row: CourtRow, target: 'row' | 'map') =>
+    trackRecActed('courts-nearby', {
+      surface: inDiscover ? 'discover_courts' : 'courts',
+      action: 'accepted',
+      rank: courtRank.get(row.id) ?? null,
+      sort,
+      target,
+      filtered: !!filterText || chips.length > 0,
+    });
   // Polled only while Places is the tab showing (Discover keeps it mounted).
   const crowd = useCourtCrowds(
     useMemo(() => visible.map((r) => r.id), [visible]),
@@ -428,7 +447,10 @@ export default function CourtsScreen({ navigation, route, active = true, inDisco
             court={r}
             crowd={crowd.data[r.id]}
             starred={starredIds.has(r.id)}
-            onPress={() => openCourt(r)}
+            onPress={() => {
+              trackCourtPick(r, 'row');
+              openCourt(r);
+            }}
             onToggleStar={() => void toggleStar(r)}
           />
         )}
@@ -469,6 +491,7 @@ export default function CourtsScreen({ navigation, route, active = true, inDisco
         onClose={() => setPinned(null)}
         onViewDetails={(row) => {
           setPinned(null);
+          trackCourtPick(row, 'map');
           openCourt(row);
         }}
       />

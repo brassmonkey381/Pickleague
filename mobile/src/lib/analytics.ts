@@ -29,6 +29,7 @@ import { AppState, type AppStateStatus, Platform } from 'react-native';
 import { getInstallTime, getNativeBuild } from '@just-messin-around/expo-foundation/platform';
 import { supabase } from './supabase';
 import { isGodmodeUserId } from './godmode';
+import { RECS_VERSIONS, type Recommender } from './recsVersions';
 
 /** lib/supabase asserts its env with `!`; mirror the check here so a missing .env means silent
  *  no-op analytics rather than requests at a placeholder. */
@@ -772,4 +773,46 @@ export type SectionToggleProps = {
  *  (a push or a pending step auto-opening Manage) — those aren't choices. */
 export function trackSectionToggle(p: SectionToggleProps): void {
   track('section.toggle', { screen: p.screen, section: p.section, open: p.open });
+}
+
+// ---------------------------------------------------------------------------------------------
+// Recommenders (docs/recommendations). Doggle's shape, so the two apps compare the same way:
+// `recs.shown` when a recommender's list or card appears, `recs.acted` when the player takes
+// (accepted) or turns down (dismissed) one of its picks. `version` comes from lib/recsVersions,
+// never from the call site. Props are counts, 1-based ranks, surface slugs and reason enums
+// only: never a name, nor the id of another person.
+// ---------------------------------------------------------------------------------------------
+
+/** Where a recommender's list shows, as a slug ('discover_players', 'home', 'play_sheet', ...). */
+export type RecShownProps = { surface: string; count: number } & Record<string, unknown>;
+
+export type RecActedProps = {
+  surface: string;
+  action: 'accepted' | 'dismissed';
+  /** 1-based position of the pick in the list as shown; omit for a one-item card (sent as null). */
+  rank?: number | null;
+} & Record<string, unknown>;
+
+/** The `recs.shown` props. The recommender and its version are set last, so no extra can
+ *  override them. */
+export function recShownProps(recommender: Recommender, p: RecShownProps): Record<string, unknown> {
+  const { surface, count, ...extra } = p;
+  return { ...extra, recommender, version: RECS_VERSIONS[recommender], surface, count };
+}
+
+/** The `recs.acted` props, likewise. */
+export function recActedProps(recommender: Recommender, p: RecActedProps): Record<string, unknown> {
+  const { surface, action, rank, ...extra } = p;
+  return { ...extra, recommender, version: RECS_VERSIONS[recommender], surface, action, rank: rank ?? null };
+}
+
+/** `recs.shown`: a recommender's list appeared. Once per appearance, not per render (see
+ *  lib/useRecShown). Never throws. */
+export function trackRecShown(recommender: Recommender, p: RecShownProps): void {
+  track('recs.shown', recShownProps(recommender, p));
+}
+
+/** `recs.acted`: the player took or turned down one of a recommender's picks. Never throws. */
+export function trackRecActed(recommender: Recommender, p: RecActedProps): void {
+  track('recs.acted', recActedProps(recommender, p));
 }

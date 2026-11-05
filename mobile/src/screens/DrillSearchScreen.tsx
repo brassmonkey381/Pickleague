@@ -13,7 +13,7 @@ import {
   TextInput,
 } from 'react-native';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
-import { RouteProp } from '@react-navigation/native';
+import { RouteProp, useIsFocused } from '@react-navigation/native';
 import { supabase } from '../lib/supabase';
 import { sbCall, currentUserId, friendlySbMessage } from '@just-messin-around/expo-foundation/supabase';
 import { useCachedQuery } from '@just-messin-around/expo-foundation/cache';
@@ -28,6 +28,8 @@ import { AVATARS } from '../data/profileCustomization';
 import DrillRequestModal from '../components/DrillRequestModal';
 import { formatPlupr } from '../lib/plupr';
 import { useRefresh } from '../lib/useRefresh';
+import { trackRecActed } from '../lib/analytics';
+import { useRecShown } from '../lib/useRecShown';
 import AppRefreshControl from '../components/AppRefreshControl';
 import { SkeletonList } from '../components/Skeleton';
 import EmptyState from '../components/EmptyState';
@@ -224,6 +226,18 @@ export default function DrillSearchScreen({ route }: Props) {
     return sorted;
   }, [candidates, search, sort, me, blockedIds]);
 
+  // recs.shown once per list and sort (not while a name search filters it).
+  // The rank of the row whose request form is open, for recs.acted on send;
+  // null when the form came from a push, not the list.
+  const focused = useIsFocused();
+  useRecShown(
+    'drill-partner-search',
+    focused && listReady && !search.trim(),
+    filtered.map(c => c.id),
+    { surface: 'drill_search', count: filtered.length, sort, with_overlap: filtered.filter(c => c.overlap.length > 0).length },
+  );
+  const requestRankRef = useRef<{ rank: number | null; searched: boolean }>({ rank: null, searched: false });
+
   // Only gate on the very first load, and never when it failed — the failure
   // path has to fall through to the list so its pull-to-refresh stays mounted.
   const areaBar = <SearchAreaBar surface="drill" style={S.areaBar} />;
@@ -301,7 +315,7 @@ export default function DrillSearchScreen({ route }: Props) {
                   subtitle={'Either nobody\'s set "Open to drilling" yet, or your search is too narrow.'}
                 />
         }
-        renderItem={({ item }) => {
+        renderItem={({ item, index }) => {
           const avatar = AVATARS.find(a => a.id === (item.avatar_id ?? 1)) ?? AVATARS[0];
           const overlapHrs = (item.overlap.length * 0.5).toFixed(1).replace(/\.0$/, '');
           const eloDiff    = item.rating - (me?.rating ?? 3.25);
@@ -372,7 +386,10 @@ export default function DrillSearchScreen({ route }: Props) {
 
               <TouchableOpacity
                 style={[S.requestBtn, item.overlap.length === 0 && S.requestBtnDisabled]}
-                onPress={() => setRequestTarget(item)}
+                onPress={() => {
+                  requestRankRef.current = { rank: index + 1, searched: search.trim().length > 0 };
+                  setRequestTarget(item);
+                }}
                 disabled={item.overlap.length === 0}
                 accessibilityRole="button"
               >
@@ -389,8 +406,18 @@ export default function DrillSearchScreen({ route }: Props) {
       {requestTarget && me && (
         <DrillRequestModal
           visible={!!requestTarget}
-          onClose={() => setRequestTarget(null)}
-          onSent={() => { /* badge will refresh on screen focus */ }}
+          onClose={() => {
+            requestRankRef.current = { rank: null, searched: false };
+            setRequestTarget(null);
+          }}
+          onSent={() => {
+            // The badge refreshes on screen focus. A request sent from the list:
+            // recs.acted with its rank (none from a push's "Find a new time").
+            const { rank, searched } = requestRankRef.current;
+            if (rank != null) {
+              trackRecActed('drill-partner-search', { surface: 'drill_search', action: 'accepted', rank, sort, searched });
+            }
+          }}
           fromUserId={me.id}
           toUserId={requestTarget.id}
           toName={requestTarget.full_name}

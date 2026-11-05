@@ -60,7 +60,8 @@ import { useTheme } from '../../lib/ThemeContext';
 import { useToast } from '../../lib/useToast';
 import { shareInvite } from '../../lib/share';
 import { useRefresh } from '../../lib/useRefresh';
-import { track } from '../../lib/analytics';
+import { track, trackRecActed, trackRecShown } from '../../lib/analytics';
+import { useRecShown } from '../../lib/useRecShown';
 import { REFERRALS_ENABLED } from '../../lib/features';
 import { REFERRAL_REWARD_PICKLES } from '../../lib/referralRules';
 import AppRefreshControl from '../AppRefreshControl';
@@ -258,6 +259,19 @@ export default function PlayersPanel({ navigation, active = true, view: viewPara
     () => new Set([...incoming, ...outgoing].map((r) => r.user_id)),
     [incoming, outgoing],
   );
+  // What Played with and Nearby showed (recs.shown, docs/recommendations).
+  useRecShown(
+    'suggest-friends',
+    live && view === 'find' && suggestQ.data !== undefined,
+    suggestions.map((s) => s.user_id),
+    { surface: 'discover_players', count: suggestions.length },
+  );
+  useRecShown(
+    'players-near',
+    live && view === 'near' && nearQ.data !== undefined,
+    nearby.map((p) => p.id),
+    { surface: 'discover_players', count: nearby.length, radius_mi: area?.radiusMi ?? null },
+  );
 
   const { refresh: refreshRequests } = requestsQ;
   const { refresh: refreshFriendsList } = friendsQ;
@@ -319,18 +333,33 @@ export default function PlayersPanel({ navigation, active = true, view: viewPara
     async () => (area ? (await listPlayersNear(area, { realPeopleOnly: true, limit: 500 })).map(toPicked) : []),
     [area],
   );
+  // The last search's 1-based rank and section per person, so a pick reports
+  // where it sat (recs.acted); the ids stay here, never in an event.
+  const searchRanksRef = useRef(new Map<string, { rank: number; section: string }>());
   // A typed name searches everyone; the players near the area come first.
   const searchByName = useCallback(
     async (q: string): Promise<PickedUser[]> => {
       const rows = await searchPlayers(q, area, { realPeopleOnly: true, exclude: notMe, limit: 60 });
-      return groupSearchResults(rows, areaPlace, area != null)
-        .flatMap((sec) => sec.rows.map((p) => ({ ...toPicked(p), section: sec.title })));
+      const sections = groupSearchResults(rows, areaPlace, area != null);
+      const ranks = new Map<string, { rank: number; section: string }>();
+      sections.forEach((sec) => sec.rows.forEach((p) => ranks.set(p.id, { rank: ranks.size + 1, section: sec.key })));
+      searchRanksRef.current = ranks;
+      if (ranks.size) {
+        trackRecShown('player-search', {
+          surface: 'find_player',
+          count: ranks.size,
+          near: sections.find((sec) => sec.key === 'near')?.rows.length ?? 0,
+        });
+      }
+      return sections.flatMap((sec) => sec.rows.map((p) => ({ ...toPicked(p), section: sec.title })));
     },
     [area, areaPlace, notMe],
   );
   function onPick(u: PickedUser) {
     setPickerOpen(false);
     track('discover.players_search_pick', {});
+    const hit = searchRanksRef.current.get(u.id);
+    if (hit) trackRecActed('player-search', { surface: 'find_player', action: 'accepted', rank: hit.rank, section: hit.section });
     openProfile(u.id, u.full_name);
   }
 
@@ -645,7 +674,10 @@ export default function PlayersPanel({ navigation, active = true, view: viewPara
                     person={person}
                     subtitle={friendIds.has(p.id) ? `Friend, ${playsAtLabel(p) ?? ''}`.replace(/, $/, '') : playsAtLabel(p)}
                     lastRow={i === nearby.length - 1}
-                    onOpen={() => openProfile(p.id, p.full_name)}
+                    onOpen={() => {
+                      trackRecActed('players-near', { surface: 'discover_players', action: 'accepted', rank: i + 1, target: 'open' });
+                      openProfile(p.id, p.full_name);
+                    }}
                     trailing={known ? undefined : (
                       <Button
                         size="sm"
@@ -654,7 +686,10 @@ export default function PlayersPanel({ navigation, active = true, view: viewPara
                         accessibilityLabel={`Add ${p.full_name ?? 'this player'} as a friend`}
                         loading={busyId === p.id}
                         disabled={!!busyId}
-                        onPress={() => { void add(person); }}
+                        onPress={() => {
+                          trackRecActed('players-near', { surface: 'discover_players', action: 'accepted', rank: i + 1, target: 'add' });
+                          void add(person);
+                        }}
                       />
                     )}
                   />
@@ -698,7 +733,10 @@ export default function PlayersPanel({ navigation, active = true, view: viewPara
                   person={s}
                   subtitle={s.reason}
                   lastRow={i === suggestions.length - 1}
-                  onOpen={() => openProfile(s.user_id, s.full_name)}
+                  onOpen={() => {
+                    trackRecActed('suggest-friends', { surface: 'discover_players', action: 'accepted', rank: i + 1, target: 'open' });
+                    openProfile(s.user_id, s.full_name);
+                  }}
                   trailing={
                     <Button
                       size="sm"
@@ -708,7 +746,10 @@ export default function PlayersPanel({ navigation, active = true, view: viewPara
                       accessibilityLabel={`Add ${s.full_name ?? 'this player'} as a friend`}
                       loading={busyId === s.user_id}
                       disabled={!!busyId}
-                      onPress={() => { void add(s); }}
+                      onPress={() => {
+                        trackRecActed('suggest-friends', { surface: 'discover_players', action: 'accepted', rank: i + 1, target: 'add' });
+                        void add(s);
+                      }}
                     />
                   }
                 />

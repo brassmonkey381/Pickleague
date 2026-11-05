@@ -45,6 +45,7 @@ import FlairName from '../components/FlairName';
 import LeagueJoinCard from '../components/LeagueJoinCard';
 import { useStatusMessage } from '../lib/useStatusMessage';
 import { useRefresh } from '../lib/useRefresh';
+import { trackRecActed, trackRecShown } from '../lib/analytics';
 import { useSearchArea } from '../lib/useSearchArea';
 import { firstWithAnyone, suggestionSteps, suggestionsHeading, withinLevel } from '../lib/inviteSuggestions';
 import { getInvitePlace, nearForInvite } from '../data/inviteSuggestions';
@@ -319,7 +320,17 @@ export default function LeagueMembersScreen({ navigation, route }: Props) {
       b.overlapHours - a.overlapHours || a.eloDiff - b.eloDiff
     );
 
-    setSuggestions(scored.slice(0, 20));
+    const top = scored.slice(0, 20);
+    setSuggestions(top);
+    // Once per Suggest load (recs.shown): how many, and where they came from.
+    if (top.length) {
+      trackRecShown('league-invite-suggestions', {
+        surface: 'league_members',
+        count: top.length,
+        source: hit ? hit.step.source : 'anywhere',
+        with_overlap: top.filter(p => p.overlapHours > 0).length,
+      });
+    }
   }
 
   function openSuggest() {
@@ -689,6 +700,7 @@ export default function LeagueMembersScreen({ navigation, route }: Props) {
                       size="sm"
                       title="Invite"
                       onPress={() => {
+                        trackRecActed('league-invite-suggestions', { surface: 'league_members', action: 'accepted', rank: idx + 1 });
                         setShowSuggest(false);
                         navigation.navigate('Invite', { leagueId, leagueName });
                       }}

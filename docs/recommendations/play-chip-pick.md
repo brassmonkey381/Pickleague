@@ -46,9 +46,7 @@ One chip, selected, with the hint line. The player can change it.
 
 ## Known weaknesses
 
-- Tracking logs the final chip and `why`, not the picked chip, so overrides can't be counted.
 - An event around now always means Open play, even for a closed league session.
-- Data that would help: picked chip next to final chip in `play.start_sheet`.
 
 ## Changelog
 

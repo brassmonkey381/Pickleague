@@ -105,7 +105,9 @@ import {
 import { loadChipRoutine, loadChipSchedule, readLastChip, saveLastChip } from '../../lib/playStartSchedule';
 import { planAfterStart } from '../../lib/playStartPlan';
 import { notifyGroupWhenStarted, watchGroupStarts } from '../../lib/groupSession';
-import { track } from '../../lib/analytics';
+import { track, trackRecActed } from '../../lib/analytics';
+import { RECS_VERSIONS } from '../../lib/recsVersions';
+import { useRecShown } from '../../lib/useRecShown';
 import {
   DEFAULT_PLAY_LENGTH_MIN,
   clockLabel,
@@ -240,6 +242,9 @@ export function PlayStartSheet({
   // after a slow fix) may still move the chip but keeps their length and plan.
   const planTouched = useRef(false);
   const [chipPick, setChipPick] = useState<ChipPick | null>(null);
+  // The chip the auto-pick preselected (closed group without a court is open
+  // play): Start on another one is an override (recs.acted 'dismissed').
+  const [autoChip, setAutoChip] = useState<PlayChip | null>(null);
   const [lengthMin, setLengthMin] = useState(DEFAULT_PLAY_LENGTH_MIN);
   const [draft, setDraft] = useState<TimeWindow<PlayMode>[]>(() => draftOf(windowsForChip('open', DEFAULT_PLAY_LENGTH_MIN, null)));
   const [showCourts, setShowCourts] = useState(false);
@@ -263,6 +268,7 @@ export function PlayStartSheet({
     chipTouched.current = false;
     planTouched.current = false;
     setChipPick(null);
+    setAutoChip(null);
     setChip(request.kind === 'drill' ? 'drill' : 'open');
     setLengthMin(DEFAULT_PLAY_LENGTH_MIN);
     setDraft(draftOf(windowsForChip(request.kind === 'drill' ? 'drill' : 'open', DEFAULT_PLAY_LENGTH_MIN, null)));
@@ -385,6 +391,7 @@ export function PlayStartSheet({
       const next: PlayChip = p.chip === 'closed' && !courtId ? 'open' : p.chip;
       // The hint explains the pick; when the chip had to change, it doesn't.
       setChipPick(next === p.chip ? p : { ...p, hint: null });
+      setAutoChip(next);
       setChip(next);
       if (planTouched.current) return;
       const len = p.lengthMin ?? DEFAULT_PLAY_LENGTH_MIN;
@@ -395,6 +402,20 @@ export function PlayStartSheet({
       alive = false;
     };
   }, [slim, request, chipInputs, courtId, fixedKind]);
+
+  // recs.shown (docs/recommendations): the auto-picked chip, once per pick,
+  // and the group offer, once per offer, while the sheet is open.
+  useRecShown(
+    'play-chip-pick',
+    !!request && slim && !fixedKind && autoChip != null,
+    autoChip && chipPick ? [`${autoChip}:${chipPick.why}`] : null,
+    { surface: 'play_sheet', count: 1, chip: autoChip, why: chipPick?.why ?? 'default' },
+  );
+  useRecShown('play-group-offer', !!request && !!groupOffer, groupOffer ? [groupOffer.id] : null, {
+    surface: 'play_sheet',
+    count: 1,
+    kind: groupOffer?.kind ?? null,
+  });
 
   function chooseChip(next: PlayChip) {
     chipTouched.current = true;
@@ -447,12 +468,38 @@ export function PlayStartSheet({
     if (k === 'event' || k === 'tournament') {
       watchGroupStarts();
       if (request?.notifyGroup && !offered) notifyGroupWhenStarted(id);
-      track('group_session.start', { kind: k, from: offered ? 'sheet_offer' : 'join', court: !!m.venueId });
+      track('group_session.start', {
+        kind: k,
+        from: offered ? 'sheet_offer' : 'join',
+        court: !!m.venueId,
+        ...(offered ? { version: RECS_VERSIONS['play-group-offer'] } : {}),
+      });
+    }
+    // The group offer: taken, or passed over for a chip.
+    if (groupOffer) {
+      trackRecActed('play-group-offer', { surface: 'play_sheet', action: offered ? 'accepted' : 'dismissed', kind: groupOffer.kind });
     }
     if (slim && !fixedKind && !offered) {
       saveLastChip(chip);
       if (m.venueId) planAfterStart(id, { venueId: m.venueId, lengthMin, windows: draft });
-      track('play.start_sheet', { chip, why: chipPick?.why ?? 'default', court: !!m.venueId, length_min: lengthMin });
+      // picked_chip next to chip: an override is countable.
+      track('play.start_sheet', {
+        chip,
+        why: chipPick?.why ?? 'default',
+        court: !!m.venueId,
+        length_min: lengthMin,
+        picked_chip: autoChip,
+        version: RECS_VERSIONS['play-chip-pick'],
+      });
+      if (autoChip) {
+        trackRecActed('play-chip-pick', {
+          surface: 'play_sheet',
+          action: chip === autoChip ? 'accepted' : 'dismissed',
+          chip,
+          picked_chip: autoChip,
+          why: chipPick?.why ?? 'default',
+        });
+      }
     }
     onClose();
   }

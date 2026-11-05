@@ -20,6 +20,8 @@ import { explainRefusal } from '../../lib/refusalNotices';
 import { ROUTINES_ENABLED } from '../../lib/features';
 import type { RoutineSuggestion } from '../../lib/courtRoutineRules';
 import { loadRoutineSuggestions, saveCourtRoutine } from '../../data/courtRoutines';
+import { trackRecActed } from '../../lib/analytics';
+import { useRecShown } from '../../lib/useRecShown';
 
 /** Shared with My routine: "Not now" in either place hides it in both. */
 export const ROUTINE_DISMISSED_KEY = 'pickleague_routine_suggestions_dismissed_v1';
@@ -35,6 +37,8 @@ function SuggestionCard({ onOpenRoutines }: { onOpenRoutines: () => void }) {
   const toast = useToast();
   const focused = useIsFocused();
   const [suggestion, setSuggestion] = React.useState<RoutineSuggestion | null>(null);
+  // Its 1-based place in the server's list (the ones before it were dismissed).
+  const [rank, setRank] = React.useState(1);
   const [busy, setBusy] = React.useState(false);
 
   React.useEffect(() => {
@@ -47,7 +51,11 @@ function SuggestionCard({ onOpenRoutines }: { onOpenRoutines: () => void }) {
           AsyncStorage.getItem(ROUTINE_DISMISSED_KEY).catch(() => null),
         ]);
         const dismissed = new Set<string>(raw ? (JSON.parse(raw) as string[]) : []);
-        if (on) setSuggestion(list.find((s) => !dismissed.has(routineSuggestionKey(s))) ?? null);
+        const at = list.findIndex((s) => !dismissed.has(routineSuggestionKey(s)));
+        if (on) {
+          setSuggestion(at >= 0 ? list[at] : null);
+          setRank(at + 1);
+        }
       } catch {
         // A suggestion is a nicety: nothing shows when it can't load.
       }
@@ -57,11 +65,18 @@ function SuggestionCard({ onOpenRoutines }: { onOpenRoutines: () => void }) {
     };
   }, [focused]);
 
+  // recs.shown once per suggestion shown (its key, never sent).
+  useRecShown('routine-suggestions', focused && !!suggestion, suggestion ? [routineSuggestionKey(suggestion)] : null, {
+    surface: 'home_card',
+    count: 1,
+  });
+
   if (!suggestion) return null;
   const s = suggestion;
 
   async function add() {
     if (busy) return;
+    trackRecActed('routine-suggestions', { surface: 'home_card', action: 'accepted', rank });
     setBusy(true);
     try {
       await saveCourtRoutine({ venueId: s.venueId, localTime: s.localTime, days: s.days, lengthMin: s.lengthMin, windows: [] });
@@ -76,6 +91,7 @@ function SuggestionCard({ onOpenRoutines }: { onOpenRoutines: () => void }) {
   }
 
   async function dismiss() {
+    trackRecActed('routine-suggestions', { surface: 'home_card', action: 'dismissed', rank });
     setSuggestion(null);
     try {
       const raw = await AsyncStorage.getItem(ROUTINE_DISMISSED_KEY);

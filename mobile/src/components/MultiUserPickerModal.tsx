@@ -19,6 +19,7 @@ import { searchAreaKey } from '../lib/searchArea';
 import { playsAtLabel } from '../lib/playersNear';
 import { firstWithAnyone, suggestedFirst, suggestionSteps } from '../lib/inviteSuggestions';
 import { getInvitePlace, listEveryone, nearForInvite, type InviteScope } from '../data/inviteSuggestions';
+import { trackRecActed, trackRecShown } from '../lib/analytics';
 import MultiSelectModal from './MultiSelectModal';
 import { ErrorState } from '@just-messin-around/expo-foundation/ui';
 import { FONT } from '@just-messin-around/expo-foundation/typography';
@@ -70,6 +71,8 @@ export default function MultiUserPickerModal({
   // read never looks like an empty search.
   const [loadError, setLoadError] = useState<string | null>(null);
   const [attempt, setAttempt]     = useState(0);
+  // The suggested block's ids, in order (recs.acted ranks; never sent).
+  const [suggestedIds, setSuggestedIds] = useState<string[]>([]);
 
   // With a nearScope the list waits for the search area (lib/useSearchArea's
   // `ready`): the radius and the fallback centre come from it, and a list read
@@ -111,6 +114,11 @@ export default function MultiUserPickerModal({
     Promise.all([listEveryone<MultiPickedUser>(USER_COLUMNS), suggested]).then(([everyone, near]) => {
       if (!live) return;
       setUsers(suggestedFirst(near, everyone));
+      setSuggestedIds(near.map(u => u.id));
+      // Once per open (recs.shown): how many were suggested first.
+      if (nearScope && near.length) {
+        trackRecShown('invite-picker-suggestions', { surface: `${nearScope.type}_invite_picker`, count: near.length });
+      }
       setLoading(false);
     }, (e: unknown) => {
       if (!live) return;
@@ -162,7 +170,22 @@ export default function MultiUserPickerModal({
       ctaLabel={count =>
         ctaLabel ?? (count === 0 ? 'Pick at least one' : `Send ${count} Invite${count === 1 ? '' : 's'}`)
       }
-      onConfirm={onConfirm}
+      onConfirm={picked => {
+        // Whether the picks came from the suggested block (recs.acted):
+        // counts and 1-based ranks only. None from it: the block was passed over.
+        if (nearScope && suggestedIds.length) {
+          const ranks = picked.map(u => suggestedIds.indexOf(u.id) + 1).filter(r => r > 0).sort((a, b) => a - b);
+          trackRecActed('invite-picker-suggestions', {
+            surface: `${nearScope.type}_invite_picker`,
+            action: ranks.length ? 'accepted' : 'dismissed',
+            rank: ranks[0] ?? null,
+            picked: picked.length,
+            picked_suggested: ranks.length,
+            picked_ranks: ranks,
+          });
+        }
+        onConfirm(picked);
+      }}
       onClose={onClose}
     />
   );

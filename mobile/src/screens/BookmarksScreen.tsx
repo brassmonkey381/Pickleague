@@ -45,7 +45,7 @@ import {
 import {
   listMyLeagues, loadSavedStandings, loadTournamentFinishes, type MyLeague,
 } from '../lib/savedStandingsData';
-import { track } from '../lib/analytics';
+import { track, trackRecActed, trackRecShown } from '../lib/analytics';
 
 type Props = { navigation: NativeStackNavigationProp<RootStackParamList, 'Bookmarks'> };
 
@@ -112,6 +112,8 @@ export default function BookmarksScreen({ navigation }: Props) {
       const enriched = await enrich(rows);
       setItems(enriched);
       setSuggestions(suggested);
+      // Once per load (recs.shown, docs/recommendations).
+      if (suggested.length) trackRecShown('saved-league-suggestions', { surface: 'saved', count: suggested.length });
       setLoaded(true);
       setLoadError(null);
       setLoading(false);
@@ -249,7 +251,7 @@ export default function BookmarksScreen({ navigation }: Props) {
   const suggestionsBlock = suggestions.length > 0 ? (
     <View key="suggested" style={S.group}>
       <SectionHeader title="Your leagues" count="Tap Save to keep them here" />
-      {suggestions.map(l => {
+      {suggestions.map((l, i) => {
         const st = standings[l.id];
         const line = (st && savedStandingLine(st)) || displayCourtName(l.home_court) || null;
         return (
@@ -258,10 +260,16 @@ export default function BookmarksScreen({ navigation }: Props) {
             kind="league"
             title={l.name}
             subtitle={line}
-            onPress={() => openLeague(l.id, l.name, 'suggested')}
+            onPress={() => {
+              trackRecActed('saved-league-suggestions', { surface: 'saved', action: 'accepted', rank: i + 1, target: 'open' });
+              openLeague(l.id, l.name, 'suggested');
+            }}
             action={
               <Pressable
-                onPress={() => { void handleSaveSuggestion(l); }}
+                onPress={() => {
+                  trackRecActed('saved-league-suggestions', { surface: 'saved', action: 'accepted', rank: i + 1, target: 'save' });
+                  void handleSaveSuggestion(l);
+                }}
                 style={({ pressed }) => [S.saveBox, { borderColor: c.border }, pressed && S.pressed]}
                 accessibilityRole="button"
                 accessibilityLabel={`Save ${l.name} to Saved`}

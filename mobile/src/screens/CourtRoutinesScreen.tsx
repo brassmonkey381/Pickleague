@@ -10,7 +10,7 @@
 import React from 'react';
 import { ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import type { NativeStackScreenProps } from '@react-navigation/native-stack';
-import { useFocusEffect } from '@react-navigation/native';
+import { useFocusEffect, useIsFocused } from '@react-navigation/native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useCachedQuery } from '@just-messin-around/expo-foundation/cache';
 import { Button } from '@just-messin-around/expo-foundation/forms';
@@ -34,6 +34,8 @@ import { formatDurationMinutes } from '@just-messin-around/expo-foundation/sched
 import { useTheme } from '../lib/ThemeContext';
 import { useToast } from '../lib/useToast';
 import { explainRefusal } from '../lib/refusalNotices';
+import { trackRecActed } from '../lib/analytics';
+import { useRecShown } from '../lib/useRecShown';
 import {
   DEFAULT_PLAY_LENGTH_MIN,
   DEFAULT_ROUTINE_TIME,
@@ -222,8 +224,10 @@ export default function CourtRoutinesScreen({ route, navigation }: Props) {
     }
   }
 
-  async function addSuggestion(s: RoutineSuggestion) {
+  /** `rank`: 1-based, among the suggestions shown (recs.acted). */
+  async function addSuggestion(s: RoutineSuggestion, rank: number) {
     const key = routineSuggestionKey(s);
+    trackRecActed('routine-suggestions', { surface: 'my_routine', action: 'accepted', rank });
     await run(
       key,
       () =>
@@ -234,7 +238,8 @@ export default function CourtRoutinesScreen({ route, navigation }: Props) {
     setSuggestions((list) => list.filter((x) => routineSuggestionKey(x) !== key));
   }
 
-  function dismissSuggestion(s: RoutineSuggestion) {
+  function dismissSuggestion(s: RoutineSuggestion, rank: number) {
+    trackRecActed('routine-suggestions', { surface: 'my_routine', action: 'dismissed', rank });
     const next = new Set(dismissed).add(routineSuggestionKey(s));
     setDismissed(next);
     AsyncStorage.setItem(ROUTINE_DISMISSED_KEY, JSON.stringify([...next])).catch(() => {});
@@ -277,6 +282,12 @@ export default function CourtRoutinesScreen({ route, navigation }: Props) {
   }
 
   const shownSuggestions = suggestions.filter((s) => !dismissed.has(routineSuggestionKey(s)));
+  // recs.shown once per Suggested list (its keys, never sent).
+  const focused = useIsFocused();
+  useRecShown('routine-suggestions', focused, shownSuggestions.map(routineSuggestionKey), {
+    surface: 'my_routine',
+    count: shownSuggestions.length,
+  });
   const autoOn = settingsQ.data?.routine_auto_checkin !== false;
 
   if (routinesQ.loading && !routinesQ.data) return <LoadingState />;
@@ -287,7 +298,7 @@ export default function CourtRoutinesScreen({ route, navigation }: Props) {
         {shownSuggestions.length > 0 ? (
           <View style={S.block}>
             <SectionHeader title="Suggested" style={S.label} />
-            {shownSuggestions.map((s) => {
+            {shownSuggestions.map((s, i) => {
               const key = routineSuggestionKey(s);
               return (
                 <Panel key={key} padded={false} style={[S.card, { borderColor: c.primary }]}>
@@ -303,10 +314,10 @@ export default function CourtRoutinesScreen({ route, navigation }: Props) {
                       size="sm"
                       loading={busyId === key}
                       disabled={busyId != null}
-                      onPress={() => void addSuggestion(s)}
+                      onPress={() => void addSuggestion(s, i + 1)}
                       accessibilityLabel={`Add ${s.venueName} to my routine`}
                     />
-                    <TouchableOpacity onPress={() => dismissSuggestion(s)} style={S.textBtn} accessibilityRole="button">
+                    <TouchableOpacity onPress={() => dismissSuggestion(s, i + 1)} style={S.textBtn} accessibilityRole="button">
                       <Text style={[t.sub, { color: c.textSub }]}>Not now</Text>
                     </TouchableOpacity>
                   </View>
