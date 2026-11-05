@@ -17,6 +17,14 @@
 // more hour), never an automatic check-out: background Exits can be late or
 // spurious.
 //
+// By the outline (2026-11-05, Doggle's engine, lib/courtWatches): at a court
+// with a mapped outline the circle only wakes the phone. One reading decides;
+// off the outline, the arrival watch waits until the phone is on it, and the
+// arrival goes on from there. While checked in there, the visit watch says
+// "Leaving X?" by the outline instead of the circle's Exit. A court with no
+// outline keeps the circle for both. Nearby courts ("Ask me when I'm at other
+// courts") fill the spare circles and only ever ask.
+//
 // For a player the server can't push to, the phone posts the server's
 // "Checked in" and "Still at" itself (D3, lib/courtArrivalNotice), and its own
 // "Check in nearby?". Not for a type the player switched off in Settings >
@@ -32,6 +40,7 @@ import { createTimestampStore } from '@just-messin-around/expo-foundation/cache'
 import { withTimeout } from '@just-messin-around/expo-foundation/platform';
 import { postLocalNotice, promptWithFallback } from '@just-messin-around/expo-foundation/platform/push';
 import { resolveUserId } from '@just-messin-around/expo-foundation/supabase';
+import { judgeFix } from '@just-messin-around/expo-foundation/tracking';
 import { supabase } from './supabase';
 import { uuidv4 } from './analytics';
 import { catalog } from './notificationActions';
@@ -58,6 +67,7 @@ import {
   decideArrival,
   decideDeparture,
   decideLeaving,
+  decideOutlineGate,
   decidePromptDelivery,
   decideQueueAnswer,
   DEPARTURE_COOLDOWN_MS,
@@ -67,6 +77,7 @@ import {
   nearbyPromptBody,
   PREFS_LOOKUP_TIMEOUT_MS,
   PROMPT_COVERS_ARRIVAL_MS,
+  PL_OUTLINE_RULE,
   monitorPromptRoute,
   promptRoute,
   STALE_ON_WAKE_MS,
@@ -75,9 +86,19 @@ import {
   type CourtArrivalSettings,
   type CourtRegionInfo,
   type NearbyPromptReason,
+  type OutlineGate,
   type QueueCourtArrivalAnswer,
 } from './courtArrivalRules';
 import { clearArrivalTrace, traceArrival } from './courtArrivalTrace';
+import { clearCourtOutlines, getCourtOutline, readCourtFix } from './courtOutline';
+import {
+  startCourtArrivalWatch,
+  startCourtVisitWatch,
+  stopAllCourtWatches,
+  stopCourtArrivalWatch,
+  stopCourtVisitWatch,
+  visitWatchOwnsDeparture,
+} from './courtWatches';
 import {
   cancelCourtArrivalOrQueue,
   enqueueCourtCheckinPrompt,
@@ -369,23 +390,29 @@ const NOT_DUE = { due: false, plannedEndAt: null } as const;
  */
 export async function handleCourtArrival(
   regionId: string,
-  opts: { arrival: boolean; info: CourtRegionInfo | null | Promise<CourtRegionInfo | null> },
+  opts: {
+    arrival: boolean;
+    info: CourtRegionInfo | null | Promise<CourtRegionInfo | null>;
+    /** From the arrival watch: a reading already on the court's outline. */
+    fromWatch?: boolean;
+  },
 ): Promise<void> {
   const arrivedAtMs = Date.now();
   // Before any await, so the re-report a sync makes right after sees it.
   if (opts.arrival) void arrivals.mark(regionId, arrivedAtMs);
-  traceArrival('enter', { id: regionId, arrival: opts.arrival });
+  traceArrival('enter', { id: regionId, arrival: opts.arrival, from_watch: opts.fromWatch === true });
   try {
     void arrivalNotice.dismissStale(STALE_ON_WAKE_MS);
     const info = await Promise.resolve(opts.info).catch(() => null);
     // Signed out (the session went without a sign-out): nothing here is mine.
     if (await signedOut()) return;
-    // Only a starred court needs the rest; the rules don't read them otherwise.
+    // Only a starred (or nearby) court needs the rest; the rules don't read them otherwise.
     const starred = info?.starred === true;
+    const asks = starred || info?.nearby === true;
     const [settings, recently, session, consent, walletThrottled, routine] = await Promise.all([
-      starred ? settingsOrNull() : Promise.resolve(null),
+      asks ? settingsOrNull() : Promise.resolve(null),
       starred && !opts.arrival ? arrivedRecently(regionId) : Promise.resolve(false),
-      starred && opts.arrival ? playSessionRunning() : Promise.resolve(false),
+      asks && opts.arrival ? playSessionRunning() : Promise.resolve(false),
       starred && opts.arrival
         ? withTimeout(presenceConsentState(), NAME_LOOKUP_TIMEOUT_MS).catch(() => 'unknown' as const)
         : Promise.resolve('unknown' as const),
@@ -401,7 +428,8 @@ export async function handleCourtArrival(
       info,
       settings,
       arrivedRecently: recently,
-      promptedRecently: arrivedAtMs - (promptedAt.get(regionId) ?? 0) < PROMPT_COVERS_ARRIVAL_MS,
+      // The watch's call comes after a prompt the first Enter couldn't make: it doesn't cover it.
+      promptedRecently: !opts.fromWatch && arrivedAtMs - (promptedAt.get(regionId) ?? 0) < PROMPT_COVERS_ARRIVAL_MS,
       playSessionActive: session,
       consent,
       walletThrottled,
@@ -416,15 +444,54 @@ export async function handleCourtArrival(
       if (info) await postWalletNotice(regionId, info, { standIn: d.standIn === true });
       return;
     }
+    // The circle woke the phone; the court's outline decides (a court with
+    // none keeps the circle). Off it: watch until on it, quietly.
+    if ((await outlineGate(regionId, info, opts)) !== 'go') return;
     if (d.action === 'prompt') {
       await promptCourtCheckin(regionId, info?.name || null, d.reason);
       return;
     }
     const res = await queueCourtArrival(regionId, info, arrivedAtMs, routine.plannedEndAt);
-    if (!res.handled) await askFirst(regionId, info, res.reason);
+    if (!res.handled) {
+      await askFirst(regionId, info, res.reason);
+      return;
+    }
+    // On the court now: "Leaving X?" by the outline (it drops itself if no
+    // check-in opens there within a few minutes).
+    void startCourtVisitWatch(regionId, info?.name || null);
   } catch {
     // best-effort
   }
+}
+
+/**
+ * The outline gate (lib/courtArrivalRules decideOutlineGate): one reading,
+ * judged against the outline saved at the last sync. 'watch' starts the
+ * arrival watch; when the OS won't run it (no "Always"), nothing is said:
+ * the app's own monitor asks inside the outline once it's opened.
+ */
+async function outlineGate(
+  regionId: string,
+  info: CourtRegionInfo | null,
+  opts: { arrival: boolean; fromWatch?: boolean },
+): Promise<OutlineGate> {
+  if (opts.fromWatch) return 'go';
+  const outline = await getCourtOutline(regionId, { fetch: false });
+  if (!outline) return 'go';
+  const fix = await readCourtFix();
+  const verdict = fix ? judgeFix(outline, fix, PL_OUTLINE_RULE).verdict : null;
+  let gate = decideOutlineGate({ hasOutline: true, verdict, arrival: opts.arrival });
+  if (gate === 'watch' && !(await startCourtArrivalWatch(regionId, info?.name || null))) gate = 'quiet';
+  traceArrival('outline_gate', { id: regionId, verdict, gate });
+  return gate;
+}
+
+/** The arrival watch saw a reading on this court's outline: the arrival goes on from there. */
+export async function handleCourtArrivalOnOutline(regionId: string): Promise<void> {
+  // Lazy: lib/courtGeofence imports this file.
+  // eslint-disable-next-line @typescript-eslint/no-var-requires
+  const { courtRegionInfo } = require('./courtGeofence') as typeof import('./courtGeofence');
+  await handleCourtArrival(regionId, { arrival: true, info: courtRegionInfo(regionId), fromWatch: true });
 }
 
 // ── Departure ───────────────────────────────────────────────────────────────
@@ -445,13 +512,17 @@ export async function handleCourtDeparture(
   exitsMem.set(regionId, Date.now());
   traceArrival('exit', { id: regionId });
   try {
+    // Out of the circle: stop looking for the court's outline.
+    void stopCourtArrivalWatch(regionId);
     void arrivalNotice.dismiss(regionId);
     void arrivalNotice.dismissStale(STALE_ON_WAKE_MS);
     const infoP = Promise.resolve(opts.info ?? null).catch(() => null);
     if (await signedOut()) return;
 
     let cancel: Awaited<ReturnType<typeof cancelCourtArrivalOrQueue>> | null = null;
-    if (exitCancels(regionId, await arrivedRecently(regionId, CANCEL_WINDOW_MS))) {
+    // A nearby court only ever asked: there is no arrival there to take back.
+    const nearbyOnly = (await infoP)?.nearby === true;
+    if (!nearbyOnly && exitCancels(regionId, await arrivedRecently(regionId, CANCEL_WINDOW_MS))) {
       cancel = await cancelCourtArrivalOrQueue(regionId).catch(() => null);
       traceArrival('cancel', {
         id: regionId,
@@ -472,6 +543,7 @@ export async function handleCourtDeparture(
     const d = decideDeparture({ cancel, regionId, playSession: session, settings });
     traceArrival('departure', { id: regionId, action: d.action, why: d.action === 'quiet' ? d.why : null });
     if (d.action === 'took_back') {
+      void stopCourtVisitWatch(regionId);
       // Its "Checked in" / "Still at" now describe a visit that didn't count.
       const shown = await dismissArrivalCheckinPushes(regionId).catch(() => 0);
       // Said only when one was on screen: never told, nothing to correct.
@@ -483,27 +555,60 @@ export async function handleCourtDeparture(
       return;
     }
     if (d.action === 'quiet') return;
-
-    // From the server (cached with stale-if-error), so a check-in the server
-    // made on arrival while the app was closed counts too.
-    const open = await getMyOpenCheckin().catch(() => null);
-    const leaving = decideLeaving({
-      regionId,
-      open: open ? { ...open, id: open.id ?? null } : null,
-      lastPromptAtMs: await departures.at(regionId).catch(() => undefined),
-      nowMs: Date.now(),
-      regionName: (await infoP)?.name,
-    });
-    if (leaving.action === 'quiet') {
-      traceArrival('departure', { id: regionId, action: 'quiet', why: leaving.why });
+    // A court with an outline: the visit watch says "Leaving X?" by the
+    // outline (2026-11-05). The circle only does it for a court without one,
+    // or when the watch isn't running (no "Always", or it already ended).
+    if (await visitWatchOwnsDeparture(regionId)) {
+      traceArrival('departure', { id: regionId, action: 'quiet', why: 'visit_watch' });
       return;
     }
-    void departures.mark(regionId);
-    await postLocalNotice(leaving.title, leaving.body, {
-      categoryId: catalog.ids.checkin_extend.id,
-      data: leaving.data,
-    });
-    traceArrival('notice', { id: regionId, notice: 'leaving', via_arrival: leaving.data.via_arrival });
+    await postLeavingIfCheckedIn(regionId, (await infoP)?.name);
+  } catch {
+    // best-effort
+  }
+}
+
+/**
+ * "Leaving <court>?" when I'm still checked in there (decideLeaving): once
+ * per court per 30 minutes. From the circle's Exit or the visit watch.
+ */
+async function postLeavingIfCheckedIn(regionId: string, regionName: string | null | undefined): Promise<void> {
+  // From the server (cached with stale-if-error), so a check-in the server
+  // made on arrival while the app was closed counts too.
+  const open = await getMyOpenCheckin().catch(() => null);
+  const leaving = decideLeaving({
+    regionId,
+    open: open ? { ...open, id: open.id ?? null } : null,
+    lastPromptAtMs: await departures.at(regionId).catch(() => undefined),
+    nowMs: Date.now(),
+    regionName,
+  });
+  if (leaving.action === 'quiet') {
+    traceArrival('departure', { id: regionId, action: 'quiet', why: leaving.why });
+    return;
+  }
+  void departures.mark(regionId);
+  await postLocalNotice(leaving.title, leaving.body, {
+    categoryId: catalog.ids.checkin_extend.id,
+    data: leaving.data,
+  });
+  traceArrival('notice', { id: regionId, notice: 'leaving', via_arrival: leaving.data.via_arrival });
+}
+
+/**
+ * The visit watch saw 2 readings in a row off this court's outline: "Leaving
+ * X?", by the same rules as the circle's Exit (a play session at another
+ * court, or "Remind me to check out" off, stays quiet). The watch has
+ * already stopped for this court.
+ */
+export async function remindCourtDeparture(regionId: string, opts: { name?: string | null } = {}): Promise<void> {
+  try {
+    if (await signedOut()) return;
+    const [session, settings] = await Promise.all([runningPlay(), settingsOrNull()]);
+    const d = decideDeparture({ cancel: null, regionId, playSession: session, settings });
+    traceArrival('departure', { id: regionId, action: d.action, why: d.action === 'quiet' ? d.why : 'visit_watch' });
+    if (d.action !== 'check_open') return;
+    await postLeavingIfCheckedIn(regionId, opts.name);
   } catch {
     // best-effort
   }
@@ -519,6 +624,8 @@ export async function clearCourtArrivalForSignOut(): Promise<void> {
   promptedAt.clear();
   exitsMem.clear();
   await Promise.all([
+    stopAllCourtWatches(),
+    clearCourtOutlines(),
     arrivals.clear(),
     departures.clear(),
     walletNotices.clear(),

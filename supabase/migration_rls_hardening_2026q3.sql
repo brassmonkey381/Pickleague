@@ -150,6 +150,8 @@ begin
         'cancel_court_arrival','confirm_court_arrival','court_arrival_pending','court_prompt_scan',
         'enqueue_court_checkin_prompt','get_court_arrival_settings','list_starred_court_geofences',
         'queue_court_arrival','set_court_arrival_settings','set_starred_court_auto_checkin',
+        -- Court check-ins by the outline (migration_court_outline_engine.sql).
+        'list_nearby_wake_courts',
         -- Court discovery Phase 1 (migration_court_discovery_p1.sql).
         'get_court','list_courts_nearby',
         -- ScheduleMatchScreen (migration_schedule_match_rpc.sql).

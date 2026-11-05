@@ -108,6 +108,7 @@ import LeagueSpotlight, { useLeagueSpotlight } from '../components/home/LeagueSp
 import JoinLeagueSection from '../components/home/JoinLeagueSection';
 import JoinCodeModal from '../components/home/JoinCodeModal';
 import QuickRow, { type QuickTarget } from '../components/home/QuickRow';
+import AlwaysLocationCard from '../components/home/AlwaysLocationCard';
 import OpenNearYouSection, { type OpenItem } from '../components/home/OpenNearYouSection';
 import FriendsAtCourtsSection from '../components/home/FriendsAtCourtsSection';
 import RoutineSuggestionCard from '../components/routines/RoutineSuggestionCard';
@@ -675,6 +676,8 @@ export default function HomeScreen({ navigation }: Props) {
 
   // Quick tiles, one row of 5, right under the numbers.
   sections.push(<QuickRow key="quick" showRecord={isMember} onPress={onQuick} />);
+  // Background check-ins need Always location; phones without it (iOS asks once).
+  sections.push(<AlwaysLocationCard key="always-location" />);
 
   // A label-height header (24, not the 32 default) so NOW sits close to its
   // panel without a negative margin. The NOW blocks stay flat siblings: the

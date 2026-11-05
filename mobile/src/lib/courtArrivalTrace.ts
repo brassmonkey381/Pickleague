@@ -26,7 +26,13 @@ export type ArrivalTraceKind =
   | 'local_checkin'
   | 'sync'
   | 'monitor_tick'
-  | 'signout';
+  | 'signout'
+  // Check-ins by the outline (lib/courtWatches, 2026-11-05).
+  | 'outline_gate'
+  | 'arrival_start'
+  | 'arrival_inside'
+  | 'visit_start'
+  | 'visit_left';
 
 /** Flags, ids, counts and answers. Never a coordinate. */
 export type ArrivalTraceDetail = Record<string, string | number | boolean | null | undefined>;

@@ -1,7 +1,14 @@
 // Settings > Check-in automation (state/court-arrival-doggle-parity.md section
-// F): Doggle's FavoriteCheckinSettingsPanel without walks (routines: "At your
-// routine courts", ROUTINES_ENABLED). At starred courts Pickleague can check
-// you in when you arrive; everywhere else it only sends prompts.
+// F): Doggle's FavoriteCheckinSettingsPanel without walks. At starred and
+// routine courts Pickleague can check you in when you arrive; everywhere else
+// it only asks.
+//
+// Three switches since 2026-11-05 (Doggle's 2026-11-04 panel; Brian wanted
+// fewer settings): "Check me in when I arrive" (auto_checkin and
+// routine_auto_checkin together), "Ask me when I'm at other courts"
+// (other_court_radius_m 0 / 100) and "Remind me to check out". The two
+// distance pickers went: a court's mapped outline decides, and one without
+// gets a fixed 100 m. The radius columns stay for 1.0.4 phones on older JS.
 //
 // The settings are per account (get_court_arrival_settings, and the
 // per-court switch on court_favorites), so a second phone and the web show
@@ -28,9 +35,7 @@ import {
   LoadingState,
   Panel,
   SectionHeader,
-  SettingChoiceRow,
   SettingSwitchRow,
-  type SegmentedOption,
 } from '@just-messin-around/expo-foundation/ui';
 import { textStyles } from '@just-messin-around/expo-foundation/typography';
 import { HAIRLINE, SPACE } from '@just-messin-around/expo-foundation/styles';
@@ -41,7 +46,7 @@ import { explainRefusal } from '../lib/refusalNotices';
 import { useNavigation } from '@react-navigation/native';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import CourtPicker, { type CourtResult } from './CourtPicker';
-import { COURT_DISCOVERY_ENABLED } from '../lib/features';
+import { COURT_DISCOVERY_ENABLED, ROUTINES_ENABLED } from '../lib/features';
 import { openDiscover } from '../lib/discoverNav';
 import type { RootStackParamList } from '../types';
 import RoutineSettingsSection from './routines/RoutineSettingsSection';
@@ -59,7 +64,14 @@ import {
 } from '../data/courtArrival';
 import { isCourtFavoritesFullError, toggleCourtFavorite, useCourtFavorites } from '../data/courtFavorites';
 import { useReplaceCourtStar } from './court/useReplaceCourtStar';
-import { COURT_RADIUS_CHOICES, type StarredCourtGeofence } from '../lib/courtArrivalRules';
+import {
+  arrivalCheckinOn,
+  OTHER_COURTS_ON_M,
+  otherCourtsOn,
+  STARRED_CIRCLE_M,
+  type StarredCourtGeofence,
+} from '../lib/courtArrivalRules';
+import { setRoutineAutoCheckin } from '../data/courtRoutines';
 import { dropWaitingArrivalNotices } from '../lib/courtArrivalNotice';
 import { patchCourtRegionInfo } from '../lib/courtGeofence';
 import {
@@ -68,7 +80,6 @@ import {
   askForArrivalLocation,
   backgroundLocationAllowed,
   courtStarsChanged,
-  NOTICE_ME_OFF_NOTE,
   noticeMeOff,
 } from '../lib/courtArrivalAsk';
 
@@ -76,13 +87,6 @@ const NATIVE = Platform.OS !== 'web';
 /** The geofences are the phone's: a web change takes effect there. */
 const PHONE_ONLY_NOTE = 'Applies on your phone.';
 const UPDATE_FAILED = 'Could not update setting';
-
-function radiusLabel(m: number): string {
-  if (m <= 0) return 'Off';
-  return m >= 1000 ? `${m / 1000} km` : `${m} m`;
-}
-
-const RADIUS_OPTIONS: SegmentedOption<number>[] = COURT_RADIUS_CHOICES.map((m) => ({ value: m, label: radiusLabel(m) }));
 
 type Colors = ReturnType<typeof useTheme>['colors'];
 
@@ -361,7 +365,7 @@ export default function CourtArrivalSettingsPanel() {
     }
   }
 
-  const radiusOff = !!s && s.court_radius_m <= 0;
+  const arrivalOn = !!s && arrivalCheckinOn(s);
 
   return (
     <View style={S.wrap}>
@@ -385,47 +389,48 @@ export default function CourtArrivalSettingsPanel() {
         <>
           <SectionHeader
             icon="star"
-            title="At your starred courts"
+            title="Check-ins"
             hint={`Background detection needs "${ALWAYS_LABEL}" location permission.`}
           />
           <Panel padded={false} style={S.group}>
-            <SettingChoiceRow
-              label="Notice me at starred courts"
-              hint="How close to a starred court (one with no mapped outline) counts as being there. Off stops check-ins and nudges at starred courts."
-              options={RADIUS_OPTIONS}
-              value={s.court_radius_m}
-              onChange={(m) =>
+            <SettingSwitchRow
+              label="Check me in when I arrive"
+              hint="At your starred and routine courts. Stay on the court a minute and we check you in; leave within 5 minutes and it doesn't count. Off: we ask first."
+              value={arrivalOn}
+              onChange={(on) =>
                 void apply(async () => {
-                  await setCourtArrivalSettings({ radiusM: m });
-                  // Off stops arrival check-ins at starred courts: one still
-                  // waiting is skipped, so its notices would promise one.
-                  if (m <= 0) void dropWaitingArrivalNotices();
-                }, `Set to ${radiusLabel(m)}`)
+                  // One switch for both columns (Doggle's 2026-11-04 panel). A
+                  // saved distance of Off (the old picker) watched no starred
+                  // court: on brings them back.
+                  await setCourtArrivalSettings(on && s.court_radius_m <= 0 ? { auto: true, radiusM: STARRED_CIRCLE_M } : { auto: on });
+                  if (ROUTINES_ENABLED) await setRoutineAutoCheckin(on);
+                  // Every "At X?" up now, and the phone's own "Checked in" for
+                  // an arrival still waiting, promise a check-in that won't happen.
+                  if (!on) void dropWaitingArrivalNotices();
+                }, on ? 'Arrival check-ins on' : "We'll ask first when you arrive")
+              }
+              disabled={busy}
+              footnote={NATIVE ? undefined : PHONE_ONLY_NOTE}
+              accessibilityLabel="Check me in when I arrive at a starred or routine court"
+            />
+            {arrivalOn ? <StarredCourtSwitches busy={busy} setBusy={setBusy} c={c} /> : null}
+            <View style={[S.divider, { backgroundColor: c.border }]} />
+            <SettingSwitchRow
+              label="Ask me when I'm at other courts"
+              hint="Courts you haven't starred. We ask once you're on the court."
+              value={otherCourtsOn(s)}
+              onChange={(on) =>
+                void apply(
+                  () => setCourtArrivalSettings({ otherRadiusM: on ? OTHER_COURTS_ON_M : 0 }),
+                  on ? "We'll ask at other courts" : "We won't ask at other courts",
+                )
               }
               disabled={busy}
             />
             <View style={[S.divider, { backgroundColor: c.border }]} />
             <SettingSwitchRow
-              label="Check me in when I arrive"
-              hint={'Stay at a starred court for a minute and we check you in. As you arrive, your lock screen asks "At the courts?" with Check in now and Not here. Leave within 5 minutes and it doesn\'t count. Off: we ask first.'}
-              value={s.auto_checkin}
-              onChange={(on) =>
-                void apply(async () => {
-                  await setCourtArrivalSettings({ auto: on });
-                  // Every "At X?" up now, and the phone's own "Checked in" for
-                  // an arrival still waiting, promise a check-in that won't happen.
-                  if (!on) void dropWaitingArrivalNotices();
-                }, on ? 'Starred-court check-ins on' : 'Starred-court check-ins off')
-              }
-              disabled={busy || radiusOff}
-              footnote={radiusOff ? NOTICE_ME_OFF_NOTE : NATIVE ? undefined : PHONE_ONLY_NOTE}
-              accessibilityLabel="Check me in when I arrive at a starred court"
-            />
-            {!radiusOff && s.auto_checkin ? <StarredCourtSwitches busy={busy} setBusy={setBusy} c={c} /> : null}
-            <View style={[S.divider, { backgroundColor: c.border }]} />
-            <SettingSwitchRow
               label="Remind me to check out when I leave"
-              hint="When you leave a starred court while still checked in, we'll ask if you want to check out. Check-ins otherwise end on their own (tap Stay 1 more hour for more time)."
+              hint="Otherwise a check-in ends on its own (tap Stay 1 more hour for more time)."
               value={s.departure_reminder}
               onChange={(on) =>
                 void apply(
@@ -433,18 +438,8 @@ export default function CourtArrivalSettingsPanel() {
                   on ? 'Check-out reminders on' : 'Check-out reminders off',
                 )
               }
-              disabled={busy || radiusOff}
-              footnote={radiusOff ? NOTICE_ME_OFF_NOTE : NATIVE ? undefined : PHONE_ONLY_NOTE}
-            />
-            <View style={[S.divider, { backgroundColor: c.border }]} />
-            <SettingChoiceRow
-              label="Prompt me near other courts"
-              hint="Get a check-in nudge near any court, not just starred ones."
-              warn="Can get spammy where there are lots of courts nearby — off by default."
-              options={RADIUS_OPTIONS}
-              value={s.other_court_radius_m}
-              onChange={(m) => void apply(() => setCourtArrivalSettings({ otherRadiusM: m }), `Set to ${radiusLabel(m)}`)}
               disabled={busy}
+              footnote={NATIVE ? undefined : PHONE_ONLY_NOTE}
             />
           </Panel>
           <RoutineSettingsSection />

@@ -631,7 +631,7 @@ describe('the watched courts (rows 5, 7)', () => {
     return { built, ...buildCourtRegionList(built, { wallet, starred }) };
   }
 
-  it('wallet courts first at 100 m, then starred courts at their outline or the chosen distance', async () => {
+  it('wallet courts first at 100 m, then starred courts at their outline or a fixed 100 m', async () => {
     const { regions, info } = await build(
       [pass('w1', 'p1'), pass('qr:p9', 'p9', 'Gym')],
       [star('s1', { radius_m: 140 }), star('s2')],
@@ -641,7 +641,7 @@ describe('the watched courts (rows 5, 7)', () => {
       ['w1', 100],
       ['qr:p9', 100],
       ['s1', 140],
-      ['s2', 250],
+      ['s2', 100], // the old 250 m pick only means on now
     ]);
     expect(info).toEqual([
       { id: 'w1', name: 'Club', starred: false, autoCheckin: false, passId: 'p1' },
@@ -654,8 +654,8 @@ describe('the watched courts (rows 5, 7)', () => {
   it('a starred QR court keeps its wallet place and code but takes the starred circle', async () => {
     const { regions, info } = await build([pass('s1', 'p1')], [star('s0'), star('s1', { auto_checkin: false })], 1000);
     expect(regions.map((r) => [r.id, r.radiusM])).toEqual([
-      ['s1', 800], // 1 km, clamped
-      ['s0', 800],
+      ['s1', 100], // no outline: the fixed circle, whatever distance was saved
+      ['s0', 100],
     ]);
     expect(info[0]).toEqual({ id: 's1', name: 'Court s1', starred: true, autoCheckin: false, passId: 'p1' });
   });

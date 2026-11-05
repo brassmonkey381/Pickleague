@@ -9,6 +9,8 @@
 //     phone scheduled its own "Checked in" / "Still at" (D3) for an arrival
 //     the server has decided by now, the read also checks them: one for a
 //     check-in the server never made (or that's over) is cancelled.
+//   - keeps the visit watch (lib/courtWatches) matched to my open check-in:
+//     on open, and whenever the check-in changes in the app.
 //   - runs the foreground monitor (lib/courtPromptMonitor) once a minute while
 //     the app is open. No extra tick on resume: the resync above makes the
 //     OS re-report every region at that moment, and the two would race.
@@ -18,6 +20,7 @@ import { useCallback, useEffect } from 'react';
 import { AppState, Platform } from 'react-native';
 import { usePollWhileActive, useSignal } from '@just-messin-around/expo-foundation/hooks';
 import { syncCourtGeofences } from '../lib/courtGeofence';
+import { followMyOpenCheckin, syncCourtVisitWatches } from '../lib/courtWatches';
 import { arrivalLocalNoticesToSettle, arrivalNotice } from '../lib/courtArrivalNotice';
 import { refreshCurrentCheckin } from '../lib/courtCheckin';
 import { MONITOR_TICK_MS, STALE_ON_OPEN_MS } from '../lib/courtArrivalRules';
@@ -32,7 +35,7 @@ export default function CourtArrivalHost({ userId }: { userId: string | null }) 
     if (Platform.OS === 'web') return;
     void syncCourtGeofences();
     void arrivalNotice.dismissStale(STALE_ON_OPEN_MS);
-    void refreshMyOpenCheckin();
+    void refreshMyOpenCheckin().then(() => syncCourtVisitWatches());
     // Only when there's something to check: the reconcile read (it throws
     // offline, and then nothing is cancelled on a guess).
     void arrivalLocalNoticesToSettle().then((settle) => {
@@ -44,6 +47,7 @@ export default function CourtArrivalHost({ userId }: { userId: string | null }) 
     // A new player (or none) starts with no monitor cooldowns.
     resetCourtPromptCooldowns();
     if (!userId) return;
+    followMyOpenCheckin();
     refresh();
     const sub = AppState.addEventListener('change', (s) => {
       if (s === 'active') refresh();

@@ -36,6 +36,8 @@ import {
   createRegionMetaStore,
   createRegionStateStore,
   defineGeofenceTask,
+  fillNearbySlots,
+  freeNearbySlots,
   syncGeofencesDetailed,
   type GeofenceSyncReason,
 } from '@just-messin-around/expo-foundation/tracking';
@@ -50,20 +52,30 @@ import {
   MAX_REGION_RADIUS_M,
   mergeCourtRegion,
   MIN_REGION_RADIUS_M,
+  NEARBY_REFRESH_MAX_M,
+  NEARBY_REFRESH_MIN_M,
+  NEARBY_REFRESH_REGION_ID,
+  nearbyCandidates,
+  otherCourtsOn,
   ROUTINE_TIER,
   routineTierRegions,
   STARRED_TIER,
   starredTierRegions,
   WALLET_TIER,
   walletTierRegions,
+  type CourtRegion,
   type CourtRegionInfo,
+  type NearbyWakeCourt,
   type RoutineRegionSource,
   type StarredCourtGeofence,
   type WalletRegionSource,
 } from './courtArrivalRules';
 import { traceArrival } from './courtArrivalTrace';
+// Defines the arrival and visit watch tasks at startup (index.ts loads this file).
+import './courtWatches';
 import { ROUTINES_ENABLED } from './features';
-import { loadCourtArrivalSettings, loadStarredCourtGeofences } from '../data/courtArrival';
+import { listNearbyWakeCourts, loadCourtArrivalSettings, loadStarredCourtGeofences } from '../data/courtArrival';
+import { readCourtFix, setWatchedCourtOutlines } from './courtOutline';
 import { getMyCourtRoutinesOffline, loadCourtRoutineSettings, loadMyCourtRoutines } from '../data/courtRoutines';
 import type { CourtRoutine } from './courtRoutineRules';
 
@@ -157,8 +169,20 @@ export function defineCourtGeofenceTask(): void {
     COURT_GEOFENCE_TASK,
     {
       // The info read starts here and is awaited after the arrival is marked.
-      onEnter: (e) => handleCourtArrival(e.id, { arrival: e.arrival === true, info: courtRegionInfo(e.id) }),
-      onExit: (e) => handleCourtDeparture(e.id, { info: courtRegionInfo(e.id) }),
+      onEnter: (e) => {
+        // The refresh circle only matters when I leave it.
+        if (e.id === NEARBY_REFRESH_REGION_ID) return Promise.resolve();
+        return handleCourtArrival(e.id, { arrival: e.arrival === true, info: courtRegionInfo(e.id) });
+      },
+      onExit: async (e) => {
+        if (e.id === NEARBY_REFRESH_REGION_ID) {
+          // Moved away from where the nearby courts were picked: pick them again here.
+          traceArrival('sync', { reason: 'nearby_refresh' });
+          await syncCourtGeofences();
+          return;
+        }
+        await handleCourtDeparture(e.id, { info: courtRegionInfo(e.id) });
+      },
     },
     { regionState },
   );
@@ -217,6 +241,37 @@ async function forgetLegacyRegions(wallet: WalletRegionSource[]): Promise<void> 
   }
 }
 
+/**
+ * The nearest outlined courts I haven't starred, in the slots my own courts
+ * leave (Doggle's 0511), plus the refresh circle around here that re-picks
+ * them when I leave it. Needs a reading (the OS's last one if recent, never a
+ * permission sheet); none, or no answer, adds nothing.
+ */
+async function nearbyCourtsFor(
+  base: CourtRegion[],
+): Promise<{ regions: CourtRegion[]; info: (CourtRegionInfo & { id: string })[]; outlines: Record<string, unknown> } | null> {
+  const free = freeNearbySlots(base.length, MAX_COURT_REGIONS);
+  if (free <= 0) return null;
+  const at = await readCourtFix({ recentMs: 2 * 60_000, timeoutMs: 10_000, balanced: true });
+  if (!at) return null;
+  const rows = await listNearbyWakeCourts(at.lat, at.lng, free).catch(() => [] as NearbyWakeCourt[]);
+  const filled = fillNearbySlots(base, nearbyCandidates(rows), at, {
+    maxRegions: MAX_COURT_REGIONS,
+    refresh: { id: NEARBY_REFRESH_REGION_ID, minM: NEARBY_REFRESH_MIN_M, maxM: NEARBY_REFRESH_MAX_M },
+  });
+  const byId = new Map(rows.map((r) => [r.venue_id, r]));
+  const info: (CourtRegionInfo & { id: string })[] = [];
+  const outlines: Record<string, unknown> = {};
+  for (const id of filled.added) {
+    const r = byId.get(id);
+    if (!r) continue;
+    info.push({ id, name: r.name, starred: false, autoCheckin: false, nearby: true });
+    outlines[id] = r.outline;
+  }
+  traceArrival('sync', { reason: 'nearby', added: filled.added.length, refresh_m: filled.refreshRadiusM });
+  return { regions: filled.regions, info, outlines };
+}
+
 async function runSync(interactive: boolean): Promise<CourtGeofenceSyncResult> {
   if (Platform.OS === 'web') return { count: 0, reason: 'unsupported' };
   try {
@@ -273,14 +328,22 @@ async function runSync(interactive: boolean): Promise<CourtGeofenceSyncResult> {
       traceArrival('sync', { reason: 'offline', interactive });
       return { count: 0, reason: 'offline' };
     }
-    const { regions, info } = buildCourtRegionList(built, { wallet, starred, routine });
+    const list = buildCourtRegionList(built, { wallet, starred, routine });
+    // "Ask me at other courts": the slots left go to the nearest outlined courts.
+    const nearby = otherCourtsOn(settings) ? await nearbyCourtsFor(list.regions) : null;
+    const regions = nearby?.regions ?? list.regions;
+    const info = nearby ? [...list.info, ...nearby.info] : list.info;
     // Saved before registering: the OS re-reports every region at once, and
-    // those wakes read it.
+    // those wakes read them (the info, and the outlines the gate judges by).
+    const outlines: Record<string, unknown> = { ...nearby?.outlines };
+    for (const s of starred) if (s.outline != null) outlines[s.venue_id] = s.outline;
+    await setWatchedCourtOutlines(outlines);
     await regionMeta.set(info);
     const res = await syncGeofencesDetailed(COURT_GEOFENCE_TASK, regions, {
       skipPermissionRequest: !interactive,
       minRadiusM: MIN_REGION_RADIUS_M,
-      maxRadiusM: MAX_REGION_RADIUS_M,
+      // Court circles are clamped to 800 m above; the refresh circle may reach 3 km.
+      maxRadiusM: NEARBY_REFRESH_MAX_M,
       maxRegions: MAX_COURT_REGIONS,
       // Counted only when a sheet actually shows (the foundation calls these then).
       onPermissionAsked: (kind) => track('location.permission_asked', { kind, surface: 'court_arrival' }),

@@ -31,6 +31,7 @@ import {
   type CancelCourtArrivalResult,
   type CourtArrivalSettings,
   type NearbyPromptReason,
+  type NearbyWakeCourt,
   type QueueCourtArrivalAnswer,
   type StarredCourtGeofence,
 } from '../lib/courtArrivalRules';
@@ -109,6 +110,16 @@ export function loadStarredCourtGeofences(force = false): Promise<StarredCourtGe
     ttlMs: force ? 0 : STARRED_COURT_GEOFENCES_TTL_MS,
     persistMs: COURT_ARRIVAL_PERSIST_MS,
   });
+}
+
+/**
+ * The nearest outlined courts I haven't starred (list_nearby_wake_courts,
+ * migration_court_outline_engine.sql), for the geofence slots left free.
+ * Not cached: the point changes with every read, and it's never kept.
+ */
+export async function listNearbyWakeCourts(lat: number, lng: number, limit: number): Promise<NearbyWakeCourt[]> {
+  const raw = await sbCall(() => supabase.rpc('list_nearby_wake_courts', { p_lat: lat, p_lng: lng, p_limit: limit }), BOUND);
+  return Array.isArray(raw) ? (raw as NearbyWakeCourt[]) : [];
 }
 
 /**

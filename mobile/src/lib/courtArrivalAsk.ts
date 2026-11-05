@@ -15,8 +15,11 @@ import { COURT_ARRIVAL_SETTINGS_KEY, courtArrivalResync, STARRED_COURT_GEOFENCES
 /** The OS's own name for the choice: Android says "Allow all the time". */
 export const ALWAYS_LABEL = Platform.OS === 'android' ? 'Allow all the time' : 'Always';
 
-/** Why a starred-court control is disabled while "Notice me at starred courts" is Off. */
-export const NOTICE_ME_OFF_NOTE = 'Turn on "Notice me at starred courts" to use this.';
+/**
+ * Nothing starred is watched: a saved court_radius_m of 0 (the old "Notice me
+ * at starred courts" Off). "Check me in when I arrive" turns it back on.
+ */
+export const NOTICE_ME_OFF_NOTE = 'Turn on "Check me in when I arrive" in Settings to watch your starred courts.';
 
 type LocationModule = { getBackgroundPermissionsAsync(): Promise<{ status: string }> };
 

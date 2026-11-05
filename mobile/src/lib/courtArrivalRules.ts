@@ -61,8 +61,14 @@ export const ARRIVAL_SETTLE_MS = 60_000;
 export const PREFS_LOOKUP_TIMEOUT_MS = 1_500;
 
 // ── Circles (S6) ──────────────────────────────────────────────────────────────
+/** The values court_radius_m / other_court_radius_m may hold (the DB CHECK).
+ *  Settings now writes only 0 or 100 (one switch each); the others are older picks. */
 export const COURT_RADIUS_CHOICES = [0, 100, 250, 1000] as const;
 export const DEFAULT_COURT_RADIUS_M = 100;
+/** A starred court with no mapped outline: a fixed circle (the distance picker went, 2026-11-05). */
+export const STARRED_CIRCLE_M = 100;
+/** "Ask me at other courts" on, as other_court_radius_m (and the monitor's distance for a court with no outline). */
+export const OTHER_COURTS_ON_M = 100;
 export const WALLET_RADIUS_M = 100;
 export const MIN_REGION_RADIUS_M = 50;
 export const MAX_REGION_RADIUS_M = 800;
@@ -145,6 +151,9 @@ export type CourtRegionInfo = {
   /** In my routine (an active routine at this starred court): fenced first,
    *  and an arrival during a stop's window checks in (decideArrival). */
   routine?: boolean;
+  /** A nearby court filling a spare slot ("Ask me at other courts"): asks
+   *  once I'm on its outline, never checks in by itself. */
+  nearby?: boolean;
 };
 
 // ── Arrival (Enter), rows 13-25 ───────────────────────────────────────────────
@@ -217,6 +226,15 @@ function arrivalAction(f: ArrivalFacts): ArrivalAction {
   // Not fenced by this build (a league-home or most-used court the old task
   // still holds until the first sync): silent.
   if (!info) return { action: 'quiet', why: 'not_member' };
+  // A nearby court in a spare slot: "Check in nearby?" on a real arrival,
+  // while "Ask me at other courts" is on (unreadable settings: as fenced).
+  if (info.nearby && !info.starred && !info.passId) {
+    if (!f.arrival) return { action: 'quiet', why: 'nearby_re_report' };
+    if (f.settings && !(f.settings.other_court_radius_m > 0)) return { action: 'quiet', why: 'nearby_off' };
+    if (f.promptedRecently) return { action: 'quiet', why: 'prompt_covers' };
+    if (f.playSessionActive) return { action: 'quiet', why: 'play_session' };
+    return { action: 'prompt' };
+  }
   // A QR wallet court only: today's notice, on arrivals only, 3 h apart.
   if (!info.starred) {
     if (!f.arrival || !info.passId) return { action: 'quiet', why: 'wallet_re_report' };
@@ -776,6 +794,8 @@ export type StarredCourtGeofence = {
   /** The equal-area circle of a mapped outline; null without one. */
   radius_m: number | null;
   auto_checkin: boolean;
+  /** The mapped outline (GeoJSON), from migration_court_outline_engine.sql; absent before it. */
+  outline?: unknown;
 };
 
 /** The wallet tier: one circle per pass, 100 m (a court picked from the catalog keeps its id). */
@@ -783,13 +803,17 @@ export function walletTierRegions(passes: readonly WalletRegionSource[]): CourtR
   return passes.map((p) => ({ id: p.regionId, lat: p.lat, lng: p.lng, radiusM: WALLET_RADIUS_M }));
 }
 
-/** The starred tier: an outline's circle, else "Notice me at starred courts". Off watches none. */
+/**
+ * The starred tier: an outline's circle, else a fixed 100 m. A saved
+ * court_radius_m of 0 (the old "Notice me at starred courts" Off) watches
+ * none; any other value only means on (the outline decides now).
+ */
 export function starredTierRegions(rows: readonly StarredCourtGeofence[], courtRadiusM: number): CourtRegion[] {
   if (!(courtRadiusM > 0)) return [];
   const out: CourtRegion[] = [];
   for (const r of rows) {
     if (r.lat == null || r.lng == null) continue;
-    out.push({ id: r.venue_id, lat: r.lat, lng: r.lng, radiusM: r.radius_m != null && r.radius_m > 0 ? r.radius_m : courtRadiusM });
+    out.push({ id: r.venue_id, lat: r.lat, lng: r.lng, radiusM: r.radius_m != null && r.radius_m > 0 ? r.radius_m : STARRED_CIRCLE_M });
   }
   return out;
 }
@@ -846,4 +870,107 @@ export function buildCourtRegionList(
     };
   });
   return { regions, info };
+}
+
+// ── Check-ins by the outline (2026-11-05) ─────────────────────────────────────
+// Doggle's engine (expo-foundation 1.104, /tracking). The circle only wakes
+// the phone; a reading on the court's mapped outline decides. A court with no
+// outline keeps the circle, as before.
+
+/**
+ * On the court, by its outline: inside, or within 25 m of the edge plus the
+ * reading's accuracy (capped at 75 m, _pl_check_fix's slack); a reading
+ * rougher than 150 m can't say (_pl_check_fix's "precise"). The foundation's
+ * OutlineRule shape; Doggle's 60 m edge is for parks, a court's outline is
+ * drawn tight around its fences (benches and the lot sit just outside).
+ */
+export const PL_OUTLINE_RULE = { edgeM: 25, maxSlackM: 75, maxAccuracyM: 150 } as const;
+
+/** A GeoJSON Polygon or MultiPolygon the outline rule can judge. */
+export function isOutlineGeometry(
+  g: unknown,
+): g is { type: 'Polygon'; coordinates: number[][][] } | { type: 'MultiPolygon'; coordinates: number[][][][] } {
+  if (!g || typeof g !== 'object') return false;
+  const { type, coordinates } = g as { type?: unknown; coordinates?: unknown };
+  if (!Array.isArray(coordinates) || coordinates.length === 0) return false;
+  return type === 'Polygon' || type === 'MultiPolygon';
+}
+
+export type OutlineGate = 'go' | 'watch' | 'quiet';
+
+/**
+ * What an Enter does before the arrival rules run, at a court with an outline:
+ * on it (or the outline couldn't be judged: the server does), go on; off it,
+ * or no reading yet, watch until on it (a real arrival only; a re-report every
+ * sync makes stays quiet). The arrival watch's own call (`fromWatch`) has
+ * already been judged on the outline.
+ */
+export function decideOutlineGate(f: {
+  hasOutline: boolean;
+  /** judgeFix's verdict; null with no reading. */
+  verdict: 'in' | 'out' | 'unknown' | null;
+  arrival: boolean;
+  fromWatch?: boolean;
+}): OutlineGate {
+  if (!f.hasOutline || f.fromWatch) return 'go';
+  if (f.verdict === 'in' || f.verdict === 'unknown') return 'go';
+  return f.arrival ? 'watch' : 'quiet';
+}
+
+/** The arrival watch's Android notice while it runs (the OS requires one). */
+export function arrivalWatchNotice(name: string | null | undefined): { title: string; body: string } {
+  return {
+    title: 'Pickleague is looking for your court',
+    body: `Checking whether you've reached ${name || 'the courts'}. Stops when you get there or leave.`,
+  };
+}
+
+/** The visit watch's Android notice while you're checked in at an outlined court. */
+export function visitWatchNotice(names: readonly string[]): { title: string; body: string } {
+  return {
+    title: names.length === 1 ? `Checked in at ${names[0]}` : 'Checked in',
+    body: 'Pickleague will remind you to check out when you leave.',
+  };
+}
+
+// ── Nearby courts in the spare slots ──────────────────────────────────────────
+/** The circle around where the nearby courts were picked: leaving it re-picks them. */
+export const NEARBY_REFRESH_REGION_ID = 'refresh:nearby';
+/** Half the distance to the farthest nearby court, within these (the foundation's defaults). */
+export const NEARBY_REFRESH_MIN_M = 400;
+export const NEARBY_REFRESH_MAX_M = 3000;
+
+/** list_nearby_wake_courts (supabase/migration_court_outline_engine.sql). */
+export type NearbyWakeCourt = {
+  venue_id: string;
+  name: string;
+  lat: number;
+  lng: number;
+  radius_m: number;
+  distance_m: number;
+  outline: unknown;
+};
+
+/** The nearby candidates, as fillNearbySlots takes them (circles clamped to 50-800 m). */
+export function nearbyCandidates(rows: readonly NearbyWakeCourt[]): (CourtRegion & { distanceM: number })[] {
+  return rows
+    .filter((r) => Number.isFinite(r.lat) && Number.isFinite(r.lng) && isOutlineGeometry(r.outline))
+    .map((r) => ({
+      id: r.venue_id,
+      lat: r.lat,
+      lng: r.lng,
+      radiusM: Math.min(MAX_REGION_RADIUS_M, Math.max(MIN_REGION_RADIUS_M, r.radius_m)),
+      distanceM: r.distance_m,
+    }));
+}
+
+// ── Settings: three switches (2026-11-05) ─────────────────────────────────────
+/** "Check me in when I arrive" (starred and routine courts): on only with the starred courts watched. */
+export function arrivalCheckinOn(s: CourtArrivalSettings): boolean {
+  return s.auto_checkin && s.court_radius_m > 0;
+}
+
+/** "Ask me when I'm at other courts". */
+export function otherCourtsOn(s: CourtArrivalSettings): boolean {
+  return s.other_court_radius_m > 0;
 }

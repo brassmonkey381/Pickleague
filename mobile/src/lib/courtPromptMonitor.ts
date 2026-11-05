@@ -2,9 +2,11 @@
 // state/court-arrival-doggle-parity.md B5): once a minute while the app is
 // open, on phone and web, prompt "Check in nearby?"
 //   * inside any court's mapped outline,
-//   * near a starred court with no outline, within "Notice me at starred courts",
-//   * near any other court with no outline, within "Prompt me near other
-//     courts" (Off by default).
+//   * within 100 m of a starred court with no outline,
+//   * within 100 m of any other court with no outline, while "Ask me when
+//     I'm at other courts" is on (Off by default).
+// (The distance pickers went on 2026-11-05: a court's outline decides, and
+// one without gets a fixed 100 m. An older saved distance only means on.)
 // One prompt per court per 2 hours from here. A starred court the geofence
 // saw me arrive at in the last 2 hours is left to it (native, automatic
 // check-in on), so that arrival doesn't also get a prompt. Its prompts show
@@ -24,7 +26,7 @@ import { getForegroundLocationStatus } from '@just-messin-around/expo-foundation
 import { playSession } from './playSession';
 import { arrivedRecently, promptCourtFromMonitor } from './courtArrival';
 import { courtRegionInfo, isStarredCourtRegion } from './courtGeofence';
-import { MONITOR_COOLDOWN_MS } from './courtArrivalRules';
+import { MONITOR_COOLDOWN_MS, OTHER_COURTS_ON_M, otherCourtsOn, STARRED_CIRCLE_M } from './courtArrivalRules';
 import { traceArrival } from './courtArrivalTrace';
 import { courtPromptScan, loadCourtArrivalSettings } from '../data/courtArrival';
 
@@ -90,8 +92,8 @@ export async function courtPromptTick(): Promise<void> {
     if (playSession.get().status !== 'idle') return;
     const settings = await loadCourtArrivalSettings().catch(() => null);
     if (!settings) return;
-    const starRadius = settings.court_radius_m || 0;
-    const otherRadius = settings.other_court_radius_m || 0;
+    const starRadius = settings.court_radius_m > 0 ? STARRED_CIRCLE_M : 0;
+    const otherRadius = otherCourtsOn(settings) ? OTHER_COURTS_ON_M : 0;
     // A starred court the geofence just handled (native, automatic check-in on).
     const autoStar = Platform.OS !== 'web' && starRadius > 0 && settings.auto_checkin !== false;
     const leftToGeofence = async (id: string) =>
