@@ -1,6 +1,6 @@
 import React from 'react';
 import { Platform, ScrollView, View, Text, StyleSheet } from 'react-native';
-import { RankMedal } from '@just-messin-around/expo-foundation/ui';
+import { RankMedal, SectionHeader } from '@just-messin-around/expo-foundation/ui';
 import { HAIRLINE, RADIUS, SPACE } from '@just-messin-around/expo-foundation/styles';
 import { FONT, textStyles } from '@just-messin-around/expo-foundation/typography';
 import { useTheme } from '../lib/ThemeContext';
@@ -169,7 +169,7 @@ else         → K = 0.75`}</Mono>
 function Section({ S, title, children }: { S: ReturnType<typeof makeStyles>; title: string; children: React.ReactNode }) {
   return (
     <View style={S.section}>
-      <Text style={S.sectionTitle}>{title}</Text>
+      <SectionHeader title={title} size="title" />
       {children}
     </View>
   );
@@ -232,7 +232,6 @@ function makeStyles(c: ReturnType<typeof useTheme>['colors']) {
       backgroundColor: c.surface, borderRadius: RADIUS.lg, padding: SPACE.lg, marginBottom: SPACE.md,
       borderWidth: HAIRLINE, borderColor: c.border,
     },
-    sectionTitle: { ...t.h3, marginBottom: SPACE.sm },
     subTitle:     { ...t.fieldLabel, color: c.textSub, marginTop: SPACE.md, marginBottom: SPACE.xs },
     body:         { ...t.bodySub, marginBottom: SPACE.sm },
     bold:         { fontWeight: FONT.weight.heavy, color: c.text },

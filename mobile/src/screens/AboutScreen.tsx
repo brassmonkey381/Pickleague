@@ -3,7 +3,7 @@ import { View, Text, ScrollView, StyleSheet, Pressable, Linking } from 'react-na
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import Constants from 'expo-constants';
 import { Icon, type IconName } from '@just-messin-around/expo-foundation/icons';
-import { Panel } from '@just-messin-around/expo-foundation/ui';
+import { Panel, SectionHeader } from '@just-messin-around/expo-foundation/ui';
 import { RADIUS, SPACE } from '@just-messin-around/expo-foundation/styles';
 import { FONT, textStyles } from '@just-messin-around/expo-foundation/typography';
 import { RootStackParamList } from '../types';
@@ -32,7 +32,7 @@ export default function AboutScreen({}: Props) {
       <Text style={[S.tagline, S.center]}>More fun. More frequent. More fair.</Text>
 
       <Panel padded={SPACE.lg} style={S.card}>
-        <Text style={S.sectionTitle} accessibilityRole="header">Guides</Text>
+        <SectionHeader title="Guides" size="title" style={S.sectionHead} />
         {GUIDES.map((g, i) => (
           <Pressable
             key={g.slug}
@@ -54,7 +54,7 @@ export default function AboutScreen({}: Props) {
       </Panel>
 
       <Panel padded={SPACE.lg} style={S.card}>
-        <Text style={S.sectionTitle} accessibilityRole="header">Our Mission</Text>
+        <SectionHeader title="Our Mission" size="title" style={S.sectionHead} />
         <Text style={S.body}>
           Pickleague exists to make recreational pickleball more fun, more frequent, and more fair — with the people you actually want to play with.
         </Text>
@@ -64,7 +64,7 @@ export default function AboutScreen({}: Props) {
       </Panel>
 
       <Panel padded={SPACE.lg} style={S.card}>
-        <Text style={S.sectionTitle} accessibilityRole="header">Why We Were Built</Text>
+        <SectionHeader title="Why We Were Built" size="title" style={S.sectionHead} />
         <Text style={S.body}>
           It started with a group of friends who loved pickleball but kept running into the same problems: Who do I play next? Is this a fair matchup? How do I actually get better?
         </Text>
@@ -77,7 +77,7 @@ export default function AboutScreen({}: Props) {
       </Panel>
 
       <Panel padded={SPACE.lg} style={S.card}>
-        <Text style={S.sectionTitle} accessibilityRole="header">Our Values</Text>
+        <SectionHeader title="Our Values" size="title" style={S.sectionHead} />
         {VALUES.map(({ icon, title, desc }, i) => (
           <View key={title} style={[S.valueRow, i === VALUES.length - 1 && S.valueRowLast]}>
             {/* The entity-row tile: 32, rounded square, glyph 18. */}
@@ -110,7 +110,8 @@ function makeStyles(c: ReturnType<typeof useTheme>['colors']) {
     appName:      { marginTop: SPACE.sm },
     tagline:      { ...t.body, color: c.primary, fontWeight: FONT.weight.semibold, marginTop: SPACE.xs, marginBottom: SPACE.xl },
     card:         { marginBottom: SPACE.md },
-    sectionTitle: { ...t.h3, marginBottom: SPACE.md },
+    // The look's marker header (parts.sectionHeader), sitting at the top of its card.
+    sectionHead: { marginTop: -SPACE.xs, marginBottom: SPACE.xs },
     body:         { ...t.body, color: c.textSub, marginBottom: SPACE.sm },
     valueRow:     { flexDirection: 'row', alignItems: 'flex-start', marginBottom: SPACE.md, gap: SPACE.md },
     valueRowLast: { marginBottom: 0 },

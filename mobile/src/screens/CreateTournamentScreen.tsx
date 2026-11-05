@@ -1,3 +1,4 @@
+import { SectionHeader as KitSectionHeader } from '@just-messin-around/expo-foundation/ui';
 import React, { useState, useEffect, useRef } from 'react';
 import {
   ScrollView, View, Text, TextInput, TouchableOpacity,
@@ -104,14 +105,9 @@ function Pill({ label, active, onPress, S, disabled, iconName }: { label: string
 // MLP is handled via matchType='mlp' and DOES NOT appear in FORMATS now.
 const DOUBLES_ONLY_FORMATS: TournamentFormat[] = ['rotating_partners'];
 
+// The form's section titles: the foundation header, in the look's marker style.
 function SectionHeader({ title, S, iconName }: { title: string; S: ReturnType<typeof makeStyles>; iconName?: IconName }) {
-  const { colors: c } = useTheme();
-  return (
-    <View style={S.sectionHeader}>
-      {iconName ? <Icon name={iconName} size={16} color={c.primary} /> : null}
-      <Text style={S.sectionHeaderText} accessibilityRole="header">{title}</Text>
-    </View>
-  );
+  return <KitSectionHeader title={title} icon={iconName} size="title" style={S.sectionHeader} />;
 }
 
 export default function CreateTournamentScreen({ navigation, route }: Props) {
@@ -756,8 +752,7 @@ function makeStyles(c: ReturnType<typeof useTheme>['colors']) {
   const t = textStyles(c);
   return StyleSheet.create({
     container: { padding: SPACE.lg, backgroundColor: c.surface, flexGrow: 1, paddingBottom: SPACE.xl * 2 },
-    sectionHeader: { flexDirection: 'row', alignItems: 'center', gap: SPACE.xs, marginTop: SPACE.xl, marginBottom: SPACE.sm, borderBottomWidth: HAIRLINE, borderBottomColor: c.border, paddingBottom: SPACE.xs },
-    sectionHeaderText: { ...t.title, fontWeight: FONT.weight.heavy },
+    sectionHeader: { marginTop: SPACE.lg },
     label: { ...t.fieldLabel, marginBottom: SPACE.xs, marginTop: SPACE.md },
     hint: { ...t.hint, marginTop: SPACE.xs },
     input: { borderWidth: HAIRLINE, borderColor: c.border, borderRadius: RADIUS.md, padding: SPACE.md, fontSize: FONT.size.lg, color: c.text, backgroundColor: c.surface },
