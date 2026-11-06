@@ -3,27 +3,25 @@
 // (supabase/migration_outside_events.sql), soonest first.
 //
 //   Pickleball events near your home court, run by clubs, rec centers...
-//   My tournaments ›
 //   (Open play)(Round robin)(Clinic)(Ladder)(Tournament)(Social)   any of them
 //   Saturday open play  NEW                         (Interested)
 //   Sat, 9 AM to 11 AM, Ocean View Park
 //   [via City of Albany]  Open play, Social
 //
-// The tile used to open My tournaments: that's the link at the top now. The
-// chips filter on the phone (one list read, shared with the court badges).
+// The tile used to open My tournaments; those stay in Discover's Tournaments
+// tab (Brian 2026-11-06: no link needed here). The chips filter on the phone (one list read, shared with the court badges).
 // What's on screen counts as seen (the NEW tags stay up for this visit).
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { FlatList, StyleSheet, Text, View } from 'react-native';
 import type { NativeStackScreenProps } from '@react-navigation/native-stack';
 import { useFocusEffect } from '@react-navigation/native';
 import { friendlySbMessage } from '@just-messin-around/expo-foundation/supabase';
-import { ErrorState, FilterChipRow, TextLink, type FilterChipOption } from '@just-messin-around/expo-foundation/ui';
+import { ErrorState, FilterChipRow, type FilterChipOption } from '@just-messin-around/expo-foundation/ui';
 import { SPACE } from '@just-messin-around/expo-foundation/styles';
 import { textStyles } from '@just-messin-around/expo-foundation/typography';
 import { useTheme } from '../lib/ThemeContext';
 import { useRefresh } from '../lib/useRefresh';
 import { track } from '../lib/analytics';
-import { openDiscover } from '../lib/discoverNav';
 import AppRefreshControl from '../components/AppRefreshControl';
 import { SkeletonList } from '../components/Skeleton';
 import EmptyState from '../components/EmptyState';
@@ -33,7 +31,6 @@ import {
   EVENTS_EMPTY_FILTERED,
   EVENTS_INTRO,
   KIND_FILTERS,
-  MY_TOURNAMENTS_LINK,
   type OutsideEventKind,
 } from '../lib/outsideEvents';
 import { outsideSeen, useOutsideEvents } from '../data/outsideEvents';
@@ -93,11 +90,6 @@ export default function PublicEventsScreen({ navigation }: Props) {
   const header = (
     <View style={S.header}>
       <Text style={t.sub}>{EVENTS_INTRO}</Text>
-      <TextLink
-        label={MY_TOURNAMENTS_LINK}
-        iconName="bracket"
-        onPress={() => openDiscover(navigation, { tab: 'tournaments', mine: true })}
-      />
       {showChips ? (
         <FilterChipRow
           multi

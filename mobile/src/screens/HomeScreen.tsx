@@ -627,7 +627,7 @@ export default function HomeScreen({ navigation }: Props) {
       // (the same one as JOIN A LEAGUE's [Enter code]).
       case 'join': setCodeOpen(true); break;
       case 'leagues': openDiscover(navigation, { tab: 'leagues', mine: true }); break;
-      // Events near me (outside events); My tournaments is a link at its top.
+      // Events near me (outside events). My tournaments: Discover's Tournaments tab.
       case 'events': navigation.navigate('PublicEvents'); break;
       // One league: its standings, scrolled to me. Several: pick one first.
       // None: Discover's leagues, to find one.

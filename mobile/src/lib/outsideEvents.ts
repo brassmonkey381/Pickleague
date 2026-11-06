@@ -138,7 +138,6 @@ export const EVENTS_EMPTY_FILTERED = {
   title: 'No events of that kind',
   subtitle: 'Try another kind, or clear the chips.',
 };
-export const MY_TOURNAMENTS_LINK = 'My tournaments';
 
 /** "Open play, Social". */
 export function kindsLine(e: Pick<OutsideEvent, 'kinds'>): string {
