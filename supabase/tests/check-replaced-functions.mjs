@@ -76,7 +76,10 @@ const REPLACED = [
   // stops only, the reminder covers one-off plans, Undo skip / Change today's
   // time refuse a stop next to another plan there, and send_on_my_way gains
   // p_here (a fourth argument: the three-argument function is dropped).
-  ['public._pl_court_arrival_off(uuid,text)', 'migration_court_routines.sql', 'migration_court_oneoff_plans.sql'],
+  // ...and again by migration_other_courts_auto_checkin.sql (an unstarred
+  // court with "Check me in without asking" on is not off).
+  ['public._pl_court_arrival_off(uuid,text)', 'migration_court_routines.sql', 'migration_court_oneoff_plans.sql',
+    'migration_other_courts_auto_checkin.sql'],
   ['public.process_court_routine_reminders()', 'migration_court_routines.sql', 'migration_court_oneoff_plans.sql'],
   ['public.unskip_court_routine_occurrence(uuid)', 'migration_court_routines.sql', 'migration_court_oneoff_plans.sql'],
   ['public.move_court_routine_occurrence(uuid,timestamptz)', 'migration_court_routines.sql',
