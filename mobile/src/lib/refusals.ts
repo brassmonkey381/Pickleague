@@ -122,6 +122,9 @@ export const REFUSAL_CODES = [
   'home.friends_only',
   // migration_court_pass_tables.sql: buy_home_item on a Court Pass reward.
   'home.track_only',
+  // migration_place_stays.sql: visit_place.
+  'stay.self',
+  'stay.elsewhere',
   // Only from an older server's message (it couldn't tell these apart).
   'match.not_pending',
   // Only from the server's text: _lock_completed_tournament_match
@@ -579,6 +582,14 @@ export function refusalCopy(
       return `${textOf(detail.name) || person || 'This player'} keeps My Place to themselves right now, so it can't be visited. Visit a friend's place instead.`;
     case 'home.friends_only':
       return `${textOf(detail.name) || person || 'This player'} shares My Place with friends only. Send them a friend request; once they accept, you can visit.`;
+    // ── My Place stays (migration_place_stays.sql) ──
+    case 'stay.self':
+      return "That's your own place. Visit a friend's place to stay there.";
+    case 'stay.elsewhere': {
+      // DETAIL {host_label}: "Sam's place".
+      const where = textOf(detail.host_label) || "another friend's place";
+      return `You're staying at ${where} right now. Come home first, then visit here.`;
+    }
     // ── Court Pass (migration_court_pass_tables.sql) ──
     case 'home.track_only': {
       // DETAIL {item, tier, cycle}. The server's message already says which

@@ -136,8 +136,10 @@ const REPLACED = [
   // Fair rewards (migration_fair_rewards.sql): Doggle's login build-up and
   // once-per-account streak badges; the daily cap counts the social earns.
   ['public.claim_daily_login_streak()', 'migration_local_day_boundaries.sql', 'migration_fair_rewards.sql'],
-  ['public._pl_play_cap_left(uuid)', 'migration_pickle_economy_guards.sql', 'migration_fair_rewards.sql'],
-  ['public._pl_profiles_play_cap()', 'migration_pickle_economy_guards.sql', 'migration_fair_rewards.sql'],
+  // ...and again by migration_place_stays.sql (a finished stay is a play
+  // source), so the fair rewards body is now the "old" one.
+  ['public._pl_play_cap_left(uuid)', 'migration_fair_rewards.sql', 'migration_place_stays.sql'],
+  ['public._pl_profiles_play_cap()', 'migration_fair_rewards.sql', 'migration_place_stays.sql'],
   // Plan options (migration_plan_options.sql): Drill joins Closed group and
   // Open play wherever windows are checked or worded.
   ['public._pl_windows_problem(jsonb,integer)', 'migration_court_routines.sql', 'migration_plan_options.sql'],

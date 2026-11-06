@@ -1,6 +1,7 @@
 // One My Place room: the kit's RoomScene with Pickleague's slots, the admin
-// layout, what is equipped, the player's avatar in the avatar slot, and the
-// wallpaper / floor items tiled across the wall and the floor.
+// layout, what is equipped, the player's avatar in the avatar slot (none while
+// they're staying somewhere else), friends staying over on the guest spots,
+// and the wallpaper / floor items tiled across the wall and the floor.
 //
 // Read-only for visitors. In my own room (`onPressSlot`), every decor slot is
 // a touch target on its anchor (front-most on top), empty ones marked with a
@@ -9,7 +10,7 @@
 import React, { useMemo } from 'react';
 import { View, Pressable, StyleSheet, Text } from 'react-native';
 import { SvgXml } from 'react-native-svg';
-import { RoomScene } from '@just-messin-around/expo-foundation/room';
+import { RoomScene, type RoomAvatarInfo } from '@just-messin-around/expo-foundation/room';
 import {
   buildBackdrop,
   type RoomArtResolver,
@@ -28,7 +29,7 @@ import { RADIUS } from '@just-messin-around/expo-foundation/styles';
 import { textStyles } from '@just-messin-around/expo-foundation/typography';
 import { useTheme } from '../../lib/ThemeContext';
 import { tileGrid, type AvatarLook } from '../../lib/myPlace';
-import { MY_PLACE_FLOOR_LINE, MY_PLACE_SLOTS, myPlaceBackdrop } from '../../lib/myPlaceSlots';
+import { MY_PLACE_FLOOR_LINE, MY_PLACE_GUEST_SLOTS, MY_PLACE_RATIO, MY_PLACE_SCENE_SLOTS, MY_PLACE_SLOTS, myPlaceBackdrop } from '../../lib/myPlaceSlots';
 import MyPlaceAvatar from './MyPlaceAvatar';
 
 type Props = {
@@ -37,7 +38,10 @@ type Props = {
   /** slotId -> item drawn there (saved + any preview). Stable (useMemo). */
   items: Readonly<Record<string, RoomItem | null | undefined>>;
   resolveArt: RoomArtResolver;
+  /** The owner, or null while they're away (staying at a friend's place). */
   avatar: AvatarLook | null;
+  /** Friends staying over, first two drawn (key = their user id). Stable (useMemo). */
+  guests?: readonly { key: string; look: AvatarLook; name: string }[];
   /** Spoken name of the room ("Brian's place"). */
   label: string;
   /** My own room: tap a slot to decorate it. Absent for a visit. */
@@ -46,14 +50,13 @@ type Props = {
   activeSlot?: string | null;
 };
 
-const RATIO = 0.72;
 /** Tiles per row across the room (catalog.json backdrops: about a quarter of the width each). */
 const TILES_ACROSS = 4;
 
-export default function MyPlaceRoom({ width, layout, items, resolveArt, avatar, label, onPressSlot, activeSlot }: Props) {
+export default function MyPlaceRoom({ width, layout, items, resolveArt, avatar, guests, label, onPressSlot, activeSlot }: Props) {
   const { colors: c } = useTheme();
   const t = textStyles(c);
-  const height = Math.round(width * RATIO);
+  const height = Math.round(width * MY_PLACE_RATIO);
 
   const renderBackdrop = useMemo(
     () => (W: number, H: number, bd: Readonly<Record<string, RoomItem | null>>) => (
@@ -62,10 +65,22 @@ export default function MyPlaceRoom({ width, layout, items, resolveArt, avatar, 
     [resolveArt],
   );
 
-  const renderAvatar = useMemo(
-    () => (avatar ? (box: Box) => <MyPlaceAvatar box={box} look={avatar} label={label} /> : undefined),
-    [avatar, label],
+  const drawn = useMemo(() => (guests ?? []).slice(0, MY_PLACE_GUEST_SLOTS.length), [guests]);
+  const visitors = useMemo(
+    () => drawn.map((g, i) => ({ key: g.key, slot: MY_PLACE_GUEST_SLOTS[i].id })),
+    [drawn],
   );
+  // RoomScene draws visitors only with renderAvatar, so it is there whenever
+  // anyone is home; the owner's own spot stays empty while they're away.
+  const renderAvatar = useMemo(() => {
+    if (!avatar && drawn.length === 0) return undefined;
+    const byKey = new Map(drawn.map((g) => [g.key, g]));
+    return (box: Box, _slotId: string, info: RoomAvatarInfo) => {
+      if (info.visitor == null) return avatar ? <MyPlaceAvatar box={box} look={avatar} label={label} /> : null;
+      const g = byKey.get(info.visitor);
+      return g ? <MyPlaceAvatar box={box} look={g.look} label={`${g.name}, visiting`} /> : null;
+    };
+  }, [avatar, drawn, label]);
 
   const targets = useMemo(() => {
     if (!onPressSlot) return [];
@@ -83,11 +98,13 @@ export default function MyPlaceRoom({ width, layout, items, resolveArt, avatar, 
     <RoomScene
       width={width}
       height={height}
-      slots={MY_PLACE_SLOTS}
+      slots={MY_PLACE_SCENE_SLOTS}
       layout={layout}
       equipped={items}
       resolveArt={resolveArt}
       renderAvatar={renderAvatar}
+      avatarSlot="avatar"
+      visitors={visitors.length > 0 ? visitors : undefined}
       renderBackdrop={renderBackdrop}
       radius={RADIUS.lg}
       accessibilityLabel={label}

@@ -2,7 +2,9 @@
 // want people to see their place here!", on all three tabs). The same scene
 // MyPlaceScreen draws (MyPlaceRoom with no onPressSlot, so nothing in it is
 // tappable on its own); a tap anywhere opens My Place to edit it. Before the
-// starter set is claimed it says so and the tap sets it up there.
+// starter set is claimed it says so and the tap sets it up there. While my
+// avatar is staying at a friend's place it isn't in the room; friends staying
+// over are (migration_place_stays.sql).
 import React, { useCallback, useMemo, useState } from 'react';
 import { StyleSheet, Text, TouchableOpacity, View, type LayoutChangeEvent } from 'react-native';
 import { createArtResolver } from '@just-messin-around/expo-foundation/room/art';
@@ -14,6 +16,7 @@ import MyPlaceRoom from './MyPlaceRoom';
 import { AVATARS } from '../../data/profileCustomization';
 import { useItemArt, useMyHome, useMyPlaceCatalog, usePlaceOwner, useRoomLayout } from '../../data/myPlace';
 import { avatarLook, sceneItems, type MyPlaceItem } from '../../lib/myPlace';
+import { usePlaceStays } from '../../data/placeStays';
 
 type Props = {
   userId: string;
@@ -43,6 +46,12 @@ export default function MyPlacePreview({ userId, onOpen }: Props) {
   const items = useMemo(() => sceneItems(equipped, byId), [equipped, byId]);
   const resolveArt = useMemo(() => createArtResolver(), []);
   const look = useMemo(() => avatarLook(owner.data ?? null, AVATARS), [owner.data]);
+  const stays = usePlaceStays(null);
+  const away = !!stays.data?.away;
+  const guests = useMemo(
+    () => (stays.data?.guests ?? []).map((g) => ({ key: g.visitorId, look: avatarLook(g, AVATARS), name: g.name })),
+    [stays.data],
+  );
 
   const [width, setWidth] = useState(0);
   const onLayout = useCallback((e: LayoutChangeEvent) => setWidth(Math.round(e.nativeEvent.layout.width)), []);
@@ -68,7 +77,8 @@ export default function MyPlacePreview({ userId, onOpen }: Props) {
                   layout={layoutQ.layout}
                   items={items}
                   resolveArt={resolveArt}
-                  avatar={look}
+                  avatar={away ? null : look}
+                  guests={guests}
                   label="Your room"
                 />
               </View>

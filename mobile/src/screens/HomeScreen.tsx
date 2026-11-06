@@ -113,6 +113,7 @@ import OpenNearYouSection, { type OpenItem } from '../components/home/OpenNearYo
 import FriendsAtCourtsSection from '../components/home/FriendsAtCourtsSection';
 import RoutineSuggestionCard from '../components/routines/RoutineSuggestionCard';
 import StreakBonusModal from '../components/home/StreakBonusModal';
+import PlaceStayReturnHost from '../components/myPlace/PlaceStayReturnHost';
 import PickleagueFeedSection from '../components/feed/PickleagueFeedSection';
 import { HomePlanConfirmSheet, useHomePlanConfirm } from '../components/home/HomePlanConfirm';
 import { PickleAmount } from '../components/PickleAmount';
@@ -260,7 +261,13 @@ export default function HomeScreen({ navigation }: Props) {
     return () => clearTimeout(timer);
   }, [focused]);
 
-  const activeModal = focused && focusSettled && !handoffHeld && !codeOpen && !pickerOpen && !picklesOpen ? queue[0] ?? null : null;
+  // "You're home!" (a My Place stay ended) has its own queue (the kit's
+  // useStayReturns, in PlaceStayReturnHost): it goes up only when this queue
+  // is empty, and holds this queue while it is up.
+  const [stayShowing, setStayShowing] = useState(false);
+  const free = focused && focusSettled && !handoffHeld && !codeOpen && !pickerOpen && !picklesOpen;
+  const activeModal = free && !stayShowing ? queue[0] ?? null : null;
+  const stayEnabled = free && queue.length === 0;
   // The pop-up on screen right now (one commit behind, which is enough: a
   // queued one only appears after a HANDOFF_MS pause anyway).
   const shownRef = useRef<QueuedModal | null>(null);
@@ -1008,6 +1015,14 @@ export default function HomeScreen({ navigation }: Props) {
       />
 
       <StreakBonusModal visible={!!streakModal} result={streakModal?.result ?? null} onClose={closeModal} />
+
+      <PlaceStayReturnHost
+        meId={isGuest ? null : profile?.id ?? null}
+        enabled={stayEnabled}
+        onClaimed={() => reload()}
+        onShowingChange={setStayShowing}
+        onClose={holdHandoff}
+      />
 
       <HomePlanConfirmSheet
         state={planConfirm}

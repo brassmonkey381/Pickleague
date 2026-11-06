@@ -93,6 +93,9 @@ const SERVER_CODES: RefusalCode[] = [
   'session.open',
   // migration_court_pass_tables.sql
   'home.track_only',
+  // migration_place_stays.sql
+  'stay.self',
+  'stay.elsewhere',
 ];
 
 const GENERIC = /something went wrong|an error occurred|try again later\.?$|^error/i;

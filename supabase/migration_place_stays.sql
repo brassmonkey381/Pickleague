@@ -47,7 +47,8 @@
 --     not shown yet (oldest first). Home calls it on focus.
 --   get_place_stays(p_owner uuid default null) -> jsonb {away, guests}
 --     away: the owner's own stay in progress {host_id, host_label, ends_at}
---     or null; guests: [{visitor_id, name, ends_at}] staying at the owner's
+--     or null; guests: [{visitor_id, name, ends_at, avatar_url, avatar_emoji,
+--     avatar_bg_color, avatar_id}] staying at the owner's
 --     place now. Mine, or a friend's whose place I may visit (as get_home);
 --     anyone else gets {away: null, guests: []}, never an error, so a
 --     profile preview can always ask.
@@ -424,7 +425,12 @@ begin
       select jsonb_agg(jsonb_build_object(
                'visitor_id', s.visitor_id,
                'name',       coalesce(nullif(split_part(btrim(p.full_name), ' ', 1), ''), 'A friend'),
-               'ends_at',    s.ends_at) order by s.ends_at)
+               'ends_at',    s.ends_at,
+               -- How the room draws the guest (as the profile's own avatar).
+               'avatar_url',      p.avatar_url,
+               'avatar_emoji',    p.avatar_emoji,
+               'avatar_bg_color', p.avatar_bg_color,
+               'avatar_id',       p.avatar_id) order by s.ends_at)
         from public.place_stays s
         join public.profiles p on p.id = s.visitor_id and p.deleted_at is null
        where s.host_id = v_owner and s.returned_at is null and s.ends_at > now()

@@ -14,6 +14,13 @@
 // me, friends only, unavailable, a guest pass) is a friendly state that says
 // why and offers what to do, not just a toast.
 //
+// Stays (migration_place_stays.sql, Brian 2026-11-05): on a friend's place,
+// "Stay for 4 hours" sends my avatar there (one stay at a time); it comes home
+// on its own with a souvenir and pickles (PlaceStayReturnHost on Home), or
+// early with nothing ("Come home early"). While away, my avatar is missing
+// from my own place, which says where it is; friends staying over stand on
+// the guest spots.
+//
 // Brian's rule: players never move, resize or arrange anything. Slots are
 // anchored; only the God mode layout (MyPlaceLayout) moves them.
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
@@ -72,6 +79,17 @@ import {
   type MyPlaceVisibility,
 } from '../lib/myPlace';
 import { MY_PLACE_DECOR_SLOTS, MY_PLACE_SLOTS } from '../lib/myPlaceSlots';
+import {
+  awayLine,
+  COME_HOME_BUTTON,
+  COME_HOME_CONFIRM,
+  guestLine,
+  ownerAwayLine,
+  stayingHereLine,
+  STAY_BUTTON,
+  STAY_PITCH,
+} from '../lib/placeStays';
+import { leavePlace, usePlaceStays, visitPlace } from '../data/placeStays';
 import type { RootStackParamList } from '../types';
 
 type Props = NativeStackScreenProps<RootStackParamList, 'MyPlace'>;
@@ -107,6 +125,11 @@ export default function MyPlaceScreen({ navigation, route }: Props) {
   const visit = useVisitHome(mine ? null : ownerParam, !mine && meId !== undefined);
   const home = mine ? myHome : visit;
   const owner = usePlaceOwner(ownerId);
+  // Stays: mine (where my avatar is), and this place's (who is here, and
+  // whether its owner is away). The same read when it's my own place.
+  const myStays = usePlaceStays(null, meId != null);
+  const placeStays = usePlaceStays(mine ? null : ownerParam, !mine && meId != null);
+  const stays = mine ? myStays : placeStays;
 
   // Pickles change on other screens (Shop, gifts, claims): re-read my balance on every focus.
   const refreshMine = myHome.refresh;
@@ -194,6 +217,15 @@ export default function MyPlaceScreen({ navigation, route }: Props) {
   const resolveArt = useMemo(() => createArtResolver(), []);
 
   const look = useMemo(() => (owner.data ? avatarLook(owner.data, AVATARS) : avatarLook(null, AVATARS)), [owner.data]);
+  // The owner's avatar is missing while they're staying somewhere else.
+  const ownerAway = stays.data?.away ?? null;
+  const guestList = useMemo(() => stays.data?.guests ?? [], [stays.data]);
+  const guests = useMemo(
+    () => guestList.map((g) => ({ key: g.visitorId, look: avatarLook(g, AVATARS), name: g.visitorId === meId ? 'You' : g.name })),
+    [guestList, meId],
+  );
+  const myAway = myStays.data?.away ?? null;
+  const stayingHere = !mine && !!myAway && myAway.hostId === ownerParam;
 
   const [width, setWidth] = useState(0);
   const onLayout = useCallback((e: LayoutChangeEvent) => setWidth(Math.round(e.nativeEvent.layout.width)), []);
@@ -201,7 +233,7 @@ export default function MyPlaceScreen({ navigation, route }: Props) {
 
   const refresh = useRefresh(async () => {
     invalidateMyPlace();
-    await Promise.all([catalog.refresh(), layoutQ.refresh(), home.refresh(), owner.refresh()]);
+    await Promise.all([catalog.refresh(), layoutQ.refresh(), home.refresh(), owner.refresh(), myStays.refresh(), placeStays.refresh()]);
   });
 
   // ── actions ──
@@ -299,6 +331,53 @@ export default function MyPlaceScreen({ navigation, route }: Props) {
     });
   }
 
+  // ── stays ──
+  const [stayBusy, setStayBusy] = useState(false);
+  const [stayError, setStayError] = useState<string | null>(null);
+  const [confirmHome, setConfirmHome] = useState(false);
+  async function startStay() {
+    if (!ownerParam || stayBusy) return;
+    setStayBusy(true);
+    setStayError(null);
+    try {
+      await visitPlace(ownerParam);
+      celebrate();
+    } catch (e) {
+      setStayError(
+        explainRefusal(e, "Couldn't start your stay. Check your connection and try again.", {
+          action: 'visit_place',
+          personName: ownerFirst || undefined,
+        }),
+      );
+    } finally {
+      setStayBusy(false);
+    }
+  }
+  async function comeHome() {
+    setConfirmHome(false);
+    if (stayBusy) return;
+    setStayBusy(true);
+    setStayError(null);
+    try {
+      await leavePlace();
+    } catch (e) {
+      setStayError(explainRefusal(e, "Couldn't bring you home. Check your connection and try again."));
+    } finally {
+      setStayBusy(false);
+    }
+  }
+  const comeHomeButton = (
+    <Button
+      size="sm"
+      variant="outline"
+      title={COME_HOME_BUTTON}
+      onPress={() => setConfirmHome(true)}
+      loading={stayBusy}
+      style={[styles.hug, styles.stayBtn]}
+    />
+  );
+  const stayErrorText = stayError ? <Text style={[t.meta, { color: c.danger }]}>{stayError}</Text> : null;
+
   async function changeVisibility(v: MyPlaceVisibility) {
     if (!home.data || v === home.data.visibility) return;
     setVisBusy(true);
@@ -384,7 +463,8 @@ export default function MyPlaceScreen({ navigation, route }: Props) {
               layout={layoutQ.layout}
               items={sceneEquipped}
               resolveArt={resolveArt}
-              avatar={look}
+              avatar={ownerAway ? null : look}
+              guests={guests}
               label={roomName}
               onPressSlot={mine && data?.starterClaimed ? openSlot : undefined}
               activeSlot={activeSlot}
@@ -424,6 +504,17 @@ export default function MyPlaceScreen({ navigation, route }: Props) {
               />
             ) : (
               <>
+                {myAway ? (
+                  <Panel style={styles.block}>
+                    <Text style={t.title}>{awayLine(myAway)}</Text>
+                    <Text style={t.sub}>Your avatar is out, so it isn't in your room until it comes home.</Text>
+                    {comeHomeButton}
+                    {stayErrorText}
+                  </Panel>
+                ) : null}
+                {guestList.map((g) => (
+                  <Text key={g.visitorId} style={t.sub}>{guestLine(g)}</Text>
+                ))}
                 {courtPass.summary ? (
                   <CourtPassChip summary={courtPass.summary} onPress={() => navigation.navigate('CourtPass')} />
                 ) : null}
@@ -488,13 +579,56 @@ export default function MyPlaceScreen({ navigation, route }: Props) {
             )}
           </>
         ) : (
-          <Text style={[t.sub, styles.block]}>
-            {filled === 0
-              ? `${ownerFirst ? `${ownerFirst} hasn't` : "They haven't"} decorated yet. Check back later.`
-              : `This is ${ownerFirst ? `${ownerFirst}'s` : 'their'} place. Only ${ownerFirst || 'they'} can decorate it.`}
-          </Text>
+          <>
+            <Panel style={styles.block}>
+              {stayingHere && myAway ? (
+                <>
+                  <Text style={t.title}>{stayingHereLine(myAway.endsAt)}</Text>
+                  {comeHomeButton}
+                </>
+              ) : myAway ? (
+                <>
+                  <Text style={t.title}>{awayLine(myAway)}</Text>
+                  <Text style={t.sub}>One stay at a time. Come home first to stay here instead.</Text>
+                  {comeHomeButton}
+                </>
+              ) : (
+                <>
+                  <Text style={t.sub}>{STAY_PITCH}</Text>
+                  <Button
+                    size="sm"
+                    title={STAY_BUTTON}
+                    iconName="home"
+                    onPress={() => void startStay()}
+                    loading={stayBusy}
+                    disabled={myStays.loading && !myStays.data}
+                    style={[styles.hug, styles.stayBtn]}
+                  />
+                </>
+              )}
+              {stayErrorText}
+            </Panel>
+            {ownerAway ? <Text style={t.sub}>{ownerAwayLine(ownerFirst, ownerAway)}</Text> : null}
+            {guestList.filter((g) => g.visitorId !== meId).map((g) => (
+              <Text key={g.visitorId} style={t.sub}>{guestLine(g)}</Text>
+            ))}
+            <Text style={[t.sub, styles.block]}>
+              {filled === 0
+                ? `${ownerFirst ? `${ownerFirst} hasn't` : "They haven't"} decorated yet. Check back later.`
+                : `This is ${ownerFirst ? `${ownerFirst}'s` : 'their'} place. Only ${ownerFirst || 'they'} can decorate it.`}
+            </Text>
+          </>
         )}
       </ScrollView>
+
+      <ConfirmModal
+        visible={confirmHome}
+        title={COME_HOME_CONFIRM.title}
+        body={COME_HOME_CONFIRM.body}
+        primaryLabel={COME_HOME_CONFIRM.label}
+        onConfirm={() => void comeHome()}
+        onClose={() => setConfirmHome(false)}
+      />
 
       <ConfirmModal
         visible={!!pendingBuy}
@@ -523,4 +657,5 @@ const styles = StyleSheet.create({
   center: { textAlign: 'center' },
   friend: { alignSelf: 'stretch' },
   blockBtn: { alignSelf: 'stretch' },
+  stayBtn: { marginTop: SPACE.sm },
 });

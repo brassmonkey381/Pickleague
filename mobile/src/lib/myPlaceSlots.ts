@@ -72,6 +72,27 @@ export const MY_PLACE_SLOTS: readonly SlotDef[] = [
   },
 ];
 
+/**
+ * Where friends staying over stand (migration_place_stays.sql): two more
+ * avatar spots in front of the couch, drawn by RoomScene as visitors. App-only:
+ * not in MY_PLACE_SLOTS, so not in home_slots, the art tools or the God mode
+ * layout (nothing is ever equipped on them; their spots are these defaults).
+ * A third guest and on is named under the room, not drawn.
+ */
+export const MY_PLACE_GUEST_SLOTS: readonly SlotDef[] = [
+  {
+    id: 'guest1', label: 'Guest', kind: 'avatar', fits: 'avatar', aspect: 0.8,
+    default: { kind: 'avatar', cx: 0.42, bottom: 0.99, w: 0.12, z: 1001 }, drawOrder: 1001,
+  },
+  {
+    id: 'guest2', label: 'Guest', kind: 'avatar', fits: 'avatar', aspect: 0.8,
+    default: { kind: 'avatar', cx: 0.64, bottom: 0.99, w: 0.12, z: 1002 }, drawOrder: 1002,
+  },
+];
+
+/** What the room draws: the slots, then the guest spots. */
+export const MY_PLACE_SCENE_SLOTS: readonly SlotDef[] = [...MY_PLACE_SLOTS, ...MY_PLACE_GUEST_SLOTS];
+
 /** The slot players pick decor for (every slot but the avatar's). */
 export const MY_PLACE_DECOR_SLOTS: readonly SlotDef[] = MY_PLACE_SLOTS.filter((s) => s.kind !== 'avatar');
 
