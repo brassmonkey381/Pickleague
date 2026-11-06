@@ -2,8 +2,8 @@
 -- Outside events (persona tests for migration_outside_events.sql).
 --
 -- NOT runnable on its own: build-outside-events-test.mjs puts, at the marker
--- line below, migration_outside_events.sql twice (it must be re-runnable) and
--- then migration_rls_hardening_2026q3.sql (a re-run must keep the events RPCs
+-- line below, migration_home_location.sql and migration_outside_events.sql
+-- twice each (they must be re-runnable) and then migration_rls_hardening_2026q3.sql (a re-run must keep the events RPCs
 -- online). Everything runs inside the begin / rollback below, so the linked
 -- (live) database is left untouched:
 --   node supabase/tests/build-outside-events-test.mjs <out.sql>
@@ -12,10 +12,10 @@
 --
 -- Personas (temporary accounts created inside the transaction, emails
 -- @outside-events.example so they aren't test accounts):
---   OA home court in Alameda (near the events)
---   OB home court in Alameda, reports too
---   OC home court in Sacramento (~110 km away)
---   OD no home court
+--   OA home location in Alameda (near the events)
+--   OB home location in Alameda, reports too
+--   OC home location in Sacramento (~110 km away)
+--   OD no home location (sets one, then clears it: H4)
 --   OE deleted at the end (its RSVP goes with it)
 -- GM: the godmode account (is_godmode_user), used for the admin RPCs only;
 -- everything it writes is rolled back.
@@ -98,11 +98,6 @@ insert into auth.users (id, email, raw_user_meta_data)
 select id, 'oe-' || lower(k) || '@outside-events.example', jsonb_build_object('full_name', 'Event' || k || ' Test')
   from _p;
 
-update public.profiles set home_court_lat = 37.7700, home_court_lng = -122.2500 where id in (pg_temp.p('OA'), pg_temp.p('OB'), pg_temp.p('OE'));
-update public.profiles set home_court_lat = 38.5816, home_court_lng = -121.4944 where id = pg_temp.p('OC');
-update public.profiles set home_court_lat = null, home_court_lng = null where id = pg_temp.p('OD');
--- The godmode account's own home court, for this test only (rolled back).
-update public.profiles set home_court_lat = 37.7700, home_court_lng = -122.2500 where id = pg_temp.p('GM');
 
 -- A court about 95 m from the events' point, one about 400 m away.
 insert into public.venues (id, sport, name, lat, lng, source)
@@ -120,7 +115,35 @@ declare
   v_n    integer;
   v_bal  integer;
   v_xp   integer;
+  v_k    text;
 begin
+  -- H1 home locations, set through the RPC (GM's too, for this test only)
+  foreach v_k in array array['OA', 'OB', 'OE', 'GM'] loop
+    perform pg_temp.as_user(pg_temp.p(v_k));
+    r := public.set_my_home_location(37.7700, -122.2500, '2250 Shoreline Dr, Alameda, CA 94501, USA');
+    perform pg_temp.as_admin();
+  end loop;
+  perform pg_temp.ok('H1 a neighborhood like "Alameda, CA"', r ->> 'neighborhood' ~ '^[^,]+, [A-Z]{2}$', r::text);
+  perform pg_temp.ok('H1 it is the only part on the profile',
+    (select home_neighborhood from public.profiles where id = pg_temp.p('OA')) = r ->> 'neighborhood');
+  perform pg_temp.as_user(pg_temp.p('OC'));
+  perform public.set_my_home_location(38.5816, -121.4944, null);
+  r := public.get_my_home_location();
+  perform pg_temp.as_admin();
+  perform pg_temp.ok('H2 the owner reads the exact point back',
+    (r ->> 'lat')::double precision = 38.5816 and (r ->> 'lng')::double precision = -121.4944, r::text);
+  perform pg_temp.as_user(pg_temp.p('OA'));
+  e := pg_temp.err(format('select lat from public.profile_home_locations where profile_id = %L', pg_temp.p('OC')));
+  perform pg_temp.as_admin();
+  perform pg_temp.ok('H3 nobody else can read the point', e is not null, coalesce(e::text, 'read it'));
+  perform pg_temp.as_user(pg_temp.p('OD'));
+  perform public.set_my_home_location(38.5816, -121.4944, null);
+  perform pg_temp.ok('H4 clearing it', public.clear_my_home_location() and public.get_my_home_location() is null);
+  e := pg_temp.err('select public.set_my_home_location(95, 0)');
+  perform pg_temp.as_admin();
+  perform pg_temp.ok('H4 a bad point is refused', e ->> 'hint' = 'pl:home_location.point', e::text);
+  perform pg_temp.ok('H4 cleared: no neighborhood', (select home_neighborhood from public.profiles where id = pg_temp.p('OD')) is null);
+
   -- E1 the launch switch starts off
   perform pg_temp.ok('E1 switch defaults off',
     (select value = 'false'::jsonb from public.app_settings where key = 'outside_events_live'));
@@ -221,7 +244,7 @@ begin
   perform pg_temp.as_user(pg_temp.p('OD'));
   r := public.list_outside_events();
   perform pg_temp.as_admin();
-  perform pg_temp.ok('E6 no home court: all of them',
+  perform pg_temp.ok('E6 no home location: all of them',
     pg_temp.ids(r) @> array[pg_temp.ev('open'), pg_temp.ev('far'), pg_temp.ev('nopoint')]);
 
   -- E7 kinds filter: any of the kinds given
@@ -380,6 +403,12 @@ begin
     not has_function_privilege('authenticated', 'public._pl_save_outside_event(uuid, text, timestamptz, timestamptz, text[], text, text, text, text, text, text, double precision, double precision, text, uuid, boolean)', 'execute')
     and not has_function_privilege('authenticated', 'public._pl_outside_event_listed(uuid, uuid)', 'execute')
     and not has_function_privilege('authenticated', 'public._pl_outside_event_json(uuid, uuid)', 'execute'));
+  perform pg_temp.ok('E15 home location RPCs callable, its table is not',
+    has_function_privilege('authenticated', 'public.set_my_home_location(double precision, double precision, text)', 'execute')
+    and has_function_privilege('authenticated', 'public.get_my_home_location()', 'execute')
+    and not has_function_privilege('anon', 'public.get_my_home_location()', 'execute')
+    and not has_table_privilege('authenticated', 'public.profile_home_locations', 'select')
+    and not has_function_privilege('authenticated', 'public._pl_neighborhood_for(double precision, double precision, text)', 'execute'));
   perform pg_temp.ok('E15 tables and the view are RPC-only',
     not has_table_privilege('authenticated', 'public.outside_events', 'select')
     and not has_table_privilege('authenticated', 'public.outside_event_rsvps', 'select')

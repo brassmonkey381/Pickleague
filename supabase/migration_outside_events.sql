@@ -11,8 +11,9 @@
 -- pinned to a Pickleague court when one is within 150 m.
 --
 -- Brian's decisions (2026-11-06):
---   * Shown within 40 km of the player's home court (profiles.home_court_lat
---     / home_court_lng). No home court, or an event with no point: shown.
+--   * Shown within 40 km of the player's home location
+--     (profile_home_locations, migration_home_location.sql: apply that first).
+--     No home location, or an event with no point: shown.
 --   * Each event has 1 or 2 kinds (open_play, round_robin, clinic, ladder,
 --     tournament, social), filtered with a chip on the Events screen.
 --   * Same rules as Doggle:
@@ -210,7 +211,7 @@ $$;
 revoke all on function public._pl_outside_event_past(timestamptz, timestamptz) from public, anon, authenticated;
 
 -- Listed for this viewer: not hidden, not over, the switch on (godmode
--- always), and within 40 km of their home court (unknown on either side:
+-- always), and within 40 km of their home location (unknown on either side:
 -- shown).
 create or replace function public._pl_outside_event_listed(p_event uuid, p_viewer uuid)
 returns boolean
@@ -226,9 +227,9 @@ as $$
        and not public._pl_outside_event_past(e.starts_at, e.ends_at)
        and (public._pl_outside_events_live() or public.is_godmode_user(p_viewer))
        and (e.lat is null or coalesce((
-             select public.haversine_meters(pr.home_court_lat, pr.home_court_lng, e.lat, e.lng) <= 40000
-               from public.profiles pr
-              where pr.id = p_viewer and pr.home_court_lat is not null and pr.home_court_lng is not null
+             select public.haversine_meters(h.lat, h.lng, e.lat, e.lng) <= 40000
+               from public.profile_home_locations h
+              where h.profile_id = p_viewer
            ), true))
   )
 $$;

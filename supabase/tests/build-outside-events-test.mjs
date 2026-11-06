@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 // Build the outside events persona test: outside_events_personas.sql
-// with migration_outside_events.sql (twice: it must be re-runnable) and
+// with migration_home_location.sql and migration_outside_events.sql (each
+// twice: they must be re-runnable) and
 // then migration_rls_hardening_2026q3.sql (a re-run must keep
 // the events RPCs online) in place of its -- @@MIGRATION@@ line. The test file holds the
 // begin / rollback, so the result leaves the linked (live) database untouched.
@@ -19,6 +20,7 @@ const here = path.dirname(fileURLToPath(import.meta.url));
 const supa = path.resolve(here, '..');
 const BODY = path.join(here, 'outside_events_personas.sql');
 const MARKER = '-- @@MIGRATION@@';
+const HOME = 'migration_home_location.sql';
 const MIGRATION = 'migration_outside_events.sql';
 const HARDENING = 'migration_rls_hardening_2026q3.sql';
 
@@ -75,6 +77,10 @@ if (!body.includes(MARKER)) {
 }
 
 const spliced = [
+  `-- ════ ${HOME} ════
+${read(HOME)}`,
+  `-- ════ ${HOME} (re-run) ════
+${read(HOME)}`,
   `-- ════ ${MIGRATION} ════\n${read(MIGRATION)}`,
   `-- ════ ${MIGRATION} (re-run) ════\n${read(MIGRATION)}`,
   `-- ════ ${HARDENING} (re-run) ════\n${read(HARDENING)}`,

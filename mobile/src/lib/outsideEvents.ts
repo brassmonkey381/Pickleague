@@ -129,10 +129,10 @@ export const OUTSIDE_EVENT_NOTE = outsideEventNote(APP_NAME);
 export const HIDDEN_REASONS = outsideHiddenReasons(APP_NAME);
 export const hiddenReasonCopy = (reason: string | null | undefined) => kitHiddenReasonCopy(reason, { appName: APP_NAME });
 export const EVENTS_TITLE = 'Events';
-export const EVENTS_INTRO = 'Pickleball events near your home court, run by clubs, rec centers and other organizers.';
+export const EVENTS_INTRO = 'Pickleball events near you, run by clubs, rec centers and other organizers.';
 export const EVENTS_EMPTY = {
   title: 'No events near you yet',
-  subtitle: 'Events other organizers run near your home court show up here.',
+  subtitle: 'Events other organizers run near your home location show up here.',
 };
 export const EVENTS_EMPTY_FILTERED = {
   title: 'No events of that kind',

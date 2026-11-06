@@ -566,6 +566,8 @@ export type RootStackParamList = {
   // focus: Home's Up next row opens the screen scrolled to that control.
   // Outside events (migration_outside_events.sql): Home's Events tile, and one event.
   PublicEvents: undefined;
+  // Settings > Home location (migration_home_location.sql).
+  HomeLocation: undefined;
   PublicEvent: { eventId: string };
   EventDetail: { eventId: string; title: string; openNudge?: boolean; openClose?: boolean; focus?: 'vote' | 'rsvp' };
   // Screen exists but is not yet registered in AppNavigator.

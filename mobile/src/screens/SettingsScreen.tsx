@@ -4,6 +4,7 @@ import {
   TextInput, Linking,
 } from 'react-native';
 import Constants from 'expo-constants';
+import { useMyHomeLocation } from '../data/homeLocation';
 import type { NativeStackScreenProps } from '@react-navigation/native-stack';
 import {
   sbCall,
@@ -134,6 +135,7 @@ function traceLine(e: ArrivalTraceEvent): string {
 export default function SettingsScreen({ navigation, route }: Props) {
   const { colors, themeMode, setThemeMode } = useTheme();
   const S = makeStyles(colors);
+  const homeLoc = useMyHomeLocation();
   const [prefs, setPrefs]             = useState<Prefs>(DEFAULT_PREFS);
   // Prefs are stored as one blob, so showing DEFAULT_PREFS after a failed read
   // and then saving would overwrite everything the user had. Until a read
@@ -560,6 +562,13 @@ export default function SettingsScreen({ navigation, route }: Props) {
       {/* ── Privacy ──────────────────────────── */}
       <SectionHeader title="Privacy" />
       <Panel padded={false} style={S.card}>
+        {/* Home location: the events near me; only the neighborhood shows. */}
+        <SettingActionRow
+          label="Home location"
+          desc={homeLoc.data?.neighborhood ? `${homeLoc.data.neighborhood}. Only your neighborhood is ever shown.` : 'Pick it to see events near you. Only your neighborhood is ever shown.'}
+          onPress={() => navigation.navigate('HomeLocation')}
+        />
+        <Divider S={S} />
         {/* Badge visibility lives in Profile's Edit sheet (one Save for every
             profile field), like the display name. */}
         <SettingActionRow

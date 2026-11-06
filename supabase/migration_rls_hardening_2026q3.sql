@@ -154,6 +154,8 @@ begin
         'list_nearby_wake_courts',
         -- My Place stays (migration_place_stays.sql).
         'visit_place','leave_place','claim_place_stay_returns','get_place_stays',
+        -- Home location (migration_home_location.sql).
+        'set_my_home_location','get_my_home_location','clear_my_home_location',
         -- Outside events (migration_outside_events.sql).
         'list_outside_events','get_outside_event','set_outside_event_rsvp','report_outside_event',
         'mark_outside_events_seen','count_new_outside_events',

@@ -1,8 +1,10 @@
 // Events (Home's center tile, Brian 2026-11-06: "its own distinct events
-// page"): pickleball events other organizers run near my home court
-// (supabase/migration_outside_events.sql), soonest first.
+// page"): pickleball events other organizers run
+// (supabase/migration_outside_events.sql) within 40 km of my home location
+// (migration_home_location.sql), soonest first.
 //
-//   Pickleball events near your home court, run by clubs, rec centers...
+//   Pickleball events near you, run by clubs, rec centers...
+//   Near Alameda, CA ›   (or "Set your home location" when none: every event shows)
 //   (Open play)(Round robin)(Clinic)(Ladder)(Tournament)(Social)   any of them
 //   Saturday open play  NEW                         (Interested)
 //   Sat, 9 AM to 11 AM, Ocean View Park
@@ -16,7 +18,7 @@ import { FlatList, StyleSheet, Text, View } from 'react-native';
 import type { NativeStackScreenProps } from '@react-navigation/native-stack';
 import { useFocusEffect } from '@react-navigation/native';
 import { friendlySbMessage } from '@just-messin-around/expo-foundation/supabase';
-import { ErrorState, FilterChipRow, type FilterChipOption } from '@just-messin-around/expo-foundation/ui';
+import { ErrorState, FilterChipRow, Panel, TextLink, type FilterChipOption } from '@just-messin-around/expo-foundation/ui';
 import { SPACE } from '@just-messin-around/expo-foundation/styles';
 import { textStyles } from '@just-messin-around/expo-foundation/typography';
 import { useTheme } from '../lib/ThemeContext';
@@ -34,6 +36,7 @@ import {
   type OutsideEventKind,
 } from '../lib/outsideEvents';
 import { outsideSeen, useOutsideEvents } from '../data/outsideEvents';
+import { useMyHomeLocation } from '../data/homeLocation';
 import type { RootStackParamList } from '../types';
 
 type Props = NativeStackScreenProps<RootStackParamList, 'PublicEvents'>;
@@ -42,6 +45,9 @@ export default function PublicEventsScreen({ navigation }: Props) {
   const { colors: c } = useTheme();
   const t = textStyles(c);
   const q = useOutsideEvents();
+  const home = useMyHomeLocation();
+  // No home location: every event shows, so say how to narrow it.
+  const noHome = home.data === null && !home.loading;
   const all = useMemo(() => q.data ?? [], [q.data]);
   const [kinds, setKinds] = useState<OutsideEventKind[]>([]);
   const refresh = useRefresh(() => q.refresh());
@@ -90,6 +96,18 @@ export default function PublicEventsScreen({ navigation }: Props) {
   const header = (
     <View style={S.header}>
       <Text style={t.sub}>{EVENTS_INTRO}</Text>
+      {noHome ? (
+        <Panel>
+          <Text style={t.sub}>Set your home location to see the events near you. Only your neighborhood is ever shown.</Text>
+          <TextLink label="Set home location" iconName="pin" onPress={() => navigation.navigate('HomeLocation')} />
+        </Panel>
+      ) : home.data?.neighborhood ? (
+        <TextLink
+          label={`Near ${home.data.neighborhood}`}
+          iconName="pin"
+          onPress={() => navigation.navigate('HomeLocation')}
+        />
+      ) : null}
       {showChips ? (
         <FilterChipRow
           multi

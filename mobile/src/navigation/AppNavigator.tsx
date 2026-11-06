@@ -131,6 +131,7 @@ import { CourtsRouteScreen } from '../screens/CourtsScreen';
 import CourtDetailScreen from '../screens/CourtDetailScreen';
 import PublicEventsScreen from '../screens/PublicEventsScreen';
 import PublicEventScreen from '../screens/PublicEventScreen';
+import HomeLocationScreen from '../screens/HomeLocationScreen';
 import CourtRoutinesScreen from '../screens/CourtRoutinesScreen';
 import AvailabilityScreen from '../screens/AvailabilityScreen';
 
@@ -411,6 +412,7 @@ export default function AppNavigator() {
                 <Stack.Screen name="CreateEvent" component={CreateEventScreen} options={{ title: 'New Event' }} />
                 <Stack.Screen name="PublicEvents" component={PublicEventsScreen} options={{ title: 'Events' }} />
                 <Stack.Screen name="PublicEvent" component={PublicEventScreen} options={{ title: 'Event' }} />
+                <Stack.Screen name="HomeLocation" component={HomeLocationScreen} options={{ title: 'Home location' }} />
                 <Stack.Screen name="EventDetail" component={EventDetailScreen} options={({ route }) => ({ title: route.params?.title ?? 'Event' })} />
                 <Stack.Screen name="MatchEntry" component={MatchEntryScreen} options={{ title: 'Record Match' }} />
                 <Stack.Screen name="MatchHistory" component={MatchHistoryScreen} options={({ route }) => ({ title: route.params?.title ?? 'Match History' })} />
