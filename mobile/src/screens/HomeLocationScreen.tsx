@@ -21,6 +21,7 @@ import { useToast } from '../lib/useToast';
 import { track } from '../lib/analytics';
 import { explainRefusal } from '../lib/refusalNotices';
 import { clearMyHomeLocation, setMyHomeLocation, useMyHomeLocation } from '../data/homeLocation';
+import { searchPlacesOsm } from '../lib/placeSearch';
 import type { RootStackParamList } from '../types';
 
 type Props = NativeStackScreenProps<RootStackParamList, 'HomeLocation'>;
@@ -91,9 +92,12 @@ export default function HomeLocationScreen({ navigation }: Props) {
             value={place}
             onSelect={setPlace}
             active
-            // OpenStreetMap search: Pickleague has no Google Places key
-            // (app.config.js), and a city or a street is what's wanted here.
-            externalSearch="nominatim"
+            // OpenStreetMap search on every platform (lib/placeSearch): the
+            // kit's native picker only knows Google Places, and Pickleague has
+            // no Google Places key (app.config.js).
+            externalSearch="none"
+            localSearch={searchPlacesOsm}
+            catalogLabel="places"
             placeholder="Search a city or address, or use your location"
           />
         </View>
