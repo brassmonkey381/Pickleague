@@ -164,8 +164,8 @@ describe('premium is coming soon, nothing more', () => {
 });
 
 describe('"How to earn pickleballs" lists what the SQL pays', () => {
-  it('five ways', () => {
-    expect(PICKLEBALL_WAYS.length).toBe(5);
+  it('six ways', () => {
+    expect(PICKLEBALL_WAYS.length).toBe(6);
     for (const w of PICKLEBALL_WAYS) {
       expect(w.title.length, w.title).toBeGreaterThan(3);
       expect(w.detail, w.title).toMatch(/[.!]$/);

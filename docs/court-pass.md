@@ -46,6 +46,7 @@ non-gold (`not is_bonus`) row from one of these sources earns `floor(delta * xp_
 | `_grant_checkin_match_bonus` | 0.5 | 25 once a day, for a match within 4 h of a court check-in. `migration_fair_rewards.sql` §3 | 12 |
 | `_grant_tournament_participation_bonus` | 0.5 | 50 per completed tournament with real play (4+ who played). `migration_pickle_economy_guards.sql` §5 | 25 |
 | login (code, not a table row): any positive row with `source = 'claim_daily_login_streak'` | n/a | daily login reward | +5 once per Pacific date of `created_at` |
+| place stay (code, not a table row): `_pl_settle_place_stay` calls `_pl_track_add_xp(..., 'place_stay', <stay id>, 5)` | n/a | a full 4-hour stay at a friend's My Place (`migration_place_stays.sql`) | +5 per stay; 0 when ended early |
 
 These are left out on purpose. They still earn pickles but no pickleballs:
 
@@ -461,6 +462,7 @@ export const PICKLEBALL_WAYS: PickleballWay[] = [
   { title: 'Check in, then play', amount: '12', detail: 'Once a day, when you play a match within 4 hours of checking in at a court.' },
   { title: 'Play a tournament', amount: '25', detail: 'Each tournament you finish where 4 or more players played.' },
   { title: 'Open Pickleague', amount: '5', detail: 'Once a day, with your daily login reward.' },
+  { title: "Stay at a friend's place", amount: '5', detail: "Each stay at a friend's My Place that lasts the full 4 hours." },
 ];
 export const PICKLEBALL_RULES =
   'Playing earns half the pickles it pays, rounded down; opening Pickleague adds 5 once a day. ' +

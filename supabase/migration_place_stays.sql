@@ -13,13 +13,19 @@
 --     common or rare; rare a third as often). Pickleague's paddles and balls
 --     are My Place decor (paddle racks, ball jar, ball hopper...), so the
 --     pool is home_items.
+--   * While a Court Pass cycle runs, a full stay also earns 5 pickleballs
+--     (_pl_track_add_xp, source 'place_stay', keyed on the stay id, so a
+--     replay adds nothing; 0 with no cycle, for guests and test accounts).
+--     Not through reward_track_xp_sources: that would tie it to the pickles
+--     the daily cap left. reward_track_xp_events' source CHECK gains
+--     'place_stay'.
 --   * "Bring me home early" pays nothing. So does a stay cut short by an
 --     unfriend, a block, the host making their place Only me, or either
 --     account being deleted.
 --
 -- ── Table ──────────────────────────────────────────────────────────────────
 --   place_stays (id, visitor_id, host_id, created_at, ends_at, returned_at,
---     ended_early, seen_at, souvenir, item_id, pickles). One open stay per
+--     ended_early, seen_at, souvenir, item_id, pickles, pickleballs). One open stay per
 --     visitor (returned_at is null). Rows are kept as history. RLS on, no
 --     policies: read and written only through the RPCs below.
 --
@@ -35,7 +41,8 @@
 --     Bring me home: early = no reward. A stay already over is settled with
 --     its reward (shown at the next claim). Nothing open: ended false.
 --   claim_place_stay_returns() -> jsonb [{stay_id, host_id, host_label,
---     souvenir, pickles, returned_at, item_id, item_name, item_rarity}]
+--     souvenir, pickles, pickleballs, returned_at, item_id, item_name,
+--     item_rarity}]
 --     Settles every finished stay of mine and returns, once each, the ones
 --     not shown yet (oldest first). Home calls it on focus.
 --   get_place_stays(p_owner uuid default null) -> jsonb {away, guests}
@@ -74,6 +81,7 @@ create table if not exists public.place_stays (
   constraint place_stays_not_self check (visitor_id <> host_id),
   constraint place_stays_pickles_chk check (pickles >= 0)
 );
+alter table public.place_stays add column if not exists pickleballs integer not null default 0;
 comment on table public.place_stays is
   'migration_place_stays.sql: a player''s avatar staying 4 hours at a friend''s My Place. Kept as history; RPCs only.';
 create unique index if not exists place_stays_one_open_idx on public.place_stays (visitor_id) where returned_at is null;
@@ -88,6 +96,20 @@ begin
 end $$;
 revoke all on table public.place_stays from public, anon, authenticated;
 grant all on table public.place_stays to service_role;
+
+-- Court Pass earns from a stay (migration_court_pass_tables.sql allowed only
+-- 'ledger' and 'login'). NOT VALID then VALIDATE: no long lock on a re-run.
+do $$
+begin
+  if not exists (select 1 from pg_constraint
+                  where conname = 'reward_track_xp_events_source_chk'
+                    and pg_get_constraintdef(oid) like '%place_stay%') then
+    alter table public.reward_track_xp_events drop constraint if exists reward_track_xp_events_source_chk;
+    alter table public.reward_track_xp_events add constraint reward_track_xp_events_source_chk
+      check (source in ('ledger', 'login', 'place_stay')) not valid;
+    alter table public.reward_track_xp_events validate constraint reward_track_xp_events_source_chk;
+  end if;
+end $$;
 
 
 -- ════ 2. Helpers ═════════════════════════════════════════════════════════
@@ -144,6 +166,7 @@ declare
   v_row   public.place_stays;
   v_host  text;
   v_pay   integer;
+  v_balls integer := 0;
   v_item  text;
   v_lines text[] := array[
     'You came back from %1$s with a ball that has seen things.',
@@ -172,6 +195,14 @@ begin
     perform set_config('pl.pickle_reason', '', true);
   end if;
 
+  -- Court Pass: 5 pickleballs while a cycle runs (0 otherwise). Never blocks the return.
+  begin
+    v_balls := coalesce(public._pl_track_add_xp(v_row.visitor_id, now(), 'place_stay', v_row.id::text, 5, null), 0);
+  exception when others then
+    raise warning 'place stay %: no pickleballs (%: %)', p_stay, sqlstate, sqlerrm;
+    v_balls := 0;
+  end;
+
   -- 1 in 4: decor I don't own yet (rare ones a third as often).
   if random() < 0.25 then
     select i.id into v_item
@@ -195,6 +226,7 @@ begin
   update public.place_stays
      set returned_at = v_row.ends_at,
          pickles     = v_pay,
+         pickleballs = v_balls,
          souvenir    = format(v_lines[1 + floor(random() * array_length(v_lines, 1))::int], v_host),
          item_id     = v_item
    where id = p_stay;
@@ -341,7 +373,7 @@ begin
   with shown as (
     update public.place_stays s set seen_at = now()
      where s.visitor_id = v_me and s.returned_at is not null and not s.ended_early and s.seen_at is null
-    returning s.id, s.host_id, s.souvenir, s.pickles, s.returned_at, s.item_id
+    returning s.id, s.host_id, s.souvenir, s.pickles, s.pickleballs, s.returned_at, s.item_id
   )
   select coalesce(jsonb_agg(jsonb_build_object(
            'stay_id',     x.id,
@@ -349,6 +381,7 @@ begin
            'host_label',  public._pl_place_host_label(x.host_id),
            'souvenir',    x.souvenir,
            'pickles',     x.pickles,
+           'pickleballs', x.pickleballs,
            'returned_at', x.returned_at,
            'item_id',     i.id,
            'item_name',   i.name,

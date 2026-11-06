@@ -17,6 +17,7 @@
 --   SE a friend who goes Only me
 --   SF collects items (40 finished stays at SB's)
 --   SG near today's play cap
+--   SH a guest pass (no pickleballs)
 -- ============================================================
 
 begin;
@@ -33,7 +34,7 @@ insert into _p values
   ('SA', 'aa000000-0000-4000-8000-000000000001'), ('SB', 'aa000000-0000-4000-8000-000000000002'),
   ('SC', 'aa000000-0000-4000-8000-000000000003'), ('SD', 'aa000000-0000-4000-8000-000000000004'),
   ('SE', 'aa000000-0000-4000-8000-000000000005'), ('SF', 'aa000000-0000-4000-8000-000000000006'),
-  ('SG', 'aa000000-0000-4000-8000-000000000007');
+  ('SG', 'aa000000-0000-4000-8000-000000000007'), ('SH', 'aa000000-0000-4000-8000-000000000008');
 grant select on _p to authenticated;
 
 create function pg_temp.p(text) returns uuid language sql stable as $$ select id from _p where k = $1 $$;
@@ -99,6 +100,7 @@ declare
   v_id   uuid;
   v_n    integer;
   v_bad  integer;
+  v_cyc  boolean := public._pl_track_current_cycle(now()) is not null;
 begin
   -- S1 my own place, a stranger's place: refused with their codes
   perform pg_temp.as_user(pg_temp.p('SA'));
@@ -168,6 +170,7 @@ begin
   perform pg_temp.as_admin();
   perform pg_temp.ok('S6 one return, 15 pickles, a souvenir',
     jsonb_array_length(r) = 1 and (r -> 0 ->> 'pickles')::int = 15 and r -> 0 ->> 'souvenir' like '%StaySC''s place%', r::text);
+  perform pg_temp.ok('S6 the return says its pickleballs', r -> 0 ? 'pickleballs', r::text);
   perform pg_temp.ok('S6 the balance moved 15', pg_temp.pickles(pg_temp.p('SA')) = v_bal + 15);
   perform pg_temp.ok('S6 claimed once', jsonb_array_length(r2) = 0, r2::text);
   perform pg_temp.ok('S6 ledger row is a stay',
@@ -232,6 +235,25 @@ begin
   perform pg_temp.ok('S10 every item is from the pool and granted', v_bad = 0, v_bad::text);
   perform pg_temp.ok('S10 never the same item twice',
     (select count(*) = count(distinct item_id) from public.place_stays where visitor_id = pg_temp.p('SF') and item_id is not null));
+
+  -- S12 Court Pass: 5 pickleballs for a full stay while a cycle runs, else 0
+  select jsonb_build_object('balls', s.pickleballs) into r from public.place_stays s
+   where s.visitor_id = pg_temp.p('SA') and s.host_id = pg_temp.p('SC') and not s.ended_early;
+  perform pg_temp.ok('S12 full stay: ' || case when v_cyc then '5 (a cycle runs)' else '0 (no cycle runs)' end,
+    (r ->> 'balls')::int = case when v_cyc then 5 else 0 end, r::text);
+  perform pg_temp.ok('S12 ended early: 0',
+    not exists (select 1 from public.place_stays where ended_early and pickleballs <> 0
+                 and visitor_id in (select id from _p)));
+  select id into v_id from public.place_stays where visitor_id = pg_temp.p('SA') and host_id = pg_temp.p('SC') and not ended_early;
+  perform pg_temp.ok('S12 a replay adds nothing',
+    coalesce(public._pl_track_add_xp(pg_temp.p('SA'), now(), 'place_stay', v_id::text, 5, null), 0) = 0);
+  update public.profiles set is_guest = true where id = pg_temp.p('SH');
+  insert into public.place_stays (visitor_id, host_id, created_at, ends_at)
+  values (pg_temp.p('SH'), pg_temp.p('SB'), now() - interval '5 hours', now() - interval '1 hour')
+  returning id into v_id;
+  perform public._pl_settle_place_stay(v_id);
+  perform pg_temp.ok('S12 a guest pass: 0',
+    (select pickleballs from public.place_stays where id = v_id) = 0);
 
   -- S11 grants survive the hardening re-run; helpers stay internal
   perform pg_temp.ok('S11 authenticated can call the four',

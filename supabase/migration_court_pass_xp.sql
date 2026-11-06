@@ -28,6 +28,8 @@
 --   2. Login: any positive row with source claim_daily_login_streak earns +5
 --      once per Pacific date of created_at (source_ref = that date). Its
 --      streak-badge row has the same key, so it adds nothing.
+--      Full stays earn too: migration_place_stays.sql adds +5 per full stay
+--      at a friend's My Place (source 'place_stay', keyed on the stay id).
 --   3. The cycle and the XP day come from the row's created_at, never now().
 --   4. No daily cap (Brian, 2026-11-03, as Doggle 0501): every seeded cycle's
 --      reward_track_cycles.daily_xp_cap is null and every earn counts in full.

@@ -184,9 +184,11 @@ export const PICKLEBALL_WAYS: PickleballWay[] = [
   { title: 'Check in, then play', amount: '12', detail: 'Once a day, when you play a match within 4 hours of checking in at a court.' },
   { title: 'Play a tournament', amount: '25', detail: 'Each tournament you finish where 4 or more players played.' },
   { title: 'Open Pickleague', amount: '5', detail: 'Once a day, with your daily login reward.' },
+  // migration_place_stays.sql: _pl_track_add_xp(..., 'place_stay', <stay id>, 5).
+  { title: "Stay at a friend's place", amount: '5', detail: "Each stay at a friend's My Place that lasts the full 4 hours." },
 ];
 
 /** The sheet's footnote. No daily pickleball cap (every pass's daily_cap is null), so it names none. */
 export const PICKLEBALL_RULES =
-  'Playing earns half the pickles it pays, rounded down; opening Pickleague adds 5 once a day. ' +
+  "Playing earns half the pickles it pays, rounded down; opening Pickleague adds 5 once a day, and a full stay at a friend's place 5. " +
   'Badges, play streaks, new courts, drill reviews, gifts, prizes and getting started earn pickles but no pickleballs.';
