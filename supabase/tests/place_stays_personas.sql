@@ -79,7 +79,9 @@ $$;
 
 -- ════ Setup ══════════════════════════════════════════════════════════════
 insert into auth.users (id, email, raw_user_meta_data)
-select id, 'ps-' || lower(k) || '@pickleague.test', jsonb_build_object('full_name', 'Stay' || k || ' Test')
+-- @place-stays.example, not @pickleague.test: _pl_mark_new_test_account marks
+-- those as test accounts, and test accounts earn no Court Pass pickleballs (S12).
+select id, 'ps-' || lower(k) || '@place-stays.example', jsonb_build_object('full_name', 'Stay' || k || ' Test')
   from _p;
 
 insert into public.friendships (requester_id, addressee_id, status, responded_at)
