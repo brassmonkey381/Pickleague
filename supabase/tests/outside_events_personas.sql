@@ -381,7 +381,7 @@ begin
 
   -- E14 an account deleted: its RSVP goes
   perform pg_temp.as_user(pg_temp.p('OE'));
-  perform public.set_outside_event_rsvp(pg_temp.ev('far'), 'maybe');
+  perform public.set_outside_event_rsvp(pg_temp.ev('nopoint'), 'maybe');  -- no point: listed for everyone
   perform pg_temp.as_admin();
   delete from auth.users where id = pg_temp.p('OE');
   perform pg_temp.ok('E14 deleted account: RSVP gone',
