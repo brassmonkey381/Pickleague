@@ -91,6 +91,9 @@ export default function HomeLocationScreen({ navigation }: Props) {
             value={place}
             onSelect={setPlace}
             active
+            // OpenStreetMap search: Pickleague has no Google Places key
+            // (app.config.js), and a city or a street is what's wanted here.
+            externalSearch="nominatim"
             placeholder="Search a city or address, or use your location"
           />
         </View>

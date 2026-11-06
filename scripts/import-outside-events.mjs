@@ -11,9 +11,10 @@
 // starts_at / ends_at are ISO 8601 with an offset; ends_at may be blank.
 // kind: 1 or 2 of open_play | round_robin | clinic | ladder | tournament | social, joined by "|".
 //
-// Each place is looked up with Google Places Text Search
-// (EXPO_PUBLIC_GOOGLE_PLACES_KEY from mobile/.env, never printed) for its
-// coordinates. The server pins the event to the nearest Pickleague court
+// Each place's street address is looked up with OpenStreetMap Nominatim (one
+// request a second, per its usage policy; no key) for its coordinates.
+// Pickleague has no Google Places key (mobile/app.config.js: the
+// EXPO_PUBLIC_GOOGLE_PLACES_KEY value isn't one, and Google answers 400). The server pins the event to the nearest Pickleague court
 // within 150 m of them (_pl_outside_event_venue); the dry run shows which. A
 // row whose address has no street number (e.g. "Oakland, CA") is skipped and
 // reported: it would put the event on a city's middle. Dedupe is the
@@ -63,26 +64,25 @@ function parseCsv(text) {
   return body.map((r) => Object.fromEntries(head.map((h, i) => [h.replace(/^\uFEFF/, '').trim(), (r[i] ?? '').trim()])));
 }
 
-function envKey() {
-  const env = fs.readFileSync(path.join(ROOT, 'mobile/.env'), 'utf8');
-  const m = env.match(/^EXPO_PUBLIC_GOOGLE_PLACES_KEY=(.+)$/m);
-  return m ? m[1].trim().replace(/^["']|["']$/g, '') : null;
+const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+let lastLookup = 0;
+
+/** One Nominatim lookup (at most one a second), or null when it finds nothing. */
+async function nominatim(query) {
+  const wait = lastLookup + 1100 - Date.now();
+  if (wait > 0) await sleep(wait);
+  lastLookup = Date.now();
+  const url = `https://nominatim.openstreetmap.org/search?format=jsonv2&limit=1&countrycodes=us&q=${encodeURIComponent(query)}`;
+  const res = await fetch(url, { headers: { 'User-Agent': 'Pickleague outside-events importer (https://pickleague.club)' } });
+  if (!res.ok) throw new Error(`Nominatim lookup failed: HTTP ${res.status}`);
+  const p = (await res.json())?.[0];
+  if (!p?.lat || !p?.lon) return null;
+  return { name: p.name || null, address: p.display_name ?? null, lat: Number(p.lat), lng: Number(p.lon) };
 }
 
-async function findPlace(key, query) {
-  const res = await fetch('https://places.googleapis.com/v1/places:searchText', {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      'X-Goog-Api-Key': key,
-      'X-Goog-FieldMask': 'places.id,places.displayName,places.formattedAddress,places.location',
-    },
-    body: JSON.stringify({ textQuery: query, maxResultCount: 1 }),
-  });
-  if (!res.ok) throw new Error(`Places search failed: HTTP ${res.status}`);
-  const p = (await res.json()).places?.[0];
-  if (!p?.location) return null;
-  return { name: p.displayName?.text ?? null, address: p.formattedAddress ?? null, lat: p.location.latitude, lng: p.location.longitude };
+/** The street address first (the place's own point), then the place name with it. */
+async function findPlace(placeName, address) {
+  return (await nominatim(address)) ?? (await nominatim(`${placeName}, ${address}`));
 }
 
 /** One read-only query on the linked project, as rows. */
@@ -100,11 +100,6 @@ const lit = (v) => (v == null || v === '' ? 'null' : `'${String(v).replace(/'/g,
 const hasStreet = (addr) => /\d/.test((addr ?? '').split(',')[0] ?? '');
 
 const rows = parseCsv(fs.readFileSync(csvPath, 'utf8'));
-const key = envKey();
-if (!key) {
-  console.error('FAILED: EXPO_PUBLIC_GOOGLE_PLACES_KEY is not in mobile/.env (exit 2)');
-  process.exit(2);
-}
 
 const skipped = [];
 const stmts = [];
@@ -126,7 +121,7 @@ for (const r of rows) {
   }
   const query = `${r.place_name}, ${r.place_address}`;
   if (!places.has(query)) {
-    const p = await findPlace(key, query);
+    const p = await findPlace(r.place_name, r.place_address);
     let court = null;
     if (p) {
       [court] = sqlRows(`select v.name, round(public.haversine_meters(v.lat, v.lng, ${p.lat}, ${p.lng}))::int as m
@@ -140,7 +135,7 @@ for (const r of rows) {
   }
   const p = places.get(query);
   if (!p) {
-    skipped.push(`${label}: Google found no place for "${query}"`);
+    skipped.push(`${label}: no point found for "${query}"`);
     continue;
   }
   stmts.push(`select ${lit(label)} as event, coalesce(public._pl_save_outside_event(
