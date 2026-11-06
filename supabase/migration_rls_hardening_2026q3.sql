@@ -152,6 +152,8 @@ begin
         'queue_court_arrival','set_court_arrival_settings','set_starred_court_auto_checkin',
         -- Court check-ins by the outline (migration_court_outline_engine.sql).
         'list_nearby_wake_courts',
+        -- My Place stays (migration_place_stays.sql).
+        'visit_place','leave_place','claim_place_stay_returns','get_place_stays',
         -- Court discovery Phase 1 (migration_court_discovery_p1.sql).
         'get_court','list_courts_nearby',
         -- ScheduleMatchScreen (migration_schedule_match_rpc.sql).
