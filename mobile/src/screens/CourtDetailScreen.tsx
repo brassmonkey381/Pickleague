@@ -10,6 +10,7 @@
 //   [Check in ▾] [Directions] [Share]        ([Check out] once checked in here)
 //   6 playing now · mostly 3.5–4.0
 //   [map: the court, its mapped outline drawn on it]
+//   EVENTS HERE       (outside events at this court, migration_outside_events.sql)
 //   WHO'S HERE        (PlayersHereList)
 //   ABOUT             (FactList: courts, surface, lights, hours, ...)
 //   LEAGUES HERE      (the leagues the player can see)
@@ -92,6 +93,8 @@ import PlayersHereList from '../components/PlayersHereList';
 import ShareLinkButton from '../components/ShareLinkButton';
 import { useCheckinOptions } from '../components/feed/useCheckinOptions';
 import EntityRow from '../components/EntityRow';
+import OutsideEventRow from '../components/events/OutsideEventRow';
+import { useOutsideEventsByCourt } from '../data/outsideEvents';
 import type { RootStackParamList } from '../types';
 
 type Props = NativeStackScreenProps<RootStackParamList, 'CourtDetail'>;
@@ -343,6 +346,8 @@ function CourtPage({ court, navigation }: { court: CourtDetail; navigation: Prop
 
       <CourtMap court={court} />
 
+      <CourtEvents venueId={court.id} navigation={navigation} />
+
       <SectionHeader title="Who's here" />
       <Panel>
         <PlayersHereList venueId={court.id} venueName={court.name} />
@@ -386,6 +391,29 @@ function CourtPage({ court, navigation }: { court: CourtDetail; navigation: Prop
       {/* Check in ▾'s sheet and On my way. */}
       {options.elements}
     </ScrollView>
+  );
+}
+
+/** Outside events at this court (other organizers'), soonest first. Nothing when none. */
+function CourtEvents({ venueId, navigation }: { venueId: string; navigation: Props['navigation'] }) {
+  const byCourt = useOutsideEventsByCourt();
+  const events = byCourt.get(venueId) ?? [];
+  if (events.length === 0) return null;
+  return (
+    <>
+      <SectionHeader title="Events here" count={String(events.length)} />
+      <Panel>
+        {events.map((e, i) => (
+          <OutsideEventRow
+            key={e.id}
+            event={e}
+            showPlace={false}
+            lastRow={i === events.length - 1}
+            onPress={() => navigation.navigate('PublicEvent', { eventId: e.id })}
+          />
+        ))}
+      </Panel>
+    </>
   );
 }
 

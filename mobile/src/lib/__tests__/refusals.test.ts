@@ -96,6 +96,10 @@ const SERVER_CODES: RefusalCode[] = [
   // migration_place_stays.sql
   'stay.self',
   'stay.elsewhere',
+  // migration_outside_events.sql
+  'events.gone',
+  'events.rsvp',
+  'events.reason',
 ];
 
 const GENERIC = /something went wrong|an error occurred|try again later\.?$|^error/i;

@@ -5,6 +5,7 @@
 //   1.2 mi · Oakland · 3 leagues
 //   (6 courts) (Lights) (Free)
 //   6 playing now · mostly 3.5–4.0
+//   (Event Sat) / (Event on now)   an outside event here this week
 //
 // The crowd comes in as a prop (one batched venue_crowd read per page, see
 // data/courtDiscovery useCourtCrowds), so a row never polls on its own. The
@@ -26,11 +27,13 @@ type Props = {
   crowd: VenueCrowd | null | undefined;
   starred: boolean;
   onPress: () => void;
+  /** An outside event here this week (lib/outsideEvents courtEventBadge). */
+  eventBadge?: { label: string; live: boolean } | null;
   /** The screen-reader "Star" action (the star itself is inside the card). */
   onToggleStar?: () => void;
 };
 
-function CourtListRow({ court, crowd, starred, onPress, onToggleStar }: Props) {
+function CourtListRow({ court, crowd, starred, eventBadge, onPress, onToggleStar }: Props) {
   const view = courtRowView(court, crowd, {
     friendsEnabled: FRIENDS_AT_COURTS_ENABLED,
     starsEnabled: COURT_STARS_ENABLED,
@@ -43,8 +46,9 @@ function CourtListRow({ court, crowd, starred, onPress, onToggleStar }: Props) {
       distanceLabel={view.distanceLabel}
       meta={view.meta}
       chips={
-        view.chips.length > 0 || court.unconfirmed ? (
+        view.chips.length > 0 || court.unconfirmed || eventBadge ? (
           <View style={S.chips}>
+            {eventBadge ? <Badge label={eventBadge.label} tone={eventBadge.live ? 'success' : 'info'} /> : null}
             {view.chips.map((c) => (
               <Badge key={c} label={c} />
             ))}
@@ -54,7 +58,7 @@ function CourtListRow({ court, crowd, starred, onPress, onToggleStar }: Props) {
       }
       trailing={view.showStar ? <CourtFavoriteStar venueId={court.id} venueName={court.name} /> : undefined}
       onPress={onPress}
-      accessibilityLabel={view.a11yLabel}
+      accessibilityLabel={eventBadge ? `${view.a11yLabel}, ${eventBadge.label}` : view.a11yLabel}
       accessibilityHint="Opens the court's page"
       accessibilityActions={
         starAction ? [{ name: 'star', label: starred ? 'Remove from your courts' : 'Add to your courts' }] : undefined

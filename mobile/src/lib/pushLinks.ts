@@ -48,6 +48,8 @@ export function pushRoutes(opts: {
       ? (discover ? ['Discover', { tab: 'leagues', prefillInviteCode: id }] : ['Leagues', { prefillInviteCode: id }])
       : null),
     'event/': (id) => (has(id) ? ['EventDetail', { eventId: id, title: 'Event' }] : null),
+    // An outside event (migration_outside_events.sql): the admins' report push.
+    'outside_event/': (id) => (has(id) ? ['PublicEvent', { eventId: id }] : ['PublicEvents']),
     // Organizer: open the event with the group-text composer up.
     'event_nudge/': (id) => (has(id) ? ['EventDetail', { eventId: id, title: 'Event', openNudge: true }] : null),
     // Organizer: open the event with the close-voting confirm up.

@@ -125,6 +125,10 @@ export const REFUSAL_CODES = [
   // migration_place_stays.sql: visit_place.
   'stay.self',
   'stay.elsewhere',
+  // migration_outside_events.sql: RSVP and report on an outside event.
+  'events.gone',
+  'events.rsvp',
+  'events.reason',
   // Only from an older server's message (it couldn't tell these apart).
   'match.not_pending',
   // Only from the server's text: _lock_completed_tournament_match
@@ -590,6 +594,13 @@ export function refusalCopy(
       const where = textOf(detail.host_label) || "another friend's place";
       return `You're staying at ${where} right now. Come home first, then visit here.`;
     }
+    // ── Outside events (migration_outside_events.sql) ──
+    case 'events.gone':
+      return "This event isn't listed anymore. It may be over, or it was taken down.";
+    case 'events.rsvp':
+      return 'Pick Going or Interested.';
+    case 'events.reason':
+      return "Pick what's wrong: cancelled, wrong time or wrong place.";
     // ── Court Pass (migration_court_pass_tables.sql) ──
     case 'home.track_only': {
       // DETAIL {item, tier, cycle}. The server's message already says which

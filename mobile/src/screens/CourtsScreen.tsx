@@ -96,6 +96,8 @@ import { useSearchArea } from '../lib/useSearchArea';
 import { widerSearchRadius } from '../lib/searchArea';
 import CourtListRow from '../components/court/CourtListRow';
 import { usePlayHeaderPlus } from '../components/play/HeaderPlusButton';
+import { useOutsideEventsByCourt } from '../data/outsideEvents';
+import { courtEventBadge } from '../lib/outsideEvents';
 import type { RootStackParamList } from '../types';
 
 type Props = {
@@ -157,6 +159,8 @@ export default function CourtsScreen({ navigation, route, active = true, inDisco
   const [changing, setChanging] = useState(false);
   const [view, setView] = useState<PlaceDiscoveryViewMode>('list');
   const [pinned, setPinned] = useState<CourtRow | null>(null);
+  // Outside events by court: a row's "Event Sat" badge.
+  const eventsHere = useOutsideEventsByCourt();
 
   useEffect(() => {
     track('courts.open', { has_location: !!coords, from_route: typeof routeLat === 'number' });
@@ -447,6 +451,7 @@ export default function CourtsScreen({ navigation, route, active = true, inDisco
             court={r}
             crowd={crowd.data[r.id]}
             starred={starredIds.has(r.id)}
+            eventBadge={courtEventBadge(eventsHere.get(r.id) ?? [])}
             onPress={() => {
               trackCourtPick(r, 'row');
               openCourt(r);

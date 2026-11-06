@@ -100,6 +100,8 @@ export const linking: LinkingOptions<RootStackParamList> = {
       Events: 'leagues/:leagueId/events',
       CreateEvent: 'leagues/:leagueId/events/new',
       EventDetail: 'events/:eventId',
+      PublicEvents: 'public-events',
+      PublicEvent: 'public-events/:eventId',
       Tournaments: 'tournaments',
       TournamentDetail: 'tournaments/:tournamentId',
       TournamentMembers: 'tournaments/:tournamentId/members',

@@ -9,6 +9,8 @@ import { track } from '../../lib/analytics';
 import type { CourtRow } from '../../lib/courtDiscovery';
 import type { VenueCrowd } from '../../data/venueCrowd';
 import CourtListRow from './CourtListRow';
+import { useOutsideEventsByCourt } from '../../data/outsideEvents';
+import { courtEventBadge } from '../../lib/outsideEvents';
 
 type Props = {
   /** The tapped court, or null when the modal is closed. */
@@ -21,6 +23,7 @@ type Props = {
 
 export default function CourtPinModal({ court, crowd, starred, onClose, onViewDetails }: Props) {
   const toast = useToast();
+  const eventsHere = useOutsideEventsByCourt();
 
   async function directions() {
     if (!court) return;
@@ -39,7 +42,13 @@ export default function CourtPinModal({ court, crowd, starred, onClose, onViewDe
       }}
     >
       {court ? (
-        <CourtListRow court={court} crowd={crowd} starred={starred} onPress={() => onViewDetails(court)} />
+        <CourtListRow
+          court={court}
+          crowd={crowd}
+          starred={starred}
+          eventBadge={courtEventBadge(eventsHere.get(court.id) ?? [])}
+          onPress={() => onViewDetails(court)}
+        />
       ) : null}
     </MapPinModal>
   );

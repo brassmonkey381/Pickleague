@@ -564,6 +564,9 @@ export type RootStackParamList = {
   // title: a placeholder header; the screen sets the real one from the event.
   // openNudge / openClose: from a push button (Text group / Close vote).
   // focus: Home's Up next row opens the screen scrolled to that control.
+  // Outside events (migration_outside_events.sql): Home's Events tile, and one event.
+  PublicEvents: undefined;
+  PublicEvent: { eventId: string };
   EventDetail: { eventId: string; title: string; openNudge?: boolean; openClose?: boolean; focus?: 'vote' | 'rsvp' };
   // Screen exists but is not yet registered in AppNavigator.
   ScheduleMatch: { leagueId: string };

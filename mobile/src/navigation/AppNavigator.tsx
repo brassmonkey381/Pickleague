@@ -129,6 +129,8 @@ import AdminBoundariesScreen from '../screens/AdminBoundariesScreen';
 import AdminBoundaryEditorScreen from '../screens/AdminBoundaryEditorScreen';
 import { CourtsRouteScreen } from '../screens/CourtsScreen';
 import CourtDetailScreen from '../screens/CourtDetailScreen';
+import PublicEventsScreen from '../screens/PublicEventsScreen';
+import PublicEventScreen from '../screens/PublicEventScreen';
 import CourtRoutinesScreen from '../screens/CourtRoutinesScreen';
 import AvailabilityScreen from '../screens/AvailabilityScreen';
 
@@ -407,6 +409,8 @@ export default function AppNavigator() {
                 <Stack.Screen name="TournamentInvite" component={TournamentInviteScreen} options={({ route }) => ({ title: route.params?.tournamentName ? 'Invite to ' + route.params.tournamentName : 'Invite' })} />
                 <Stack.Screen name="Events" component={EventsScreen} options={({ route }) => ({ title: route.params?.leagueName ? route.params.leagueName + ' Events' : 'Events' })} />
                 <Stack.Screen name="CreateEvent" component={CreateEventScreen} options={{ title: 'New Event' }} />
+                <Stack.Screen name="PublicEvents" component={PublicEventsScreen} options={{ title: 'Events' }} />
+                <Stack.Screen name="PublicEvent" component={PublicEventScreen} options={{ title: 'Event' }} />
                 <Stack.Screen name="EventDetail" component={EventDetailScreen} options={({ route }) => ({ title: route.params?.title ?? 'Event' })} />
                 <Stack.Screen name="MatchEntry" component={MatchEntryScreen} options={{ title: 'Record Match' }} />
                 <Stack.Screen name="MatchHistory" component={MatchHistoryScreen} options={({ route }) => ({ title: route.params?.title ?? 'Match History' })} />

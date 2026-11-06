@@ -108,6 +108,9 @@ import LeagueSpotlight, { useLeagueSpotlight } from '../components/home/LeagueSp
 import JoinLeagueSection from '../components/home/JoinLeagueSection';
 import JoinCodeModal from '../components/home/JoinCodeModal';
 import QuickRow, { type QuickTarget } from '../components/home/QuickRow';
+import { useOutsideEventsNewCount } from '@just-messin-around/expo-foundation/outsideEvents';
+import { listOutsideEvents, outsideSeen } from '../data/outsideEvents';
+import MyOutsideEventsCard from '../components/home/MyOutsideEventsCard';
 import AlwaysLocationCard from '../components/home/AlwaysLocationCard';
 import OpenNearYouSection, { type OpenItem } from '../components/home/OpenNearYouSection';
 import FriendsAtCourtsSection from '../components/home/FriendsAtCourtsSection';
@@ -175,6 +178,13 @@ export default function HomeScreen({ navigation }: Props) {
   const spotlight = useLeagueSpotlight(HOME_FEED_ENABLED ? NO_LEAGUES : myLeagues, profile?.id ?? null, now);
   const { revalidate: revalidateSpotlight, refresh: refreshSpotlight } = spotlight;
   useFocusEffect(useCallback(() => { void revalidateSpotlight(); }, [revalidateSpotlight]));
+  // Events near me I haven't seen: the Events tile's dot.
+  const newEvents = useOutsideEventsNewCount({
+    fetch: listOutsideEvents,
+    isUnseen: outsideSeen.isUnseen,
+    changed: outsideSeen.changed,
+  });
+  useFocusEffect(useCallback(() => newEvents.refresh(), [newEvents.refresh]));
   // The brand band runs under the status bar: its text follows the band
   // (dark on Rally's yellow, light on the green and night bands) while Home
   // is showing, and goes back to the theme's default when it isn't.
@@ -617,7 +627,8 @@ export default function HomeScreen({ navigation }: Props) {
       // (the same one as JOIN A LEAGUE's [Enter code]).
       case 'join': setCodeOpen(true); break;
       case 'leagues': openDiscover(navigation, { tab: 'leagues', mine: true }); break;
-      case 'tournaments': openDiscover(navigation, { tab: 'tournaments', mine: true }); break;
+      // Events near me (outside events); My tournaments is a link at its top.
+      case 'events': navigation.navigate('PublicEvents'); break;
       // One league: its standings, scrolled to me. Several: pick one first.
       // None: Discover's leagues, to find one.
       case 'standings':
@@ -682,7 +693,7 @@ export default function HomeScreen({ navigation }: Props) {
   );
 
   // Quick tiles, one row of 5, right under the numbers.
-  sections.push(<QuickRow key="quick" showRecord={isMember} onPress={onQuick} />);
+  sections.push(<QuickRow key="quick" showRecord={isMember} newEvents={newEvents.count} onPress={onQuick} />);
   // Background check-ins need Always location; phones without it (iOS asks once).
   sections.push(<AlwaysLocationCard key="always-location" />);
 
@@ -772,6 +783,8 @@ export default function HomeScreen({ navigation }: Props) {
         refreshRef={feedRefresh}
       />,
     );
+    // Outside events I marked Interested or Going (none: nothing).
+    sections.push(<MyOutsideEventsCard key="my-events" />);
     if (joinSection) sections.push(joinSection);
   } else {
     if (agenda.total > 0 || isMember) {
