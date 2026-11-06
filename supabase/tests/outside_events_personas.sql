@@ -116,6 +116,7 @@ declare
   v_bal  integer;
   v_xp   integer;
   v_k    text;
+  v_cleared boolean;
 begin
   -- H1 home locations, set through the RPC (GM's too, for this test only)
   foreach v_k in array array['OA', 'OB', 'OE', 'GM'] loop
@@ -138,7 +139,9 @@ begin
   perform pg_temp.ok('H3 nobody else can read the point', e is not null, coalesce(e::text, 'read it'));
   perform pg_temp.as_user(pg_temp.p('OD'));
   perform public.set_my_home_location(38.5816, -121.4944, null);
-  perform pg_temp.ok('H4 clearing it', public.clear_my_home_location() and public.get_my_home_location() is null);
+  -- Two statements: a stable read in the same statement can't see the delete.
+  v_cleared := public.clear_my_home_location();
+  perform pg_temp.ok('H4 clearing it', v_cleared and public.get_my_home_location() is null);
   e := pg_temp.err('select public.set_my_home_location(95, 0)');
   perform pg_temp.as_admin();
   perform pg_temp.ok('H4 a bad point is refused', e ->> 'hint' = 'pl:home_location.point', e::text);
@@ -379,13 +382,19 @@ begin
   perform pg_temp.ok('E13 view: the city from the address',
     (select city from public.upcoming_outside_events where id = pg_temp.ev('nopoint')) = 'Alameda');
 
-  -- E14 an account deleted: its RSVP goes
+  -- E14 an account deleted (as delete_my_account does: _purge_account keeps
+  -- the profile row): its RSVP, seen marks and home location go
   perform pg_temp.as_user(pg_temp.p('OE'));
   perform public.set_outside_event_rsvp(pg_temp.ev('nopoint'), 'maybe');  -- no point: listed for everyone
+  perform public.mark_outside_events_seen(array[pg_temp.ev('nopoint')]);
   perform pg_temp.as_admin();
-  delete from auth.users where id = pg_temp.p('OE');
-  perform pg_temp.ok('E14 deleted account: RSVP gone',
-    not exists (select 1 from public.outside_event_rsvps where profile_id = pg_temp.p('OE')));
+  perform public._purge_account(pg_temp.p('OE'));
+  perform pg_temp.ok('E14 deleted account: RSVP and seen marks gone',
+    not exists (select 1 from public.outside_event_rsvps where profile_id = pg_temp.p('OE'))
+    and not exists (select 1 from public.outside_event_seen where profile_id = pg_temp.p('OE')));
+  perform pg_temp.ok('H5 deleted account: home location and neighborhood gone',
+    not exists (select 1 from public.profile_home_locations where profile_id = pg_temp.p('OE'))
+    and (select home_neighborhood from public.profiles where id = pg_temp.p('OE')) is null);
 
   -- E15 grants survive the hardening re-run; helpers and tables stay internal
   perform pg_temp.ok('E15 authenticated can call the client RPCs',

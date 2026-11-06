@@ -746,6 +746,30 @@ revoke all on function public.admin_list_outside_events() from public, anon;
 grant execute on function public.admin_list_outside_events() to authenticated;
 
 
+-- Account deleted (profiles.deleted_at first set, by _purge_account, which
+-- keeps the profile row): its RSVPs and seen marks go. Its reports stay
+-- (they're about the event, and the profile is anonymized).
+create or replace function public._pl_outside_events_on_delete()
+returns trigger
+language plpgsql
+security definer
+set search_path = ''
+as $$
+begin
+  if old.deleted_at is null and new.deleted_at is not null then
+    delete from public.outside_event_rsvps where profile_id = new.id;
+    delete from public.outside_event_seen where profile_id = new.id;
+  end if;
+  return null;
+end $$;
+revoke all on function public._pl_outside_events_on_delete() from public, anon, authenticated;
+
+drop trigger if exists pl_outside_events_on_delete on public.profiles;
+create trigger pl_outside_events_on_delete
+  after update of deleted_at on public.profiles
+  for each row execute function public._pl_outside_events_on_delete();
+
+
 -- ════ 5. The weekly post's view (marketing studio) ═══════════════════════
 -- The next 7 days of listed outside events. Service role only.
 create or replace view public.upcoming_outside_events as

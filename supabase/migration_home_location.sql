@@ -17,6 +17,9 @@
 --     could see: the nearest US city to the point (nearest_us_city,
 --     migration_add_us_cities_geocode.sql), else "City, ST" read from the
 --     address, else null.
+--   * A deleted account (_purge_account keeps the profile row, stamps
+--     deleted_at and deletes auth.users) loses both: the trigger below runs
+--     when deleted_at is first set.
 --
 -- ── Client RPCs (authenticated, in the hardening allowlist) ────────────────
 --   set_my_home_location(p_lat, p_lng, p_address default null) -> jsonb
@@ -157,3 +160,25 @@ begin
 end $$;
 revoke all on function public.clear_my_home_location() from public, anon;
 grant execute on function public.clear_my_home_location() to authenticated;
+
+-- Account deleted (profiles.deleted_at first set, by _purge_account): the
+-- home location goes, and the neighborhood with it.
+create or replace function public._pl_home_location_on_delete()
+returns trigger
+language plpgsql
+security definer
+set search_path = ''
+as $$
+begin
+  if old.deleted_at is null and new.deleted_at is not null then
+    new.home_neighborhood := null;
+    delete from public.profile_home_locations where profile_id = new.id;
+  end if;
+  return new;
+end $$;
+revoke all on function public._pl_home_location_on_delete() from public, anon, authenticated;
+
+drop trigger if exists pl_home_location_on_delete on public.profiles;
+create trigger pl_home_location_on_delete
+  before update of deleted_at on public.profiles
+  for each row execute function public._pl_home_location_on_delete();
