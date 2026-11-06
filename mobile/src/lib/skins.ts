@@ -117,7 +117,7 @@ export const SKINS: Skin[] = [
     ink: '#14231a', sub: '#56645b', muted: '#626f66',
     primary: '#2f6b45', primaryDark: '#235034', primaryInk: '#ffffff',
     band: '#2f6b45', bandInk: '#ffffff', line: '#dce2d8', tint: '#e3eee5', edge: '#14231a',
-    highlight: '#2c5d8f', onHighlight: '#ffffff',
+    highlight: '#a8d8ff', onHighlight: '#14231a',
   }, {
     bg: '#0e1712', surface: '#16231b', surfaceAlt: '#121d17',
     ink: '#e8efe9', sub: '#9db0a3', muted: '#7e8e83',
@@ -136,7 +136,7 @@ export const SKINS: Skin[] = [
     ink: '#1c1f1a', sub: '#5e5a4e', muted: '#6d695d',
     primary: '#1f4a33', primaryDark: '#173826', primaryInk: '#f5efe2',
     band: '#1f4a33', bandInk: '#f5efe2', line: '#e4dac6', tint: '#ede4d0', edge: '#1f4a33',
-    highlight: '#a87a2c', onHighlight: '#fffcf5',
+    highlight: '#f7d77c', onHighlight: '#1c1f1a',
   }, {
     bg: '#15140f', surface: '#1f1d16', surfaceAlt: '#1a1913',
     ink: '#efe7d6', sub: '#a89f8a', muted: '#8e8674',
