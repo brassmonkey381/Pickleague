@@ -221,7 +221,8 @@ export function defineCourtGeofenceTask(): void {
         if (e.id === NEARBY_REFRESH_REGION_ID) {
           // Moved away from where the nearby courts were picked: pick them again here.
           traceArrival('sync', { reason: 'nearby_refresh' });
-          await syncCourtGeofences();
+          // force: the circle must move here even if the nearby courts didn't change.
+          await syncCourtGeofences({ force: true });
           return;
         }
         // An Exit from inside is checked against a reading first: the
@@ -330,7 +331,7 @@ async function nearbyCourtsFor(
   return { regions: filled.regions, info, outlines };
 }
 
-async function runSync(interactive: boolean): Promise<CourtGeofenceSyncResult> {
+async function runSync(interactive: boolean, force: boolean): Promise<CourtGeofenceSyncResult> {
   if (Platform.OS === 'web') return { count: 0, reason: 'unsupported' };
   try {
     const who = await resolveUserId(supabase);
@@ -406,6 +407,7 @@ async function runSync(interactive: boolean): Promise<CourtGeofenceSyncResult> {
     const nowMs = Date.now();
     if (
       !interactive &&
+      !force &&
       !needsRegistration({ signature, last: await lastRegistration(), running: await geofencingRunning(), nowMs })
     ) {
       traceArrival('sync', { count: regions.length, reason: 'unchanged', interactive });
@@ -438,22 +440,25 @@ async function runSync(interactive: boolean): Promise<CourtGeofenceSyncResult> {
 // to the front often ask together. A request made while another waits joins
 // it (asking for location if either did); the sign-out's stop queues behind.
 let tail: Promise<unknown> = Promise.resolve();
-let waiting: { interactive: boolean; promise: Promise<CourtGeofenceSyncResult> } | null = null;
+let waiting: { interactive: boolean; force: boolean; promise: Promise<CourtGeofenceSyncResult> } | null = null;
 
 /**
  * Re-pick the watched courts. Never shows a permission sheet unless
- * `interactive`. Resolves how many are watched and why; never throws.
+ * `interactive`. `force` registers even an unchanged list. Resolves how many
+ * are watched and why; never throws.
  */
-export function syncCourtGeofences(opts: { interactive?: boolean } = {}): Promise<CourtGeofenceSyncResult> {
+export function syncCourtGeofences(opts: { interactive?: boolean; force?: boolean } = {}): Promise<CourtGeofenceSyncResult> {
   const interactive = opts.interactive === true;
+  const force = opts.force === true;
   if (waiting) {
     waiting.interactive = waiting.interactive || interactive;
+    waiting.force = waiting.force || force;
     return waiting.promise;
   }
-  const req = { interactive } as { interactive: boolean; promise: Promise<CourtGeofenceSyncResult> };
+  const req = { interactive, force } as { interactive: boolean; force: boolean; promise: Promise<CourtGeofenceSyncResult> };
   req.promise = tail.then(() => {
     if (waiting === req) waiting = null;
-    return runSync(req.interactive);
+    return runSync(req.interactive, req.force);
   });
   tail = req.promise.catch(() => undefined);
   waiting = req;

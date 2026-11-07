@@ -575,10 +575,17 @@ export function decideExit(f: {
   return 'go';
 }
 
-/** The watched courts as one comparable string (order doesn't matter). */
+/**
+ * The watched courts as one comparable string (order doesn't matter). The
+ * refresh circle counts by id alone: it is centered on the phone, so its
+ * position would change the string on every app open. Leaving it registers
+ * anyway (lib/courtGeofence).
+ */
 export function regionsSignature(regions: readonly { id: string; lat: number; lng: number; radiusM: number }[]): string {
   return regions
-    .map((r) => `${r.id}@${r.lat.toFixed(6)},${r.lng.toFixed(6)},${Math.round(r.radiusM)}`)
+    .map((r) =>
+      r.id === NEARBY_REFRESH_REGION_ID ? r.id : `${r.id}@${r.lat.toFixed(6)},${r.lng.toFixed(6)},${Math.round(r.radiusM)}`,
+    )
     .sort()
     .join('|');
 }

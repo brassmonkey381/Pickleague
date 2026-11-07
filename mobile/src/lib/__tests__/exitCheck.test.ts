@@ -6,6 +6,7 @@ import {
   decideExit,
   needsRegistration,
   REREGISTER_AFTER_MS,
+  NEARBY_REFRESH_REGION_ID,
   regionsSignature,
 } from '../courtArrivalRules';
 
@@ -52,6 +53,11 @@ describe('needsRegistration', () => {
   const sig = regionsSignature(a);
   it('ignores order', () => {
     expect(regionsSignature([...a].reverse())).toBe(sig);
+  });
+  it("doesn't count where the refresh circle is, which moves with the phone", () => {
+    const at = (lat: number, radiusM: number) => [...a, { id: NEARBY_REFRESH_REGION_ID, lat, lng: -122.2, radiusM }];
+    expect(regionsSignature(at(37.7, 400))).toBe(regionsSignature(at(37.70001, 500)));
+    expect(regionsSignature(at(37.7, 400))).not.toBe(sig);
   });
   it('skips the same courts while the OS still watches them', () => {
     expect(needsRegistration({ signature: sig, last: { signature: sig, atMs: 0 }, running: true, nowMs: 60_000 })).toBe(false);
