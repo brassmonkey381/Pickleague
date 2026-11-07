@@ -63,6 +63,9 @@ import {
   arrivalNoticeCopy,
   CANCEL_WINDOW_MS,
   checkinRemovedCopy,
+  circleVerdict,
+  EXIT_FIX_RECENT_MS,
+  type ExitVerdict,
   COURT_PROMPT_KIND,
   decideArrival,
   decideDeparture,
@@ -491,6 +494,20 @@ async function outlineGate(
   if (gate === 'watch' && !(await startCourtArrivalWatch(regionId, info?.name || null))) gate = 'quiet';
   traceArrival('outline_gate', { id: regionId, verdict, gate });
   return gate;
+}
+
+/**
+ * Where a fresh reading puts me against this court (decideExit): its outline
+ * when mapped, else its circle. Null with no reading in time.
+ */
+export async function exitVerdict(
+  regionId: string,
+  circle: { lat: number; lng: number; radiusM: number } | null,
+): Promise<ExitVerdict> {
+  const fix = await readCourtFix({ recentMs: EXIT_FIX_RECENT_MS });
+  if (!fix) return null;
+  const outline = await getCourtOutline(regionId, { fetch: false });
+  return outline ? judgeFix(outline, fix, PL_OUTLINE_RULE).verdict : circleVerdict(fix, circle);
 }
 
 /** The arrival watch saw a reading on this court's outline: the arrival goes on from there. */

@@ -32,7 +32,9 @@ export type ArrivalTraceKind =
   | 'arrival_start'
   | 'arrival_inside'
   | 'visit_start'
-  | 'visit_left';
+  | 'visit_left'
+  // An Exit checked against a reading and set aside (2026-11-06).
+  | 'exit_ignored';
 
 /** Flags, ids, counts and answers. Never a coordinate. */
 export type ArrivalTraceDetail = Record<string, string | number | boolean | null | undefined>;

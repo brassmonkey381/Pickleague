@@ -516,6 +516,88 @@ export function exitCancels(regionId: string, arrivedWithinCancelWindow: boolean
   return arrivedWithinCancelWindow && !isWalletOnlyRegionId(regionId);
 }
 
+// ── Is the Exit real? (2026-11-06) ────────────────────────────────────────────
+// Every registration makes iOS re-report each region, and that report can say
+// "outside" for a court the phone is on. At The Hub, 10:37: the arrival
+// queued, the app came to the front, the resync's Exit cancelled it 4 seconds
+// later, and the server refused the next Enter as "left". So an Exit from
+// inside is checked against a reading before it counts, and the courts are
+// registered again only when the list changed.
+
+/** An Exit this soon after the phone registered its courts may be the re-report. */
+export const EXIT_SETTLE_MS = 30_000;
+/** The reading that checks an Exit: no older than this. */
+export const EXIT_FIX_RECENT_MS = 5_000;
+
+export type ExitVerdict = 'in' | 'out' | 'unknown' | null;
+
+/**
+ * A reading against a court circle (a court with no outline): 'in' only when
+ * the whole accuracy circle is inside it, 'out' only when it is wholly
+ * outside, else 'unknown'. Null with no reading.
+ */
+export function circleVerdict(
+  fix: { lat: number; lng: number; accuracyM: number | null } | null,
+  center: { lat: number; lng: number; radiusM: number } | null,
+): ExitVerdict {
+  if (!fix || !center) return null;
+  const acc = Math.max(0, fix.accuracyM ?? 0);
+  const d = metersBetween(fix, center);
+  if (d + acc <= center.radiusM) return 'in';
+  if (d - acc > center.radiusM) return 'out';
+  return 'unknown';
+}
+
+function metersBetween(a: { lat: number; lng: number }, b: { lat: number; lng: number }): number {
+  const R = 6_371_000;
+  const toRad = (x: number) => (x * Math.PI) / 180;
+  const dLat = toRad(b.lat - a.lat);
+  const dLng = toRad(b.lng - a.lng);
+  const h = Math.sin(dLat / 2) ** 2 + Math.cos(toRad(a.lat)) * Math.cos(toRad(b.lat)) * Math.sin(dLng / 2) ** 2;
+  return 2 * R * Math.asin(Math.sqrt(h));
+}
+
+/**
+ * What to do with an Exit. `ignore`: the reading puts me on the court, or the
+ * Exit came right after a registration and nothing shows I left; the region
+ * stays 'in' and nothing is cancelled. `go`: the departure runs as before. An
+ * Exit for a region not last seen inside is the re-report of "outside": it
+ * goes on (there is nothing to take back).
+ */
+export function decideExit(f: {
+  previous: 'in' | 'out' | undefined;
+  nearSync: boolean;
+  verdict: ExitVerdict;
+}): 'go' | 'ignore' {
+  if (f.previous !== 'in') return 'go';
+  if (f.verdict === 'in') return 'ignore';
+  if (f.nearSync && f.verdict !== 'out') return 'ignore';
+  return 'go';
+}
+
+/** The watched courts as one comparable string (order doesn't matter). */
+export function regionsSignature(regions: readonly { id: string; lat: number; lng: number; radiusM: number }[]): string {
+  return regions
+    .map((r) => `${r.id}@${r.lat.toFixed(6)},${r.lng.toFixed(6)},${Math.round(r.radiusM)}`)
+    .sort()
+    .join('|');
+}
+
+/** Register the same courts again after this long anyway, in case the OS dropped them. */
+export const REREGISTER_AFTER_MS = 6 * 60 * 60_000;
+
+/** Register only when the list changed, the OS isn't watching, or the last registration is old. */
+export function needsRegistration(f: {
+  signature: string;
+  last: { signature: string; atMs: number } | null;
+  running: boolean;
+  nowMs: number;
+}): boolean {
+  if (!f.running || !f.last) return true;
+  if (f.last.signature !== f.signature) return true;
+  return f.nowMs - f.last.atMs >= REREGISTER_AFTER_MS;
+}
+
 export type DepartureDecision =
   /** The arrival check-in was taken back: take its pushes down (and say so if one was seen). */
   | { action: 'took_back' }

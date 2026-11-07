@@ -20,6 +20,10 @@
 //
 // Only an Enter after an Exit is an arrival: every registration makes the OS
 // re-report the regions the phone is already inside (region state below).
+// That re-report can also say "outside" for a court the phone is on, so the
+// same courts aren't registered again on every app open (only when the list
+// changed, or 6 hours on), and an Exit from inside is checked against a
+// reading before it cancels anything (2026-11-06, The Hub at 10:37).
 //
 // A sync never asks for location unless `interactive` (starring a court, the
 // court card's offer, Settings' Allow, the QR wallet). If the starred courts
@@ -45,10 +49,13 @@ import { resolveUserId } from '@just-messin-around/expo-foundation/supabase';
 import { supabase } from './supabase';
 import { track } from './analytics';
 import { listPasses, walletRegionId, type WalletPass } from './qrWallet';
-import { handleCourtArrival, handleCourtDeparture, WALLET_NOTICE_KEY } from './courtArrival';
+import { exitVerdict, handleCourtArrival, handleCourtDeparture, WALLET_NOTICE_KEY } from './courtArrival';
 import {
   buildCourtRegionList,
+  decideExit,
+  EXIT_SETTLE_MS,
   MAX_COURT_REGIONS,
+  needsRegistration,
   MAX_REGION_RADIUS_M,
   mergeCourtRegion,
   MIN_REGION_RADIUS_M,
@@ -58,6 +65,7 @@ import {
   nearbyCandidates,
   otherCourtsOn,
   ROUTINE_TIER,
+  regionsSignature,
   routineTierRegions,
   STARRED_TIER,
   starredTierRegions,
@@ -116,6 +124,41 @@ const LEGACY_WALLET_KEY = 'pickleague_court_fence_wallet_v1';
 
 // Inside / outside per region, from the OS's own Enter and Exit events.
 const regionState = createRegionStateStore({ storageKey: 'pickleague_court_region_state_v1' });
+
+// The last registration: which courts, and when (ms). A sync with the same
+// list skips registering; an Exit within EXIT_SETTLE_MS of one may be its
+// re-report. On disk too: a wake may be a fresh process.
+const REGISTERED_KEY = 'pickleague_court_regions_registered_v1';
+type Registration = { signature: string; atMs: number };
+let registeredMem: Registration | null = null;
+
+async function lastRegistration(): Promise<Registration | null> {
+  if (registeredMem) return registeredMem;
+  const r = await readJson<Registration | null>(REGISTERED_KEY, null);
+  registeredMem = r && typeof r.signature === 'string' && typeof r.atMs === 'number' ? r : null;
+  return registeredMem;
+}
+
+async function saveRegistration(r: Registration | null): Promise<void> {
+  registeredMem = r;
+  try {
+    if (r) await AsyncStorage.setItem(REGISTERED_KEY, JSON.stringify(r));
+    else await AsyncStorage.removeItem(REGISTERED_KEY);
+  } catch {
+    // best-effort: the next sync registers again
+  }
+}
+
+/** The OS is watching under this task right now (false when it can't tell). */
+async function geofencingRunning(): Promise<boolean> {
+  try {
+    // eslint-disable-next-line @typescript-eslint/no-var-requires
+    const Location = require('expo-location') as { hasStartedGeofencingAsync(task: string): Promise<boolean> };
+    return await Location.hasStartedGeofencingAsync(COURT_GEOFENCE_TASK);
+  } catch {
+    return false;
+  }
+}
 
 // What a wake needs to know about each watched court, saved at each sync.
 // missingMeansMember false: until this build's first sync, the OS still
@@ -180,6 +223,21 @@ export function defineCourtGeofenceTask(): void {
           traceArrival('sync', { reason: 'nearby_refresh' });
           await syncCourtGeofences();
           return;
+        }
+        // An Exit from inside is checked against a reading first: the
+        // re-report a registration makes can say "outside" for a court I'm on
+        // (lib/courtArrivalRules decideExit).
+        if (e.previous === 'in') {
+          const nearSync = Date.now() - ((await lastRegistration())?.atMs ?? 0) < EXIT_SETTLE_MS;
+          const circle =
+            e.lat != null && e.lng != null && e.radiusM != null ? { lat: e.lat, lng: e.lng, radiusM: e.radiusM } : null;
+          const verdict = await exitVerdict(e.id, circle).catch(() => null);
+          if (decideExit({ previous: e.previous, nearSync, verdict }) === 'ignore') {
+            // Still inside: the next Enter is a re-report, not a new arrival.
+            await regionState.record(e.id, 'in');
+            traceArrival('exit_ignored', { id: e.id, verdict, near_sync: nearSync });
+            return;
+          }
         }
         await handleCourtDeparture(e.id, { info: courtRegionInfo(e.id) });
       },
@@ -284,7 +342,10 @@ async function runSync(interactive: boolean): Promise<CourtGeofenceSyncResult> {
       return { count: 0, reason: 'offline' };
     }
     // Signed out: watch nothing (the next account picks its own courts).
-    if (!who.userId) return await syncGeofencesDetailed(COURT_GEOFENCE_TASK, []);
+    if (!who.userId) {
+      await saveRegistration(null);
+      return await syncGeofencesDetailed(COURT_GEOFENCE_TASK, []);
+    }
     // Unreadable with nothing saved: keep what is watched. (Doggle, with its
     // settings unreadable, dropped every favorite.)
     const settings = await loadCourtArrivalSettings().catch(() => null);
@@ -339,6 +400,19 @@ async function runSync(interactive: boolean): Promise<CourtGeofenceSyncResult> {
     for (const s of starred) if (s.outline != null) outlines[s.venue_id] = s.outline;
     await setWatchedCourtOutlines(outlines);
     await regionMeta.set(info);
+    // The same courts, still watched: registering them again only makes the
+    // OS re-report them (and that re-report can be a false Exit).
+    const signature = regionsSignature(regions);
+    const nowMs = Date.now();
+    if (
+      !interactive &&
+      !needsRegistration({ signature, last: await lastRegistration(), running: await geofencingRunning(), nowMs })
+    ) {
+      traceArrival('sync', { count: regions.length, reason: 'unchanged', interactive });
+      return { count: regions.length, reason: 'ok' };
+    }
+    // Stamped before registering: the re-reports arrive while it runs.
+    await saveRegistration({ signature, atMs: nowMs });
     const res = await syncGeofencesDetailed(COURT_GEOFENCE_TASK, regions, {
       skipPermissionRequest: !interactive,
       minRadiusM: MIN_REGION_RADIUS_M,
@@ -350,6 +424,8 @@ async function runSync(interactive: boolean): Promise<CourtGeofenceSyncResult> {
       onPermissionResult: (kind, granted) =>
         track('location.permission_result', { kind, granted, surface: 'court_arrival' }),
     });
+    // Not registered after all: the next sync tries again (the settle window stays).
+    if (res.reason !== 'ok') await saveRegistration({ signature: '', atMs: nowMs });
     if (res.reason === 'ok' || res.reason === 'stopped') await forgetLegacyRegions(wallet);
     traceArrival('sync', { count: res.count, reason: res.reason, interactive });
     return res;
@@ -389,6 +465,7 @@ export function stopCourtGeofencesForSignOut(): Promise<void> {
   const run = tail.then(async () => {
     if (Platform.OS !== 'web') await syncGeofencesDetailed(COURT_GEOFENCE_TASK, []).catch(() => null);
     await Promise.all([
+      saveRegistration(null),
       regionState.clear().catch(() => undefined),
       regionMeta.clear().catch(() => undefined),
       AsyncStorage.multiRemove([LEGACY_NAMES_KEY, LEGACY_WALLET_KEY]).catch(() => {}),
