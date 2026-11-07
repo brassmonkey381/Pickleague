@@ -148,6 +148,7 @@ export const linking: LinkingOptions<RootStackParamList> = {
       Godmode: 'godmode',
       BlockedPlayers: 'blocked-players',
       ModerationQueue: 'moderation',
+      AdminScheduleReview: 'admin/schedules',
       AdminBoundaries: 'admin/outlines',
       AdminBoundaryEditor: 'admin/outlines/:venueId',
       // Wager deep links are registered only while the feature is on - an

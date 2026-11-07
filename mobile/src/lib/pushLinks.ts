@@ -50,6 +50,8 @@ export function pushRoutes(opts: {
     'event/': (id) => (has(id) ? ['EventDetail', { eventId: id, title: 'Event' }] : null),
     // An outside event (migration_outside_events.sql): the admins' report push.
     'outside_event/': (id) => (has(id) ? ['PublicEvent', { eventId: id }] : ['PublicEvents']),
+    // The admins' court schedule pushes (migration_court_schedules.sql).
+    'admin/': (id) => (id === 'schedules' ? ['AdminScheduleReview'] : null),
     // Organizer: open the event with the group-text composer up.
     'event_nudge/': (id) => (has(id) ? ['EventDetail', { eventId: id, title: 'Event', openNudge: true }] : null),
     // Organizer: open the event with the close-voting confirm up.

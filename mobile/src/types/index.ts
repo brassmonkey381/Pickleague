@@ -673,6 +673,7 @@ export type RootStackParamList = {
   Bookmarks: undefined;
   SubmitVenue: { lat?: number; lng?: number } | undefined;
   AdminVenueReview: undefined;
+  AdminScheduleReview: undefined;
   AdminBoundaries: undefined;
   AdminBoundaryEditor: { venueId: string };
   // Court discovery (COURT_DISCOVERY_ENABLED). Courts centres on lat/lng when

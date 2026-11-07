@@ -129,6 +129,10 @@ export const REFUSAL_CODES = [
   'events.gone',
   'events.rsvp',
   'events.reason',
+  // migration_court_schedules.sql: suggest_court_schedule.
+  'schedules.note',
+  'schedules.limit',
+  'schedules.gone',
   // Only from an older server's message (it couldn't tell these apart).
   'match.not_pending',
   // Only from the server's text: _lock_completed_tournament_match
@@ -601,6 +605,13 @@ export function refusalCopy(
       return 'Pick Going or Interested.';
     case 'events.reason':
       return "Pick what's wrong: cancelled, wrong time or wrong place.";
+    // ── Court schedules (migration_court_schedules.sql) ──
+    case 'schedules.note':
+      return 'Tell us the days and times, in up to 500 characters.';
+    case 'schedules.limit':
+      return "That's 3 suggestions today. Thanks! Try again tomorrow.";
+    case 'schedules.gone':
+      return "That isn't there anymore. Go back and try again.";
     // ── Court Pass (migration_court_pass_tables.sql) ──
     case 'home.track_only': {
       // DETAIL {item, tier, cycle}. The server's message already says which

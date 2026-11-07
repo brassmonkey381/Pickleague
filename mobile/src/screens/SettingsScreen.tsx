@@ -638,6 +638,12 @@ export default function SettingsScreen({ navigation, route }: Props) {
             />
             <Divider S={S} />
             <SettingActionRow
+              label="Review Court Schedules"
+              desc="Changed pages and player suggestions"
+              onPress={() => navigation.navigate('AdminScheduleReview')}
+            />
+            <Divider S={S} />
+            <SettingActionRow
               label="My Place layout"
               desc="Move where each room spot sits, for every player"
               onPress={() => navigation.navigate('MyPlaceLayout')}
