@@ -49,7 +49,7 @@ export function robotsAllows(robotsTxt: string, path: string, userAgent: string)
   let best: { allow: boolean; pattern: string } | null = null;
   for (const rule of applies.flatMap((g) => g.rules)) {
     const source = rule.pattern
-      .replace(/[.+?^{}()|[\]\]/g, '\$&')
+      .replace(/[.+?^{}()|[\]\\]/g, '\\$&')
       .replace(/\*/g, '.*');
     if (!new RegExp(`^${source}`).test(path)) continue;
     if (!best || rule.pattern.length > best.pattern.length || (rule.pattern.length === best.pattern.length && rule.allow)) {
