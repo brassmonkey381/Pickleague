@@ -94,6 +94,7 @@ import ShareLinkButton from '../components/ShareLinkButton';
 import { useCheckinOptions } from '../components/feed/useCheckinOptions';
 import EntityRow from '../components/EntityRow';
 import OutsideEventRow from '../components/events/OutsideEventRow';
+import CourtWeeklySchedule from '../components/court/CourtWeeklySchedule';
 import { useOutsideEventsByCourt } from '../data/outsideEvents';
 import type { RootStackParamList } from '../types';
 
@@ -345,6 +346,8 @@ function CourtPage({ court, navigation }: { court: CourtDetail; navigation: Prop
       </Panel>
 
       <CourtMap court={court} />
+
+      <CourtWeeklySchedule venueId={court.id} />
 
       <CourtEvents venueId={court.id} navigation={navigation} />
 

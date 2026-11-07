@@ -4,6 +4,7 @@
 // (migration_home_location.sql), soonest first.
 //
 //   Pickleball events near you, run by clubs, rec centers...
+//   Weekly sessions near you ›   (court schedules, never in this list)
 //   Near Alameda, CA ›   (or "Set your home location" when none: every event shows)
 //   (Open play)(Round robin)(Clinic)(Ladder)(Tournament)(Social)   any of them
 //   Saturday open play  NEW                         (Interested)
@@ -19,6 +20,7 @@ import type { NativeStackScreenProps } from '@react-navigation/native-stack';
 import { useFocusEffect } from '@react-navigation/native';
 import { friendlySbMessage } from '@just-messin-around/expo-foundation/supabase';
 import { ErrorState, FilterChipRow, Panel, TextLink, type FilterChipOption } from '@just-messin-around/expo-foundation/ui';
+import { ScheduleNearbyRow } from '@just-messin-around/expo-foundation/placeSchedule';
 import { SPACE } from '@just-messin-around/expo-foundation/styles';
 import { textStyles } from '@just-messin-around/expo-foundation/typography';
 import { useTheme } from '../lib/ThemeContext';
@@ -37,6 +39,7 @@ import {
 } from '../lib/outsideEvents';
 import { outsideSeen, useOutsideEvents } from '../data/outsideEvents';
 import { useMyHomeLocation } from '../data/homeLocation';
+import { useNearbyCourtSchedules } from '../data/courtSchedules';
 import type { RootStackParamList } from '../types';
 
 type Props = NativeStackScreenProps<RootStackParamList, 'PublicEvents'>;
@@ -46,6 +49,7 @@ export default function PublicEventsScreen({ navigation }: Props) {
   const t = textStyles(c);
   const q = useOutsideEvents();
   const home = useMyHomeLocation();
+  const nearby = useNearbyCourtSchedules();
   // No home location: every event shows, so say how to narrow it.
   const noHome = home.data === null && !home.loading;
   const all = useMemo(() => q.data ?? [], [q.data]);
@@ -96,6 +100,12 @@ export default function PublicEventsScreen({ navigation }: Props) {
   const header = (
     <View style={S.header}>
       <Text style={t.sub}>{EVENTS_INTRO}</Text>
+      {/* Weekly sessions stay out of the feed: one row, whatever the count. */}
+      <ScheduleNearbyRow
+        count={nearby.data?.session_count ?? 0}
+        label="Weekly sessions near you"
+        onPress={() => navigation.navigate('NearbySchedules')}
+      />
       {noHome ? (
         <Panel>
           <Text style={t.sub}>Set your home location to see the events near you. Only your neighborhood is ever shown.</Text>
