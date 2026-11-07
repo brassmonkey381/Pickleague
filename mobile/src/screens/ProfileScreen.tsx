@@ -773,6 +773,7 @@ export default function ProfileScreen({ navigation }: Props) {
           />
         )}
         handle={[profile?.username ? `@${profile.username}` : null, profile?.tagline || null].filter(Boolean).join(', ') || null}
+        place={profile?.home_neighborhood}
         since={sinceLabel(profile?.playing_since)}
         tags={tagsShown}
         tagToggle={tagOverflow > 0 ? {

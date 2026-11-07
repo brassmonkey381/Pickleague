@@ -5,6 +5,8 @@ export type { DiscoverParams, DiscoverTab, PlayersView } from '../lib/discoverTa
 export type Gender = 'male' | 'female' | 'other' | 'prefer-not-to-say';
 
 export type Profile = {
+  /** "Alameda, CA": the only part of the home location others may see (migration_home_location.sql). */
+  home_neighborhood?: string | null;
   id: string;
   deleted_at?: string | null;
   username: string;

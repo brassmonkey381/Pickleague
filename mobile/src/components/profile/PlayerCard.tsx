@@ -36,6 +36,8 @@ type Props = {
   name: React.ReactNode;
   /** "@brian, Dink first, ask later" (username and tagline). */
   handle?: string | null;
+  /** The neighborhood ("Alameda, CA"), never the exact home location. */
+  place?: string | null;
   /** "SINCE MAR 2021", or null when not set yet. */
   since: string | null;
   tags: string[];
@@ -56,7 +58,7 @@ const AVATAR = 64;
 const STRIP = 44;
 
 export default function PlayerCard({
-  avatar, name, handle, since, tags, tagToggle, stats, onEdit, onSince, onShare, editAnchorRef, onEditLayout,
+  avatar, name, handle, place, since, tags, tagToggle, stats, onEdit, onSince, onShare, editAnchorRef, onEditLayout,
 }: Props) {
   const { colors: c } = useTheme();
   const t = textStyles(c);
@@ -111,6 +113,7 @@ export default function PlayerCard({
           <View style={S.nameCol}>
             {name}
             {handle ? <Text style={t.sub} numberOfLines={2}>{handle}</Text> : null}
+            {place ? <Text style={t.meta} numberOfLines={1}>{place}</Text> : null}
           </View>
           {onEdit ? (
             <TouchableOpacity style={S.iconBox} onPress={onEdit} accessibilityRole="button" accessibilityLabel="Edit profile">

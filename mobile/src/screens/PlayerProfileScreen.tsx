@@ -331,6 +331,7 @@ export default function PlayerProfileScreen({ navigation, route }: Props) {
           />
         )}
         handle={[`@${profile.username}`, profile.tagline || null].filter(Boolean).join(', ')}
+        place={profile.home_neighborhood}
         since={sinceLabel(profile.playing_since)}
         // The one place a linked DUPR profile is visible (the claim flow's
         // confirmation surface), first among the tags.
