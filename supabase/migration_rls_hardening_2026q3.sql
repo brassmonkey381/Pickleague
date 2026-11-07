@@ -161,6 +161,10 @@ begin
         'mark_outside_events_seen','count_new_outside_events',
         'admin_save_outside_event','admin_mark_outside_event_checked','admin_set_outside_event_hidden',
         'admin_list_outside_events',
+        -- Court schedules (migration_court_schedules.sql).
+        'list_court_sessions','nearby_court_schedules','suggest_court_schedule',
+        'admin_schedule_review','admin_resolve_schedule_proposal','admin_save_court_session',
+        'admin_set_court_session_hidden',
         -- Court discovery Phase 1 (migration_court_discovery_p1.sql).
         'get_court','list_courts_nearby',
         -- ScheduleMatchScreen (migration_schedule_match_rpc.sql).
