@@ -23,5 +23,5 @@ export const PRESETS = AVAILABILITY_PRESETS.map(p =>
  */
 export default function PickleagueAvailabilityGrid(props: Props) {
   // Same rectangle drag as the drill grid — one selection gesture across the app.
-  return <AvailabilityGrid {...props} presets={PRESETS} dragSelect="rectangle" />;
+  return <AvailabilityGrid {...props} presets={PRESETS} presetLayout="select" cellHeight={11} dragSelect="rectangle" />;
 }

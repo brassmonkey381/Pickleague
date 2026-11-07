@@ -4,7 +4,8 @@
 // and the player search the Friends screen already used.
 //
 //   [🔍 Search players by name or @username]        opens a player's profile
-//   (Friends 5) (Requests 2) (Played with) (Nearby)  the view; Requests counts what waits on you
+//   (Friends) (Requests 2) (Played) (Nearby)  the view; Requests counts what waits on you.
+//   One line at 390 px (Brian 2026-11-06): "Played", and no friend count.
 //   Friends     ⭐ Close friends are listed first...  (A) Sam · Friends since Oct 2   ⭐ ⋯
 //   Requests    WAITING ON YOU (A) Sam · 2d ago   [Accept] [Decline]
 //               SENT           (B) Ana · requested 3d ago   [Cancel]
@@ -126,7 +127,7 @@ type Colors = ReturnType<typeof useTheme>['colors'];
 
 const AVATAR = 40;
 
-const VIEW_LABELS: Record<PlayersView, string> = { friends: 'Friends', requests: 'Requests', find: 'Played with', near: 'Nearby' };
+const VIEW_LABELS: Record<PlayersView, string> = { friends: 'Friends', requests: 'Requests', find: 'Played', near: 'Nearby' };
 
 /** A people-list row for the picker (discover_players_near's columns). */
 function toPicked(p: NearPlayer): PickedUser {
@@ -785,7 +786,7 @@ export default function PlayersPanel({ navigation, active = true, view: viewPara
           options={(['friends', 'requests', 'find', 'near'] as const).map((k) => ({
             value: k,
             label: VIEW_LABELS[k],
-            count: k === 'requests' ? incoming.length : k === 'friends' ? friendsQ.data?.length : undefined,
+            count: k === 'requests' ? incoming.length : undefined,
           }))}
           value={view}
           onChange={changeView}

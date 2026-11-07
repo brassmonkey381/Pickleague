@@ -150,6 +150,11 @@ export default function AvailabilityScreen({ navigation }: Props) {
           onValuesChange={(v) => { void onValuesChange(v); }}
           onScrollLock={setLocked}
           presets={PRESETS}
+          // One Presets list inline with Edit, not 8 chips, and rows ~20%
+          // shorter so the page scrolls past the grid with Edit on (Brian,
+          // 2026-11-06; kit 1.109).
+          presetLayout="select"
+          cellHeight={11}
           dragSelect="rectangle"
           showSummary={false}
           highlightToday
