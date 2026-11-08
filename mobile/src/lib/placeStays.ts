@@ -23,6 +23,18 @@ export type PlaceStays = { away: PlaceStayAway | null; guests: PlaceStayGuest[] 
 
 export const NO_PLACE_STAYS: PlaceStays = Object.freeze({ away: null, guests: [] }) as unknown as PlaceStays;
 
+/**
+ * When the next stay here ends (mine away, or a guest's), in ms, or null.
+ * The screen reads stays again then, so an avatar comes home on time even
+ * with the page left open (PKL-021).
+ */
+export function nextStayEndMs(stays: PlaceStays | null | undefined, nowMs: number = Date.now()): number | null {
+  const ends = [stays?.away?.endsAt, ...(stays?.guests ?? []).map((g) => g.endsAt)]
+    .map((s) => (s ? Date.parse(s) : NaN))
+    .filter((t) => Number.isFinite(t) && t > nowMs);
+  return ends.length > 0 ? Math.min(...ends) : null;
+}
+
 /** A finished stay, handed over once by claim_place_stay_returns. */
 export type PlaceStayReturn = {
   stay_id: string;

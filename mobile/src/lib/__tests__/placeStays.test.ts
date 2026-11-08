@@ -8,6 +8,7 @@ import {
   awayLine,
   guestLine,
   NO_PLACE_STAYS,
+  nextStayEndMs,
   placeStayReturnsFromRpc,
   placeStaysFromRpc,
   returnMessage,
@@ -79,5 +80,20 @@ describe('guest spots', () => {
     expect(validateSlots(MY_PLACE_SCENE_SLOTS)).toEqual([]);
     expect(MY_PLACE_GUEST_SLOTS.every((s) => s.kind === 'avatar' && !!s.default)).toBe(true);
     expect(MY_PLACE_SLOTS.some((s) => s.id.startsWith('guest'))).toBe(false);
+  });
+});
+
+describe('nextStayEndMs (PKL-021: the avatar comes home on time)', () => {
+  const NOW = Date.parse('2026-11-08T18:00:00Z');
+  const at = (min: number) => new Date(NOW + min * 60_000).toISOString();
+  const guest = (endsAt: string) =>
+    ({ visitorId: 'g', name: 'G', endsAt, avatar_url: null, avatar_emoji: null, avatar_bg_color: null, avatar_id: null });
+  it('the soonest open end, mine or a guest', () => {
+    expect(nextStayEndMs({ away: { hostId: 'h', hostLabel: 'x', endsAt: at(90) }, guests: [guest(at(30))] }, NOW)).toBe(NOW + 30 * 60_000);
+  });
+  it('nothing open: null; an end already past is not waited for', () => {
+    expect(nextStayEndMs({ away: null, guests: [] }, NOW)).toBeNull();
+    expect(nextStayEndMs({ away: { hostId: 'h', hostLabel: 'x', endsAt: at(-5) }, guests: [] }, NOW)).toBeNull();
+    expect(nextStayEndMs(undefined, NOW)).toBeNull();
   });
 });

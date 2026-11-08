@@ -8,10 +8,12 @@
 //
 // Refusals come back as P0001 with HINT pl:<code> (lib/refusals.ts words
 // them); these wrappers never catch them.
+import { useEffect } from 'react';
 import { sbCall } from '@just-messin-around/expo-foundation/supabase';
 import { invalidateQueries, useCachedQuery } from '@just-messin-around/expo-foundation/cache';
 import { supabase } from '../lib/supabase';
 import {
+  nextStayEndMs,
   placeStayReturnsFromRpc,
   placeStaysFromRpc,
   type PlaceStayReturn,
@@ -35,10 +37,20 @@ export async function getPlaceStays(ownerId?: string | null): Promise<PlaceStays
  * answers nothing, never an error.
  */
 export function usePlaceStays(ownerId: string | null, enabled = true) {
-  return useCachedQuery<PlaceStays>(staysKey(ownerId), () => getPlaceStays(ownerId), {
+  const q = useCachedQuery<PlaceStays>(staysKey(ownerId), () => getPlaceStays(ownerId), {
     ttlMs: STAYS_TTL_MS,
     enabled,
   });
+  // Read again a second after the next stay ends, so the avatar comes home
+  // (and a guest leaves) on time while the page is open.
+  const endMs = nextStayEndMs(q.data);
+  const { refresh } = q;
+  useEffect(() => {
+    if (!enabled || endMs == null) return;
+    const id = setTimeout(() => void refresh(), Math.min(endMs - Date.now() + 1_000, 2_147_000_000));
+    return () => clearTimeout(id);
+  }, [enabled, endMs, refresh]);
+  return q;
 }
 
 /** After a stay starts or ends: every stays read again (mine, theirs). */
