@@ -1,6 +1,6 @@
 // One outside event in a list (the Events page, a court's page, Home):
 //
-//   Saturday open play  NEW                         (Interested)
+//   Saturday open play  LIVE NEW                    (Interested)
 //   Sat, 9 AM to 11 AM, Ocean View Park
 //   [via City of Albany]  Open play, Social
 //
@@ -11,6 +11,7 @@ import React from 'react';
 import { Pressable, StyleSheet, Text, View } from 'react-native';
 import {
   InterestedToggleChip,
+  OutsideEventLiveTag,
   OutsideEventNewTag,
   OutsideEventViaBadge,
   viaLabel,
@@ -34,7 +35,8 @@ function OutsideEventRow({ event: e, isNew = false, showPlace = true, onPress, l
   const t = textStyles(c);
   const now = Date.now();
   const where = showPlace ? placeLine(e) : null;
-  const when = isOnNow(e, now) ? `On now, ${whenLine(e, now)}` : whenLine(e, now);
+  const live = isOnNow(e, now);
+  const when = whenLine(e, now);
   const via = viaLabel(e) ?? `via ${e.source_name}`;
   return (
     <View style={[S.row, !lastRow && { borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: c.border }]}>
@@ -42,13 +44,16 @@ function OutsideEventRow({ event: e, isNew = false, showPlace = true, onPress, l
         style={S.body}
         onPress={onPress}
         accessibilityRole="button"
-        accessibilityLabel={[e.title, isNew ? 'new' : null, when, where, via, kindsLine(e)].filter(Boolean).join(', ')}
+        accessibilityLabel={[e.title, live ? 'live now' : null, isNew ? 'new' : null, when, where, via, kindsLine(e)]
+          .filter(Boolean)
+          .join(', ')}
         accessibilityHint="Opens the event"
       >
         <View style={S.titleRow}>
           <Text style={[t.title, S.shrink]} numberOfLines={2}>
             {e.title}
           </Text>
+          {live ? <OutsideEventLiveTag /> : null}
           {isNew ? <OutsideEventNewTag /> : null}
         </View>
         <Text style={t.sub} numberOfLines={2}>

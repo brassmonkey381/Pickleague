@@ -13,6 +13,8 @@
 import {
   createOutsideSeenStore,
   hiddenReasonCopy as kitHiddenReasonCopy,
+  isLiveOutsideEvent,
+  isOutsideEventCurrent,
   outsideEventNote,
   outsideHiddenReasons,
   type OutsideReportReason,
@@ -170,23 +172,18 @@ export function countsLine(e: Pick<OutsideEvent, 'going_count' | 'interested_cou
 }
 
 /**
- * Still listed: the server's rule (_pl_outside_event_past), which is stricter
- * than the kit's isOutsideEventCurrent: with an end, until the end; with
- * none, until an hour after the start.
+ * Still listed: the kit's isOutsideEventCurrent, the same rule as the server's
+ * _pl_outside_event_past (migration_outside_events_live_window.sql): with an
+ * end, until the end; with none, 3 hours after the start (kit 1.113, Brian
+ * 2026-11-07).
  */
 export function isCurrent(e: Pick<OutsideEvent, 'starts_at' | 'ends_at'>, nowMs: number = Date.now()): boolean {
-  const start = Date.parse(e.starts_at);
-  if (!Number.isFinite(start)) return false;
-  if (e.ends_at) {
-    const end = Date.parse(e.ends_at);
-    return Number.isFinite(end) && end > nowMs;
-  }
-  return start > nowMs - 60 * 60 * 1000;
+  return isOutsideEventCurrent({ start_at: e.starts_at, ends_at: e.ends_at }, nowMs);
 }
 
-/** On now: started, not over. */
+/** On now: started, not over (the LIVE tag). */
 export function isOnNow(e: Pick<OutsideEvent, 'starts_at' | 'ends_at'>, nowMs: number = Date.now()): boolean {
-  return Date.parse(e.starts_at) <= nowMs && isCurrent(e, nowMs);
+  return isLiveOutsideEvent({ start_at: e.starts_at, ends_at: e.ends_at }, nowMs);
 }
 
 /**

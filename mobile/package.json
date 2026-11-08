@@ -17,7 +17,7 @@
     "@expo-google-fonts/ibm-plex-mono": "^0.4.1",
     "@expo-google-fonts/lilita-one": "^0.4.1",
     "@expo-google-fonts/saira-condensed": "^0.4.1",
-    "@just-messin-around/expo-foundation": "^1.111.0",
+    "@just-messin-around/expo-foundation": "^1.113.0",
     "@react-native-async-storage/async-storage": "2.2.0",
     "@react-native-community/datetimepicker": "8.4.4",
     "@react-native-picker/picker": "2.11.1",

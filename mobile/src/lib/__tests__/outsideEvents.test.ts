@@ -6,6 +6,7 @@ import {
   eventsByCourt,
   hiddenReasonCopy,
   isCurrent,
+  isOnNow,
   kindsLine,
   outsideEventFromRpc,
   outsideEventsFromRpc,
@@ -66,9 +67,14 @@ describe('isCurrent (the server rule)', () => {
     expect(isCurrent({ starts_at: new Date(NOW - 3 * HOUR).toISOString(), ends_at: new Date(NOW + 60_000).toISOString() }, NOW)).toBe(true);
     expect(isCurrent({ starts_at: new Date(NOW - 30 * 60_000).toISOString(), ends_at: new Date(NOW - 60_000).toISOString() }, NOW)).toBe(false);
   });
-  it('with none: until an hour after the start', () => {
-    expect(isCurrent({ starts_at: new Date(NOW - 30 * 60_000).toISOString(), ends_at: null }, NOW)).toBe(true);
-    expect(isCurrent({ starts_at: new Date(NOW - 2 * HOUR).toISOString(), ends_at: null }, NOW)).toBe(false);
+  it('with none: until 3 hours after the start (kit 1.113)', () => {
+    expect(isCurrent({ starts_at: new Date(NOW - 2 * HOUR).toISOString(), ends_at: null }, NOW)).toBe(true);
+    expect(isCurrent({ starts_at: new Date(NOW - 3 * HOUR - 60_000).toISOString(), ends_at: null }, NOW)).toBe(false);
+  });
+  it('not started yet: listed; started with no end: on now', () => {
+    expect(isCurrent({ starts_at: new Date(NOW + HOUR).toISOString(), ends_at: null }, NOW)).toBe(true);
+    expect(isOnNow({ starts_at: new Date(NOW + HOUR).toISOString(), ends_at: null }, NOW)).toBe(false);
+    expect(isOnNow({ starts_at: new Date(NOW - 2 * HOUR).toISOString(), ends_at: null }, NOW)).toBe(true);
   });
 });
 
@@ -85,7 +91,7 @@ describe('courtEventBadge', () => {
   });
   it('nothing past or past a week', () => {
     expect(courtEventBadge([{ starts_at: new Date(NOW + 8 * 24 * HOUR).toISOString(), ends_at: null }], NOW)).toBeNull();
-    expect(courtEventBadge([{ starts_at: new Date(NOW - 2 * HOUR).toISOString(), ends_at: null }], NOW)).toBeNull();
+    expect(courtEventBadge([{ starts_at: new Date(NOW - 4 * HOUR).toISOString(), ends_at: null }], NOW)).toBeNull();
     expect(courtEventBadge([], NOW)).toBeNull();
   });
 });
