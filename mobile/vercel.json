@@ -12,6 +12,7 @@
   ],
   "rewrites": [
     { "source": "/privacy", "destination": "/privacy.html" },
+    { "source": "/delete-account", "destination": "/delete-account.html" },
     { "source": "/landing", "destination": "/landing.html" },
     {
       "source": "/events/:id",
