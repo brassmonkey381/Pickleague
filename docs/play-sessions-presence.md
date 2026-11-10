@@ -415,11 +415,12 @@ Shipping (the user's order):
 
 - Close-friend presence push ("Alex is playing at Lakeside · til 7:40 PM") with 90 min per friend+court throttle,
   3/day per author, 5/day per recipient (recipient's local day), quiet hours 22:00–07:00, mutes, kill switch,
-  push expiry on check-out. **Decide the direction first and write it here.** Under Doggle's model (decision 4)
-  the recipient is `close_friends.user_id` (the person who starred) and the author is `friend_id`: "you hear when
-  a close friend is at a court". The Instagram direction ("your close friends hear about you") reads
-  `user_id = author` and would need the Phase 1 "listed first" reads rethought. Change the ⭐ explainer
-  (`CLOSE_FRIEND_EXPLAINER`, today "listed first, only you see your stars") in the same commit as the push.
+  push expiry on check-out. **Direction: Doggle's model (Brian, 2026-11-10, PKL-006).** You hear about the people
+  YOU starred, not the people who starred you. The recipient is `close_friends.user_id` (the person who starred)
+  and the author is `friend_id`: "you hear when a close friend is at a court". The Phase 1 "listed first" reads
+  stay as they are. The Instagram direction ("your close friends hear about you") is not used. Change the ⭐
+  explainer (`CLOSE_FRIEND_EXPLAINER`, today "listed first, only you see your stars") in the same commit as the
+  push, to say you also get a push when they're playing.
 - Fan-out code that judges two other people under a user's session uses `_pl_blocked_pair`, not
   `blocked_between` (which answers a signed-in caller only about their own pairs).
 - Kit: a High-accuracy option for `getCurrentCoords` (check-ins need fixes under 150 m; Balanced often returns
