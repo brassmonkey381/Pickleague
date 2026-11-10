@@ -1,6 +1,9 @@
 import { describe, expect, it } from 'vitest';
 import {
   checkEmailBody,
+  cleanCode,
+  codeErrorMessage,
+  codeReady,
   isEmailNotConfirmed,
   mailAppUrl,
   notConfirmedMessage,
@@ -18,8 +21,8 @@ describe('resend cooldown', () => {
     expect(resendWaitS(T, T + RESEND_COOLDOWN_S * 1000)).toBe(0);
   });
   it('the button says what it will do', () => {
-    expect(resendLabel(0, false)).toBe('Resend the link');
-    expect(resendLabel(12, false)).toBe('Resend in 12s');
+    expect(resendLabel(0, false)).toBe('Send a new code');
+    expect(resendLabel(12, false)).toBe('New code in 12s');
     expect(resendLabel(0, true)).toBe('Sending...');
   });
 });
@@ -43,5 +46,20 @@ describe('copy', () => {
     expect(mailAppUrl('ios')).toBe('message://');
     expect(mailAppUrl('android')).toBeNull();
     expect(mailAppUrl('web')).toBeNull();
+  });
+});
+
+describe('the code from the email', () => {
+  it('keeps digits only, however it was pasted', () => {
+    expect(cleanCode('Code: 123 456')).toBe('123456');
+    expect(cleanCode('12-34-56-78-90-12')).toBe('1234567890');
+  });
+  it('is ready at 6 digits', () => {
+    expect(codeReady('12345')).toBe(false);
+    expect(codeReady('123456')).toBe(true);
+  });
+  it('a wrong or old code says what to do; other errors are left to the caller', () => {
+    expect(codeErrorMessage({ code: 'otp_expired', message: 'Token has expired or is invalid' })).toMatch(/resend/);
+    expect(codeErrorMessage({ code: 'over_request_rate_limit', message: 'Too many requests' })).toBeNull();
   });
 });

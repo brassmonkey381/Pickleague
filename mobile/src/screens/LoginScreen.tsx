@@ -99,7 +99,7 @@ export default function LoginScreen({ navigation, route }: Props) {
         {errorMessage ? <Text style={S.errorText}>{errorMessage}</Text> : null}
         {unconfirmed ? (
           <TouchableOpacity onPress={() => navigation.navigate('CheckEmail', { email: unconfirmed })} style={S.linkBox} accessibilityRole="button">
-            <Text style={S.link}>Resend the link</Text>
+            <Text style={S.link}>Check your email</Text>
           </TouchableOpacity>
         ) : null}
 

@@ -34,7 +34,7 @@ export function mailAppUrl(os: string): string | null {
 export const CHECK_EMAIL_TITLE = 'Check your email';
 
 export function checkEmailBody(email: string): string {
-  return `We sent a link to ${email}. Tap it to finish signing up, then sign in here.`;
+  return `We sent a code to ${email}. Type it below to finish signing up.`;
 }
 
 export function referralLine(pickles: number): string {
@@ -42,11 +42,11 @@ export function referralLine(pickles: number): string {
 }
 
 /** Under the buttons: the two things that go wrong. */
-export const CHECK_EMAIL_HELP = "Nothing there? Check spam. If the address above is wrong, fix it: resending only mails the same address.";
+export const CHECK_EMAIL_HELP = "Nothing there? Check spam. If the address above is wrong, fix it: a new code only goes to the same address.";
 
 export function resendLabel(waitS: number, sending: boolean): string {
   if (sending) return 'Sending...';
-  return waitS > 0 ? `Resend in ${waitS}s` : 'Resend the link';
+  return waitS > 0 ? `New code in ${waitS}s` : 'Send a new code';
 }
 
 export function resentMessage(email: string): string {
@@ -55,5 +55,35 @@ export function resentMessage(email: string): string {
 
 /** Sign In, when the account exists but its email isn't confirmed yet. */
 export function notConfirmedMessage(email: string): string {
-  return `Your email isn't confirmed yet. We sent a link to ${email}: tap it, then sign in.`;
+  return `Your email isn't confirmed yet. We sent a code to ${email}: open Check your email to type it or get a new one.`;
 }
+
+// ── the code in the email (Triage pick A, 2026-11-10) ──────────────────────────
+// The "Confirm signup" email carries a code ({{ .Token }}, supabase/templates/
+// confirm-signup.html). Typing it here signs the player in on this screen:
+// verifyOtp({ type: 'email' }) confirms the address and starts the session.
+
+/** Supabase's email codes are 6 digits by default; the project may set up to 10. */
+export const CODE_MIN = 6;
+export const CODE_MAX = 10;
+
+/** Digits only, at most CODE_MAX (a pasted "123 456" or "Code: 123456" still works). */
+export function cleanCode(s: string): string {
+  return s.replace(/\D+/g, '').slice(0, CODE_MAX);
+}
+
+export function codeReady(code: string): boolean {
+  return code.length >= CODE_MIN;
+}
+
+/** An expired or wrong code reads the same to Supabase (otp_expired). */
+export function codeErrorMessage(error: unknown): string | null {
+  if (!error || typeof error !== 'object') return null;
+  const e = error as { code?: unknown; message?: unknown };
+  if (e.code === 'otp_expired' || (typeof e.message === 'string' && /expired|invalid/i.test(e.message))) {
+    return "That code didn't work: it's wrong or too old. Check it, or resend for a new one.";
+  }
+  return null;
+}
+
+export const CODE_LABEL = 'Code from the email';

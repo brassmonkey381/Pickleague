@@ -1,12 +1,14 @@
-// After Create Account (PKL-020): "Check your email". Supabase won't sign the
-// account in until its email is confirmed, so this one screen holds the player
-// instead of bouncing them to Sign In: where the link went, Open Mail (iOS),
-// Resend with a cooldown, fix the address, and Sign In with the email filled in.
+// After Create Account (PKL-020): "Check your email". The email carries a code
+// (supabase/templates/confirm-signup.html) that signs the player in right here.
+// Supabase won't sign an account in until its email is confirmed, so this one
+// screen holds the player instead of bouncing them to Sign In: the code box,
+// Open Mail (iOS), Resend with a cooldown, fix the address, and Sign In with the
+// email filled in for anyone who tapped the link instead.
 // Rules and copy: lib/checkEmail.ts.
 import React, { useEffect, useRef, useState } from 'react';
 import { Linking, Platform, ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import type { NativeStackScreenProps } from '@react-navigation/native-stack';
-import { Button } from '@just-messin-around/expo-foundation/forms';
+import { Button, TextField } from '@just-messin-around/expo-foundation/forms';
 import { Icon } from '@just-messin-around/expo-foundation/icons';
 import { SPACE } from '@just-messin-around/expo-foundation/styles';
 import { textStyles } from '@just-messin-around/expo-foundation/typography';
@@ -19,7 +21,12 @@ import { REFERRAL_REWARD_PICKLES } from '../lib/referralRules';
 import {
   CHECK_EMAIL_HELP,
   CHECK_EMAIL_TITLE,
+  CODE_LABEL,
+  CODE_MAX,
   checkEmailBody,
+  cleanCode,
+  codeErrorMessage,
+  codeReady,
   mailAppUrl,
   referralLine,
   resendLabel,
@@ -44,6 +51,10 @@ export default function CheckEmailScreen({ navigation, route }: Props) {
   const [sending, setSending] = useState(false);
   const [note, setNote] = useState<{ ok: boolean; text: string } | null>(null);
   const inFlight = useRef(false);
+  const [code, setCode] = useState('');
+  const [confirming, setConfirming] = useState(false);
+  const [codeError, setCodeError] = useState<string | null>(null);
+  const confirmFlight = useRef(false);
   const mailUrl = mailAppUrl(Platform.OS);
   const waitS = resendWaitS(lastSentMs, nowMs);
 
@@ -53,6 +64,25 @@ export default function CheckEmailScreen({ navigation, route }: Props) {
     const id = setInterval(() => setNowMs(Date.now()), 1000);
     return () => clearInterval(id);
   }, [waitS > 0]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // The code signs the player in here: verifyOtp confirms the email and starts
+  // the session, and AppNavigator switches to Home on its own.
+  async function confirmCode() {
+    if (confirmFlight.current || !codeReady(code) || !email) return;
+    confirmFlight.current = true;
+    setConfirming(true);
+    setCodeError(null);
+    try {
+      const { error } = await withTimeout(supabase.auth.verifyOtp({ email, token: code, type: 'email' }), RESEND_TIMEOUT_MS);
+      if (error) setCodeError(codeErrorMessage(error) ?? friendlySbMessage(error, error.message));
+      else track('auth.confirmed', { via: 'code' });
+    } catch (e) {
+      setCodeError(friendlySbMessage(e, 'Could not check the code. Please try again.'));
+    } finally {
+      confirmFlight.current = false;
+      setConfirming(false);
+    }
+  }
 
   async function resend() {
     if (inFlight.current || waitS > 0 || !email) return;
@@ -90,20 +120,35 @@ export default function CheckEmailScreen({ navigation, route }: Props) {
         <Text style={S.text}>{checkEmailBody(email)}</Text>
         {referral ? <Text style={S.sub}>{referralLine(REFERRAL_REWARD_PICKLES)}</Text> : null}
 
+        <TextField
+          label={CODE_LABEL}
+          placeholder="123456"
+          accessibilityLabel={CODE_LABEL}
+          keyboardType="number-pad"
+          textContentType="oneTimeCode"
+          autoComplete="one-time-code"
+          maxLength={CODE_MAX + 4}
+          value={code}
+          onChangeText={(s) => setCode(cleanCode(s))}
+          onSubmitEditing={confirmCode}
+          style={S.codeInput}
+        />
+        {codeError ? <Text style={[S.note, { color: c.danger }]}>{codeError}</Text> : null}
+        <Button
+          title={confirming ? 'Checking...' : 'Confirm'}
+          onPress={confirmCode}
+          disabled={confirming || !codeReady(code)}
+          style={S.button}
+        />
         {mailUrl ? (
           <Button
             title="Open Mail"
             iconName="mail"
+            variant="outline"
             onPress={() => { void Linking.openURL(mailUrl).catch(() => {}); }}
             style={S.button}
           />
         ) : null}
-        <Button
-          title="I've confirmed it: Sign in"
-          variant={mailUrl ? 'outline' : 'primary'}
-          onPress={() => navigation.navigate('Login', { email })}
-          style={S.button}
-        />
         <Button
           title={resendLabel(waitS, sending)}
           variant="outline"
@@ -113,6 +158,9 @@ export default function CheckEmailScreen({ navigation, route }: Props) {
         />
         {note ? <Text style={[S.note, { color: note.ok ? c.success : c.danger }]}>{note.text}</Text> : null}
 
+        <TouchableOpacity onPress={() => navigation.navigate('Login', { email })} style={S.linkBox} accessibilityRole="button">
+          <Text style={S.link}>Tapped the link instead? Sign in</Text>
+        </TouchableOpacity>
         <TouchableOpacity onPress={() => navigation.navigate('Register')} style={S.linkBox} accessibilityRole="button">
           <Text style={S.link}>Wrong address? Fix it</Text>
         </TouchableOpacity>
@@ -134,6 +182,7 @@ function makeStyles(c: ReturnType<typeof useTheme>['colors']) {
     text:       { ...t.body, textAlign: 'center' },
     sub:        { ...t.bodySub, textAlign: 'center' },
     button:     { marginTop: SPACE.xs },
+    codeInput:  { fontSize: 24, letterSpacing: 6, textAlign: 'center' },
     note:       { ...t.bodySub, textAlign: 'center' },
     // A real 44 box (react-native-web ignores hitSlop).
     linkBox:    { minHeight: 44, justifyContent: 'center', marginTop: SPACE.sm },
