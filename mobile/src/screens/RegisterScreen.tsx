@@ -35,11 +35,13 @@ export default function RegisterScreen({ navigation }: Props) {
   const [lastName, setLastName] = useState('');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
-  const [confirmPassword, setConfirmPassword] = useState('');
+  const [showPassword, setShowPassword] = useState(false);
   const [gender, setGender] = useState<Gender | null>(null);
   // Optional, REFERRALS_ENABLED only: prefilled from an invite link opened on
   // this device; sent in the sign-up metadata, where the server links it.
   const [referralCode, setReferralCode] = useState('');
+  // The code field stays behind a link unless an invite already filled it.
+  const [referralOpen, setReferralOpen] = useState(false);
   const [loading, setLoading] = useState(false);
   const [errorMessage, setErrorMessage] = useState('');
 
@@ -50,13 +52,13 @@ export default function RegisterScreen({ navigation }: Props) {
     if (!REFERRALS_ENABLED) return;
     let active = true;
     void referralStash.peek().then((code) => {
-      if (active && code) setReferralCode((cur) => cur || code);
+      if (active && code) {
+        setReferralCode((cur) => cur || code);
+        setReferralOpen(true);
+      }
     });
     return () => { active = false; };
   }, []);
-
-  const passwordsMatch = confirmPassword.length > 0 && password === confirmPassword;
-  const passwordsMismatch = confirmPassword.length > 0 && password !== confirmPassword;
 
   async function signUp() {
     if (inFlight.current) return;
@@ -72,10 +74,6 @@ export default function RegisterScreen({ navigation }: Props) {
     }
     if (password.length < 6) {
       setErrorMessage('Password must be at least 6 characters.');
-      return;
-    }
-    if (!passwordsMatch) {
-      setErrorMessage('Passwords do not match.');
       return;
     }
 
@@ -128,8 +126,8 @@ export default function RegisterScreen({ navigation }: Props) {
   const body = (
     <>
       <View style={S.hero}>
-        <Text style={S.heroTitle} accessibilityRole="header">Create Account</Text>
-        <Text style={S.heroSub}>Join your pickleball league today</Text>
+        <Text style={S.heroTitle} accessibilityRole="header">Join Pickleague</Text>
+        <Text style={S.heroSub}>Free. Takes a minute.</Text>
       </View>
       <ScrollView contentContainerStyle={S.container} keyboardShouldPersistTaps="handled">
         <View style={S.nameRow}>
@@ -164,8 +162,27 @@ export default function RegisterScreen({ navigation }: Props) {
           onChangeText={setEmail}
         />
 
+        <TextField
+          placeholder="Password (6+ characters)"
+          accessibilityLabel="Password"
+          secureTextEntry={!showPassword}
+          autoComplete="new-password"
+          textContentType="newPassword"
+          value={password}
+          onChangeText={setPassword}
+        />
+        <TouchableOpacity
+          onPress={() => setShowPassword((v) => !v)}
+          style={S.showRow}
+          accessibilityRole="button"
+          accessibilityLabel={showPassword ? 'Hide password' : 'Show password'}
+        >
+          <Icon name={showPassword ? 'eye-off' : 'eye'} size={16} color={c.primary} />
+          <Text style={S.showText}>{showPassword ? 'Hide password' : 'Show password'}</Text>
+        </TouchableOpacity>
+
         <Text style={S.fieldLabel}>Gender</Text>
-        <Text style={S.fieldHint}>Used to classify doubles matches as Gendered (M+M+M+M / F+F+F+F) or Mixed.</Text>
+        <Text style={S.fieldHint}>For mixed and gendered doubles.</Text>
         <View style={S.genderRow} accessibilityRole="radiogroup" accessibilityLabel="Gender">
           {GENDER_OPTIONS.map((opt) => (
             <FilterPill
@@ -178,34 +195,12 @@ export default function RegisterScreen({ navigation }: Props) {
           ))}
         </View>
 
-        <TextField
-          placeholder="Password"
-          accessibilityLabel="Password"
-          secureTextEntry
-          autoComplete="new-password"
-          textContentType="newPassword"
-          value={password}
-          onChangeText={setPassword}
-        />
-        <TextField
-          style={passwordsMatch ? S.inputValid : undefined}
-          error={passwordsMismatch ? 'Passwords do not match' : undefined}
-          placeholder="Confirm Password"
-          accessibilityLabel="Confirm password"
-          secureTextEntry
-          autoComplete="new-password"
-          textContentType="newPassword"
-          value={confirmPassword}
-          onChangeText={setConfirmPassword}
-        />
-        {passwordsMatch && (
-          <View style={S.matchRow}>
-            <Icon name="check-mark" size={14} color={c.success} />
-            <Text style={S.matchText}>Passwords match</Text>
-          </View>
+        {REFERRALS_ENABLED && !referralOpen && (
+          <TouchableOpacity onPress={() => setReferralOpen(true)} style={S.linkBox} accessibilityRole="button">
+            <Text style={S.link}>Have a referral code?</Text>
+          </TouchableOpacity>
         )}
-
-        {REFERRALS_ENABLED && (
+        {REFERRALS_ENABLED && referralOpen && (
           <>
             <TextField
               label="Referral code (optional)"
@@ -249,7 +244,8 @@ export default function RegisterScreen({ navigation }: Props) {
 function makeStyles(c: ReturnType<typeof useTheme>['colors']) {
   const t = textStyles(c);
   return StyleSheet.create({
-    hero:         { backgroundColor: c.headerBg, paddingTop: SPACE.xl * 2 + SPACE.md, paddingBottom: SPACE.xl + SPACE.sm, alignItems: 'center', paddingHorizontal: SPACE.xl },
+    // Under the nav header, so no status-bar clearance: the Create Account button fits on one phone screen.
+    hero:         { backgroundColor: c.headerBg, paddingTop: SPACE.xl, paddingBottom: SPACE.xl, alignItems: 'center', paddingHorizontal: SPACE.xl },
     heroTitle:    { ...t.display, color: c.headerText, marginBottom: SPACE.xs },
     heroSub:      { ...t.body, color: c.headerSub, textAlign: 'center' },
     container:    { flexGrow: 1, padding: SPACE.xl, backgroundColor: c.bg },
@@ -258,10 +254,9 @@ function makeStyles(c: ReturnType<typeof useTheme>['colors']) {
     fieldLabel:   { ...t.fieldLabel, marginBottom: SPACE.xs },
     fieldHint:    t.hint,
     genderRow:    { flexDirection: 'row', flexWrap: 'wrap', columnGap: SPACE.xs, marginBottom: SPACE.sm },
-    inputValid:   { borderColor: c.success },
-    // Pulls the match line up under its field (TextField keeps 14 below itself).
-    matchRow:     { flexDirection: 'row', alignItems: 'center', gap: SPACE.xs, marginTop: -SPACE.sm, marginBottom: SPACE.md },
-    matchText:    { ...t.sub, color: c.success, fontWeight: FONT.weight.semibold },
+    // Pulled up under the password field (TextField keeps 14 below itself); 44 tall to tap.
+    showRow:      { flexDirection: 'row', alignItems: 'center', gap: SPACE.xs, marginTop: -SPACE.sm, marginBottom: SPACE.xs, minHeight: 44, alignSelf: 'flex-start' },
+    showText:     { ...t.body, color: c.primary },
     errorText:    { ...t.bodySub, color: c.danger, marginBottom: SPACE.md, textAlign: 'center' },
     button:       { marginTop: SPACE.sm },
     // A real 44 box under the button (react-native-web ignores hitSlop).
