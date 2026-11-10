@@ -515,8 +515,11 @@ export type Wager = {
 };
 
 export type RootStackParamList = {
-  Login: undefined;
+  /** `email` fills the field (from Check your email). */
+  Login: { email?: string } | undefined;
   Register: undefined;
+  /** After Create Account, or Sign In to an unconfirmed account (PKL-020). */
+  CheckEmail: { email: string; referral?: boolean; justSent?: boolean };
   GuestJoin: { token: string };
   // www.pickleague.club/invite/CODE (REFERRALS_ENABLED only; both stacks).
   InviteLanding: { code: string };

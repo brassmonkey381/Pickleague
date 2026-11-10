@@ -85,6 +85,7 @@ export const linking: LinkingOptions<RootStackParamList> = {
     screens: {
       Login: 'login',
       Register: 'register',
+      CheckEmail: 'check-email',
       GuestJoin: 'g/:token',
       Home: '',
       ...(DISCOVER_ENABLED ? { Discover: DISCOVER_LINK } : {}),

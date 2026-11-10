@@ -14,7 +14,6 @@ import { friendlySbMessage } from '@just-messin-around/expo-foundation/supabase'
 import { withTimeout } from '@just-messin-around/expo-foundation/platform';
 import { normalizeReferralCode } from '@just-messin-around/expo-foundation/referrals';
 import { REFERRALS_ENABLED } from '../lib/features';
-import { REFERRAL_REWARD_PICKLES } from '../lib/referralRules';
 import { referralStash } from '../data/referrals';
 
 const GENDER_OPTIONS: { value: Gender; label: string }[] = [
@@ -42,18 +41,10 @@ export default function RegisterScreen({ navigation }: Props) {
   // this device; sent in the sign-up metadata, where the server links it.
   const [referralCode, setReferralCode] = useState('');
   const [loading, setLoading] = useState(false);
-  const [successMessage, setSuccessMessage] = useState('');
   const [errorMessage, setErrorMessage] = useState('');
 
-  // The account survives this screen; the navigate is deferred so the user can
-  // read the confirm-your-email copy. Without a latch the button goes live again
-  // for those 3s and a second tap re-runs signUp, replacing the success message
-  // with "User already registered" for an account that WAS created.
-  const [created, setCreated] = useState(false);
+  // A double tap in the same frame must not run signUp twice (`disabled` lags a render).
   const inFlight = useRef(false);
-  const navTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
-
-  useEffect(() => () => { if (navTimer.current) clearTimeout(navTimer.current); }, []);
 
   useEffect(() => {
     if (!REFERRALS_ENABLED) return;
@@ -68,8 +59,7 @@ export default function RegisterScreen({ navigation }: Props) {
   const passwordsMismatch = confirmPassword.length > 0 && password !== confirmPassword;
 
   async function signUp() {
-    if (inFlight.current || created) return;
-    setSuccessMessage('');
+    if (inFlight.current) return;
     setErrorMessage('');
 
     if (!firstName.trim() || !lastName.trim() || !email.trim()) {
@@ -114,15 +104,13 @@ export default function RegisterScreen({ navigation }: Props) {
       if (error) {
         setErrorMessage(friendlySbMessage(error, error.message));
       } else {
-        setCreated(true);
         // The signup moment. The emitter merges the landing campaign code into props centrally,
         // so a QR-scanned flyer that produced this account is attributable.
         track('account.created', { via: 'email' });
         if (referral) void referralStash.put(referral);
-        setSuccessMessage(referral
-          ? `Account created! Confirm your email, then sign in: you and your friend each get ${REFERRAL_REWARD_PICKLES} pickles.`
-          : 'Account created! Please check your email to confirm, then sign in.');
-        navTimer.current = setTimeout(() => navigation.navigate('Login'), 3000);
+        // One screen that says where the link went (PKL-020), not a bounce to Sign In.
+        // navigate, not replace: "Wrong address? Fix it" comes back here with the fields kept.
+        navigation.navigate('CheckEmail', { email: email.trim(), referral: !!referral, justSent: true });
       }
     } catch (e) {
       // A timeout here is ambiguous — the account may or may not exist — so send
@@ -232,12 +220,11 @@ export default function RegisterScreen({ navigation }: Props) {
         )}
 
         {errorMessage ? <Text style={S.errorText}>{errorMessage}</Text> : null}
-        {successMessage ? <Text style={S.successText}>{successMessage}</Text> : null}
 
         <Button
-          title={loading ? 'Creating account...' : created ? 'Account created' : 'Create Account'}
+          title={loading ? 'Creating account...' : 'Create Account'}
           onPress={signUp}
-          disabled={loading || created}
+          disabled={loading}
           style={S.button}
         />
 
@@ -276,7 +263,6 @@ function makeStyles(c: ReturnType<typeof useTheme>['colors']) {
     matchRow:     { flexDirection: 'row', alignItems: 'center', gap: SPACE.xs, marginTop: -SPACE.sm, marginBottom: SPACE.md },
     matchText:    { ...t.sub, color: c.success, fontWeight: FONT.weight.semibold },
     errorText:    { ...t.bodySub, color: c.danger, marginBottom: SPACE.md, textAlign: 'center' },
-    successText:  { ...t.bodySub, color: c.success, marginBottom: SPACE.md, textAlign: 'center', fontWeight: FONT.weight.semibold },
     button:       { marginTop: SPACE.sm },
     // A real 44 box under the button (react-native-web ignores hitSlop).
     linkBox:      { minHeight: 44, justifyContent: 'center', marginTop: SPACE.sm },

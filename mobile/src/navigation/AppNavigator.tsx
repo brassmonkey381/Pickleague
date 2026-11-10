@@ -43,6 +43,7 @@ import { startOfflineWrites } from '../lib/offlineWrites';
 
 import LoginScreen from '../screens/LoginScreen';
 import RegisterScreen from '../screens/RegisterScreen';
+import CheckEmailScreen from '../screens/CheckEmailScreen';
 import HomeScreen from '../screens/HomeScreen';
 import PlayScreen from '../screens/PlayScreen';
 import LeaguesScreen from '../screens/LeaguesScreen';
@@ -540,6 +541,7 @@ export default function AppNavigator() {
               <>
                 <Stack.Screen name="Login" component={LoginScreen} options={{ headerShown: false }} />
                 <Stack.Screen name="Register" component={RegisterScreen} options={{ title: 'Create Account' }} />
+                <Stack.Screen name="CheckEmail" component={CheckEmailScreen} options={{ headerShown: false }} />
                 <Stack.Screen name="GuestJoin" component={GuestJoinScreen} options={{ title: 'Join the vote' }} />
                 {REFERRALS_ENABLED && (
                   <Stack.Screen name="InviteLanding" component={InviteLandingScreen} options={{ headerShown: false }} />

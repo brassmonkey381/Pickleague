@@ -1,10 +1,11 @@
-import React, { useRef, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { Text, TouchableOpacity, StyleSheet, KeyboardAvoidingView, Platform, View } from 'react-native';
-import { NativeStackNavigationProp } from '@react-navigation/native-stack';
+import type { NativeStackScreenProps } from '@react-navigation/native-stack';
 import GetTheAppButton from '../components/GetTheAppButton';
 import { track } from '../lib/analytics';
 import { supabase } from '../lib/supabase';
 import { RootStackParamList } from '../types';
+import { isEmailNotConfirmed, notConfirmedMessage } from '../lib/checkEmail';
 import { useTheme } from '../lib/ThemeContext';
 import { friendlySbMessage } from '@just-messin-around/expo-foundation/supabase';
 import { Button, TextField } from '@just-messin-around/expo-foundation/forms';
@@ -12,20 +13,25 @@ import { SPACE } from '@just-messin-around/expo-foundation/styles';
 import { textStyles } from '@just-messin-around/expo-foundation/typography';
 import { withTimeout } from '@just-messin-around/expo-foundation/platform';
 
-type Props = { navigation: NativeStackNavigationProp<RootStackParamList, 'Login'> };
+type Props = NativeStackScreenProps<RootStackParamList, 'Login'>;
 
 /** Sign-in is a single round trip; if the socket hangs, an unbounded await
  * leaves the button on "Signing in..." with force-quit as the only escape. */
 const SIGN_IN_TIMEOUT_MS = 20_000;
 
-export default function LoginScreen({ navigation }: Props) {
+export default function LoginScreen({ navigation, route }: Props) {
   const { colors: c } = useTheme();
   const S = makeStyles(c);
 
-  const [email, setEmail] = useState('');
+  const [email, setEmail] = useState(route.params?.email ?? '');
+  // Opened again from Check your email with an address: fill it in.
+  const paramEmail = route.params?.email;
+  useEffect(() => { if (paramEmail) setEmail(paramEmail); }, [paramEmail]);
   const [password, setPassword] = useState('');
   const [loading, setLoading] = useState(false);
   const [errorMessage, setErrorMessage] = useState('');
+  // Set when the account exists but its email isn't confirmed: offers Check your email.
+  const [unconfirmed, setUnconfirmed] = useState<string | null>(null);
 
   // `disabled` on the button is not a guard — a keyboard submit or a double tap
   // in the same frame can both enter this before React re-renders.
@@ -34,6 +40,7 @@ export default function LoginScreen({ navigation }: Props) {
   async function signIn() {
     if (inFlight.current) return;
     setErrorMessage('');
+    setUnconfirmed(null);
     if (!email.trim() || !password) {
       setErrorMessage('Please enter your email and password.');
       return;
@@ -46,7 +53,10 @@ export default function LoginScreen({ navigation }: Props) {
         SIGN_IN_TIMEOUT_MS,
       );
       // On success, AppNavigator detects the new session and switches to Home automatically
-      if (error) setErrorMessage(friendlySbMessage(error, error.message));
+      if (error && isEmailNotConfirmed(error)) {
+        setUnconfirmed(email.trim());
+        setErrorMessage(notConfirmedMessage(email.trim()));
+      } else if (error) setErrorMessage(friendlySbMessage(error, error.message));
       else track('auth.login', { via: 'email' });
     } catch (e) {
       // Thrown (not returned) means transport: timeout, DNS, dropped socket.
@@ -87,6 +97,11 @@ export default function LoginScreen({ navigation }: Props) {
         />
 
         {errorMessage ? <Text style={S.errorText}>{errorMessage}</Text> : null}
+        {unconfirmed ? (
+          <TouchableOpacity onPress={() => navigation.navigate('CheckEmail', { email: unconfirmed })} style={S.linkBox} accessibilityRole="button">
+            <Text style={S.link}>Resend the link</Text>
+          </TouchableOpacity>
+        ) : null}
 
         <Button title={loading ? 'Signing in...' : 'Sign In'} onPress={signIn} disabled={loading} style={S.button} />
 
