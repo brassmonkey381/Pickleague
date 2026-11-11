@@ -1,6 +1,8 @@
 import { describe, expect, it } from 'vitest';
 import {
   checkEmailBody,
+  existingAccountMessage,
+  isExistingAccount,
   cleanCode,
   codeErrorMessage,
   codeReady,
@@ -61,5 +63,18 @@ describe('the code from the email', () => {
   it('a wrong or old code says what to do; other errors are left to the caller', () => {
     expect(codeErrorMessage({ code: 'otp_expired', message: 'Token has expired or is invalid' })).toMatch(/resend/);
     expect(codeErrorMessage({ code: 'over_request_rate_limit', message: 'Too many requests' })).toBeNull();
+  });
+});
+
+describe('sign-up to an address that already has an account', () => {
+  it('Supabase answers with a user that has no identities, and sends no email', () => {
+    expect(isExistingAccount({ id: 'x', identities: [] })).toBe(true);
+    expect(isExistingAccount({ id: 'x', identities: [{ provider: 'email' }] })).toBe(false);
+    expect(isExistingAccount({ id: 'x' })).toBe(false);
+    expect(isExistingAccount(null)).toBe(false);
+  });
+  it('names the address and says what to do', () => {
+    expect(existingAccountMessage('a@b.co')).toContain('a@b.co');
+    expect(existingAccountMessage('a@b.co')).toMatch(/Sign in/);
   });
 });

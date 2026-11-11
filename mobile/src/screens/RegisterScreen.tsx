@@ -15,6 +15,7 @@ import { withTimeout } from '@just-messin-around/expo-foundation/platform';
 import { normalizeReferralCode } from '@just-messin-around/expo-foundation/referrals';
 import { REFERRALS_ENABLED } from '../lib/features';
 import { referralStash } from '../data/referrals';
+import { existingAccountMessage, isExistingAccount } from '../lib/checkEmail';
 
 const GENDER_OPTIONS: { value: Gender; label: string }[] = [
   { value: 'male',              label: 'Male' },
@@ -44,6 +45,8 @@ export default function RegisterScreen({ navigation }: Props) {
   const [referralOpen, setReferralOpen] = useState(false);
   const [loading, setLoading] = useState(false);
   const [errorMessage, setErrorMessage] = useState('');
+  // Set when sign-up found a confirmed account at this address (no email was sent).
+  const [existingEmail, setExistingEmail] = useState<string | null>(null);
 
   // A double tap in the same frame must not run signUp twice (`disabled` lags a render).
   const inFlight = useRef(false);
@@ -90,7 +93,7 @@ export default function RegisterScreen({ navigation }: Props) {
     inFlight.current = true;
     setLoading(true);
     try {
-      const { error } = await withTimeout(
+      const { data, error } = await withTimeout(
         supabase.auth.signUp({
           email,
           password,
@@ -101,6 +104,11 @@ export default function RegisterScreen({ navigation }: Props) {
 
       if (error) {
         setErrorMessage(friendlySbMessage(error, error.message));
+      } else if (isExistingAccount(data?.user)) {
+        // No email was sent: the address already has a confirmed account.
+        setExistingEmail(email.trim());
+        setErrorMessage(existingAccountMessage(email.trim()));
+        track('auth.signup_existing', {});
       } else {
         // The signup moment. The emitter merges the landing campaign code into props centrally,
         // so a QR-scanned flyer that produced this account is attributable.
@@ -215,6 +223,13 @@ export default function RegisterScreen({ navigation }: Props) {
         )}
 
         {errorMessage ? <Text style={S.errorText}>{errorMessage}</Text> : null}
+        {existingEmail && existingEmail === email.trim() ? (
+          <Button
+            title="Sign in"
+            onPress={() => navigation.navigate('Login', { email: existingEmail })}
+            style={S.button}
+          />
+        ) : null}
 
         <Button
           title={loading ? 'Creating account...' : 'Create Account'}

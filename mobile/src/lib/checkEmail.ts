@@ -29,6 +29,22 @@ export function mailAppUrl(os: string): string | null {
   return os === 'ios' ? 'message://' : null;
 }
 
+/**
+ * Sign-up to an address that already has a confirmed account: Supabase answers
+ * with no error and a stand-in user whose `identities` is empty, and sends no
+ * email (so nobody can probe which addresses exist). Without this check the
+ * player waits on Check your email for a code that never comes.
+ */
+export function isExistingAccount(user: unknown): boolean {
+  if (!user || typeof user !== 'object') return false;
+  const ids = (user as { identities?: unknown }).identities;
+  return Array.isArray(ids) && ids.length === 0;
+}
+
+export function existingAccountMessage(email: string): string {
+  return `${email} already has an account. Sign in instead. If you forgot the password, you can reset it there.`;
+}
+
 // ── copy ────────────────────────────────────────────────────────────────────
 
 export const CHECK_EMAIL_TITLE = 'Check your email';
