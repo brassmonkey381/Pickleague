@@ -5,6 +5,7 @@ import { SafeAreaProvider } from 'react-native-safe-area-context';
 import { ThemeProvider } from './src/lib/ThemeContext';
 import AppNavigator from './src/navigation/AppNavigator';
 import EmailConfirmedBanner from './src/components/EmailConfirmedBanner';
+import AuthLinkHandler from './src/components/AuthLinkHandler';
 import BadgeToast from './src/components/BadgeToast';
 import { PresenceConsentHost } from './src/components/presence/ConsentSheet';
 import { AppErrorBoundary } from './src/lib/StartupErrorScreen';
@@ -23,6 +24,8 @@ export default function App() {
         <View style={{ flex: 1 }}>
           <AppNavigator />
           <EmailConfirmedBanner />
+          {/* The email's confirm link, when the app opened it (lib/authLink). */}
+          <AuthLinkHandler />
           <BadgeToast />
           {/* The one-time "who sees you at the courts" sheet (lib/presenceConsent). */}
           <PresenceConsentHost />

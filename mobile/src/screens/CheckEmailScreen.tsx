@@ -159,7 +159,7 @@ export default function CheckEmailScreen({ navigation, route }: Props) {
         {note ? <Text style={[S.note, { color: note.ok ? c.success : c.danger }]}>{note.text}</Text> : null}
 
         <TouchableOpacity onPress={() => navigation.navigate('Login', { email })} style={S.linkBox} accessibilityRole="button">
-          <Text style={S.link}>Tapped the link instead? Sign in</Text>
+          <Text style={S.link}>Already confirmed? Sign in</Text>
         </TouchableOpacity>
         <TouchableOpacity onPress={() => navigation.navigate('Register')} style={S.linkBox} accessibilityRole="button">
           <Text style={S.link}>Wrong address? Fix it</Text>

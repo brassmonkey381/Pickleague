@@ -1,4 +1,4 @@
-import React, { useEffect, useRef, useState } from 'react';
+import React, { useEffect, useRef, useState, useSyncExternalStore } from 'react';
 import { Text, TouchableOpacity, StyleSheet, KeyboardAvoidingView, Platform, View } from 'react-native';
 import type { NativeStackScreenProps } from '@react-navigation/native-stack';
 import GetTheAppButton from '../components/GetTheAppButton';
@@ -6,6 +6,7 @@ import { track } from '../lib/analytics';
 import { supabase } from '../lib/supabase';
 import { RootStackParamList } from '../types';
 import { isEmailNotConfirmed, notConfirmedMessage } from '../lib/checkEmail';
+import { getAuthLinkNotice, setAuthLinkNotice, subscribeAuthLinkNotice } from '../lib/authLink';
 import { useTheme } from '../lib/ThemeContext';
 import { friendlySbMessage } from '@just-messin-around/expo-foundation/supabase';
 import { Button, TextField } from '@just-messin-around/expo-foundation/forms';
@@ -30,6 +31,8 @@ export default function LoginScreen({ navigation, route }: Props) {
   const [password, setPassword] = useState('');
   const [loading, setLoading] = useState(false);
   const [errorMessage, setErrorMessage] = useState('');
+  // A note from the email's link when it couldn't sign the player in (lib/authLink).
+  const linkNotice = useSyncExternalStore(subscribeAuthLinkNotice, getAuthLinkNotice, getAuthLinkNotice);
   // Set when the account exists but its email isn't confirmed: offers Check your email.
   const [unconfirmed, setUnconfirmed] = useState<string | null>(null);
 
@@ -57,7 +60,7 @@ export default function LoginScreen({ navigation, route }: Props) {
         setUnconfirmed(email.trim());
         setErrorMessage(notConfirmedMessage(email.trim()));
       } else if (error) setErrorMessage(friendlySbMessage(error, error.message));
-      else track('auth.login', { via: 'email' });
+      else { setAuthLinkNotice(null); track('auth.login', { via: 'email' }); }
     } catch (e) {
       // Thrown (not returned) means transport: timeout, DNS, dropped socket.
       // The raw library string is useless here — say what the user can do.
@@ -96,6 +99,7 @@ export default function LoginScreen({ navigation, route }: Props) {
           onChangeText={setPassword}
         />
 
+        {linkNotice && !errorMessage ? <Text style={S.notice}>{linkNotice}</Text> : null}
         {errorMessage ? <Text style={S.errorText}>{errorMessage}</Text> : null}
         {unconfirmed ? (
           <TouchableOpacity onPress={() => navigation.navigate('CheckEmail', { email: unconfirmed })} style={S.linkBox} accessibilityRole="button">
@@ -139,6 +143,7 @@ function makeStyles(c: ReturnType<typeof useTheme>['colors']) {
     subtitle:  { ...t.body, textAlign: 'center', color: c.headerSub },
     form:      { flex: 1, justifyContent: 'center', padding: SPACE.xl },
     errorText: { ...t.bodySub, color: c.danger, marginBottom: SPACE.sm, textAlign: 'center' },
+    notice:    { ...t.bodySub, marginBottom: SPACE.sm, textAlign: 'center' },
     button:    { marginTop: SPACE.sm },
     // A real 44 box under the button (react-native-web ignores hitSlop).
     linkBox:   { minHeight: 44, justifyContent: 'center', marginTop: SPACE.sm },
