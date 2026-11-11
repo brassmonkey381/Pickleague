@@ -122,6 +122,7 @@ import { HomePlanConfirmSheet, useHomePlanConfirm } from '../components/home/Hom
 import { PickleAmount } from '../components/PickleAmount';
 import { WEB_COLUMN_MAX_WIDTH } from '../lib/webColumn';
 import { homeFirstWeekLayout, inFirstWeek } from '../lib/homeFirstWeek';
+import { firstRunSeen, shouldShowFirstRun } from '../lib/firstRun';
 
 type Props = { navigation: NativeStackNavigationProp<RootStackParamList, 'Home'> };
 
@@ -275,7 +276,11 @@ export default function HomeScreen({ navigation }: Props) {
   // useStayReturns, in PlaceStayReturnHost): it goes up only when this queue
   // is empty, and holds this queue while it is up.
   const [stayShowing, setStayShowing] = useState(false);
-  const free = focused && focusSettled && !handoffHeld && !codeOpen && !pickerOpen && !picklesOpen;
+  // First run (PKL-020): a new account's pop-ups wait until Home knows whether
+  // to open it (one storage read), so nothing pops up over it.
+  const [firstRunCheck, setFirstRunCheck] = useState<'checking' | 'done'>('checking');
+  const firstRunHold = firstRunCheck === 'checking' && inFirstWeek(profile?.created_at, now);
+  const free = focused && focusSettled && !handoffHeld && !codeOpen && !pickerOpen && !picklesOpen && !firstRunHold;
   const activeModal = free && !stayShowing ? queue[0] ?? null : null;
   const stayEnabled = free && queue.length === 0;
   // The pop-up on screen right now (one commit behind, which is enough: a
@@ -430,6 +435,22 @@ export default function HomeScreen({ navigation }: Props) {
   const dupr = useDuprImportOffer();
   const getStartedVisible = !ftue.loading && (!ftue.allClaimed || isGuest || dupr.visible);
   const accountIsNew = inFirstWeek(profile?.created_at, now);
+
+  // Open the first run once: a new account (first 7 days), not a guest, not
+  // shown on this device yet (lib/firstRun).
+  useEffect(() => {
+    if (firstRunCheck === 'done' || !profile?.id) return;
+    if (!accountIsNew || isGuest) { setFirstRunCheck('done'); return; }
+    let live = true;
+    void firstRunSeen(profile.id).then(seen => {
+      if (!live) return;
+      setFirstRunCheck('done');
+      if (shouldShowFirstRun({ createdAt: profile.created_at, nowMs: Date.now(), isGuest, seen })) {
+        navigation.navigate('FirstRun');
+      }
+    });
+    return () => { live = false; };
+  }, [firstRunCheck, profile?.id, profile?.created_at, accountIsNew, isGuest, navigation]);
 
   // ── NOW ──
   const [courtMode, setCourtMode] = useState<CourtCardMode>('idle');

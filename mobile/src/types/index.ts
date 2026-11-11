@@ -573,6 +573,7 @@ export type RootStackParamList = {
   PublicEvents: undefined;
   // Settings > Home location (migration_home_location.sql).
   HomeLocation: undefined;
+  FirstRun: undefined;
   PublicEvent: { eventId: string };
   NearbySchedules: undefined;
   EventDetail: { eventId: string; title: string; openNudge?: boolean; openClose?: boolean; focus?: 'vote' | 'rsvp' };

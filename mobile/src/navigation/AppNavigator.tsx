@@ -135,6 +135,7 @@ import PublicEventsScreen from '../screens/PublicEventsScreen';
 import PublicEventScreen from '../screens/PublicEventScreen';
 import NearbySchedulesScreen from '../screens/NearbySchedulesScreen';
 import HomeLocationScreen from '../screens/HomeLocationScreen';
+import FirstRunScreen from '../screens/FirstRunScreen';
 import CourtRoutinesScreen from '../screens/CourtRoutinesScreen';
 import AvailabilityScreen from '../screens/AvailabilityScreen';
 
@@ -417,6 +418,8 @@ export default function AppNavigator() {
                 <Stack.Screen name="PublicEvent" component={PublicEventScreen} options={{ title: 'Event' }} />
                 <Stack.Screen name="NearbySchedules" component={NearbySchedulesScreen} options={{ title: 'Weekly sessions' }} />
                 <Stack.Screen name="HomeLocation" component={HomeLocationScreen} options={{ title: 'Home location' }} />
+                {/* First run (PKL-020): Welcome, Your courts, Alerts. Home opens it once for a new account. */}
+                <Stack.Screen name="FirstRun" component={FirstRunScreen} options={{ headerShown: false, gestureEnabled: false, animation: 'fade' }} />
                 <Stack.Screen name="EventDetail" component={EventDetailScreen} options={({ route }) => ({ title: route.params?.title ?? 'Event' })} />
                 <Stack.Screen name="MatchEntry" component={MatchEntryScreen} options={{ title: 'Record Match' }} />
                 <Stack.Screen name="MatchHistory" component={MatchHistoryScreen} options={({ route }) => ({ title: route.params?.title ?? 'Match History' })} />
