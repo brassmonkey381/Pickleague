@@ -22,6 +22,7 @@ import {
 import { withRetry } from '@just-messin-around/expo-foundation/platform';
 import { sbCall, currentUserId, classifySbError } from '@just-messin-around/expo-foundation/supabase';
 import { supabase } from './supabase';
+import { isMissingRpcError } from './playersNear';
 import { navigationRef, navigateWhenReady } from './navigationRef';
 import {
   catalog,
@@ -76,6 +77,14 @@ const REGISTRATION = { androidChannelId: 'default', androidChannelName: 'Default
 async function upsertToken(token: string, platform: 'ios' | 'android'): Promise<void> {
   const userId = await currentUserId(supabase);
   if (!userId) throw new Error('push: no authenticated user');
+  // claim_push_token moves a row that another account on this phone still owns;
+  // the plain upsert below hits RLS then ("You don't have access to that").
+  try {
+    await sbCall(() => supabase.rpc('claim_push_token', { p_token: token, p_platform: platform }), { retries: 1 });
+    return;
+  } catch (e) {
+    if (!isMissingRpcError(e)) throw e;
+  }
   await sbCall(
     () =>
       supabase.from('push_tokens').upsert(
