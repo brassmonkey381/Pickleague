@@ -26,6 +26,7 @@ export const RECS_VERSIONS = {
   'saved-league-suggestions': 'saved-league-suggestions-v1',
   'courts-nearby': 'courts-nearby-v1',
   'home-feed-court-cards': 'home-feed-court-cards-v2',
+  'suggested-courts': 'suggested-courts-v1',
 } as const;
 
 /** A recommender's name, as in the README index (kebab case). */

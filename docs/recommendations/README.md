@@ -31,6 +31,7 @@ not a recommender and is not listed.
 | [Saved league suggestions](saved-league-suggestions.md) | My leagues to save | Saved > Your leagues | `saved-league-suggestions-v1` | `mobile/src/lib/savedStandings.ts:269` (`leagueSuggestions`) |
 | [Courts nearby](courts-nearby.md) | Courts near me, nearest first | Discover > Courts | `courts-nearby-v1` | `supabase/migration_court_discovery_p1.sql`, `list_courts_nearby` (line 128); `mobile/src/lib/courtDiscovery.ts:310` |
 | [Home feed court cards](home-feed-court-cards.md) | Which court cards Home shows, and in what order | Home > Pickleague Feed | `home-feed-court-cards-v2` | `mobile/src/lib/pickleagueFeed.ts:491` (card rank), `:293` (`sortCourtLines`) |
+| [Suggested courts](suggested-courts.md) | Courts to star, ranked by activity, leagues and distance | First run > Your courts | `suggested-courts-v1` | `supabase/migration_suggested_courts.sql`, `suggested_courts` |
 
 Shared building block: `discover_players` (`supabase/migration_hide_test_accounts.sql:346`) with
 `p_near_rating` orders by `abs(rating - p_near_rating)`, then name (line 376). It is the "anywhere"
