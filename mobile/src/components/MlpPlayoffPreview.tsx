@@ -9,6 +9,7 @@ import StatusBanner from './StatusBanner';
 import type { RootStackParamList } from '../types';
 import { RankMedal } from '@just-messin-around/expo-foundation/ui';
 import { Button } from '@just-messin-around/expo-foundation/forms';
+import { useAsyncPress } from '@just-messin-around/expo-foundation/hooks';
 import { Icon } from '@just-messin-around/expo-foundation/icons';
 import { HAIRLINE, RADIUS, SPACE } from '@just-messin-around/expo-foundation/styles';
 import { FONT, textStyles } from '@just-messin-around/expo-foundation/typography';
@@ -117,6 +118,7 @@ export default function MlpPlayoffPreview({
     genStatus.success('Playoff bracket generated.');
     await load();
   }
+  const generate = useAsyncPress(generatePlayoff);
 
   useFocusEffect(useCallback(() => { load(); }, [tournamentId, mlpPlayFormat]));
 
@@ -387,8 +389,8 @@ export default function MlpPlayoffPreview({
           <Button
             iconName="bolt"
             title={generating ? 'Generating…' : 'Generate Playoff Now'}
-            onPress={generatePlayoff}
-            disabled={generating}
+            onPress={generate.press}
+            loading={generate.busy}
           />
           <StatusBanner status={genStatus.value} />
         </View>

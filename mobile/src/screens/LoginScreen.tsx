@@ -107,7 +107,7 @@ export default function LoginScreen({ navigation, route }: Props) {
           </TouchableOpacity>
         ) : null}
 
-        <Button title={loading ? 'Signing in...' : 'Sign In'} onPress={signIn} disabled={loading} style={S.button} />
+        <Button title={loading ? 'Signing in...' : 'Sign In'} onPress={signIn} loading={loading} disabled={loading} style={S.button} />
 
         <TouchableOpacity onPress={() => navigation.navigate('Register')} style={S.linkBox} accessibilityRole="button">
           <Text style={S.link}>Don't have an account? Sign up</Text>

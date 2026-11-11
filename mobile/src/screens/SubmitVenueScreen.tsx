@@ -291,7 +291,7 @@ export default function SubmitVenueScreen({ navigation, route }: Props) {
             Someone already suggested “{nearby[0].name}” about {Math.round(nearby[0].distance_meters)} m
             from here.
           </Text>
-          <Button title="Yes, it's this one" onPress={() => affirm(nearby[0])} disabled={busy} />
+          <Button title="Yes, it's this one" onPress={() => affirm(nearby[0])} loading={busy} disabled={busy} />
           <Text style={[t.caption, S.affirmHint]}>Not it? Just fill in the form below to add a new court.</Text>
         </View>
       ) : null}

@@ -76,6 +76,7 @@ export default function PauseSharingChip({ style }: Props) {
         onPress={() => {
           if (!busy) setOpen(true);
         }}
+        busy={busy}
         accessibilityRole="button"
         accessibilityLabel={paused ? `Sharing paused ${pausedUntil ? pausedUntilLabel(pausedUntil, now) : ''}` : 'Pause sharing'}
         accessibilityHint="Hides your name at the court for a while"

@@ -20,6 +20,9 @@ if (
   !shareLab &&
   !looksLab &&
   window.location.pathname === '/' &&
+  // A sign-in link from an auth email lands on / with its result in the hash;
+  // the redirect would drop it (PKL-020).
+  !/access_token=|error_code=/.test(window.location.hash) &&
   !window.localStorage.getItem('pickleague_landing_seen')
 ) {
   window.location.replace('/landing.html');

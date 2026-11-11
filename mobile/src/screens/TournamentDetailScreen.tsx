@@ -18,6 +18,7 @@ import { cardPlayer, cardPodium, ordinal, shortName, type FinishShareData } from
 import { useBlockedIds } from '../lib/moderation';
 import { SPACE, SMALL_TEXT_MAX_SCALE } from '@just-messin-around/expo-foundation/styles';
 import { textStyles } from '@just-messin-around/expo-foundation/typography';
+import { useAsyncPress } from '@just-messin-around/expo-foundation/hooks';
 import { RootStackParamList } from '../types';
 import { isTournamentPrivileged, requiresPartner, bracketReleaseLabel } from '../lib/tournamentRole';
 import { FORMAT_META } from '../lib/tournament';
@@ -120,6 +121,7 @@ export default function TournamentDetailScreen({ navigation, route }: Props) {
   const registeringRef = useRef(false);
   const [responding, setResponding] = useState(false);
   const respondingRef = useRef(false);
+  const generate = useAsyncPress(() => td.generateBracket());
 
   // ── Scroll: anchors, the focus param, and the sticky bar ──
   // Each anchor is the onLayout y of a direct child of the scroll content
@@ -663,7 +665,8 @@ export default function TournamentDetailScreen({ navigation, route }: Props) {
           ) : null,
           actions: isAdmin && approved.length >= 2 ? [{
             title: td.generatedMatches ? 'Re-generate preview' : `Generate ${fmt.label} schedule`,
-            onPress: () => { void td.generateBracket(); },
+            onPress: () => { void generate.press(); },
+            loading: generate.busy,
             variant: td.generatedMatches ? 'outline' : 'primary',
           }] : [],
         });

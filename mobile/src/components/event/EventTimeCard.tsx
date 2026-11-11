@@ -10,6 +10,7 @@ import { View, Text, StyleSheet } from 'react-native';
 import { Panel } from '@just-messin-around/expo-foundation/ui';
 import { Icon } from '@just-messin-around/expo-foundation/icons';
 import { Button } from '@just-messin-around/expo-foundation/forms';
+import { useAsyncPress } from '@just-messin-around/expo-foundation/hooks';
 import { SPACE, SMALL_TEXT_MAX_SCALE } from '@just-messin-around/expo-foundation/styles';
 import { textStyles } from '@just-messin-around/expo-foundation/typography';
 import { useTheme } from '../../lib/ThemeContext';
@@ -31,7 +32,7 @@ export type EventTimeCardProps = {
   busy: RsvpBusy | 'other';
   onRsvp: (answer: 'in' | 'out') => void;
   onRecord: () => void;
-  onAddToCalendar: () => void;
+  onAddToCalendar: () => void | Promise<void>;
 };
 
 export default function EventTimeCard(p: EventTimeCardProps) {
@@ -40,6 +41,7 @@ export default function EventTimeCard(p: EventTimeCardProps) {
   const day = new Date(p.startsAt).toLocaleDateString(undefined, { weekday: 'long', month: 'long', day: 'numeric' });
   const time = `${new Date(p.startsAt).toLocaleTimeString(undefined, { hour: 'numeric', minute: '2-digit' })} – ${new Date(p.endsAt).toLocaleTimeString(undefined, { hour: 'numeric', minute: '2-digit' })}`;
   const anyBusy = p.busy != null;
+  const calendar = useAsyncPress(() => p.onAddToCalendar());
   const counts = [`${p.inCount} in`, p.outCount > 0 ? `${p.outCount} can't make it` : null].filter(Boolean).join(', ');
 
   return (
@@ -94,7 +96,7 @@ export default function EventTimeCard(p: EventTimeCardProps) {
           title="Record match"
           onPress={p.onRecord}
         />
-        <Button size="sm" variant="outline" title="Add to calendar" onPress={p.onAddToCalendar} />
+        <Button size="sm" variant="outline" title="Add to calendar" onPress={calendar.press} loading={calendar.busy} />
       </View>
     </Panel>
   );

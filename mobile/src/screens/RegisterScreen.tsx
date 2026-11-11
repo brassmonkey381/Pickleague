@@ -234,6 +234,7 @@ export default function RegisterScreen({ navigation }: Props) {
         <Button
           title={loading ? 'Creating account...' : 'Create Account'}
           onPress={signUp}
+          loading={loading}
           disabled={loading}
           style={S.button}
         />

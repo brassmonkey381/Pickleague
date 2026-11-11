@@ -15,6 +15,7 @@ import { useStatusMessage } from '../lib/useStatusMessage';
 import MultiUserPickerModal, { MultiPickedUser } from './MultiUserPickerModal';
 import { DISCOVER_ENABLED } from '../lib/features';
 import { Button, KeyboardTextInput } from '@just-messin-around/expo-foundation/forms';
+import { useAsyncPress } from '@just-messin-around/expo-foundation/hooks';
 import { Icon } from '@just-messin-around/expo-foundation/icons';
 import { shadowColor } from '@just-messin-around/expo-foundation/theme';
 import { HAIRLINE, RADIUS, SPACE } from '@just-messin-around/expo-foundation/styles';
@@ -283,6 +284,10 @@ export default function InviteCodeManager({ scopeType, scopeId, scopeName, tourn
     }
   }
 
+  const broadcastPress = useAsyncPress(() => openBroadcast());
+  const textPress = useAsyncPress(() => textInvite());
+  const sharePress = useAsyncPress(() => share());
+
   if (loading) return <ActivityIndicator style={{ marginVertical: SPACE.xl }} size="large" color={c.primary} />;
 
   const subsidyPreview = (() => {
@@ -327,9 +332,9 @@ export default function InviteCodeManager({ scopeType, scopeId, scopeName, tourn
             )}
           </View>
 
-          <Button iconName="chat" title="Invite Players In-App" onPress={openBroadcast} style={S.actionBtn} />
-          <Button iconName="phone" variant="outline" title="Invite via Text" onPress={textInvite} style={S.actionBtn} />
-          <Button iconName="outbox" variant="outline" title="Share via Text / Email" onPress={share} style={S.actionBtn} />
+          <Button iconName="chat" title="Invite Players In-App" onPress={broadcastPress.press} loading={broadcastPress.busy} style={S.actionBtn} />
+          <Button iconName="phone" variant="outline" title="Invite via Text" onPress={textPress.press} loading={textPress.busy} style={S.actionBtn} />
+          <Button iconName="outbox" variant="outline" title="Share via Text / Email" onPress={sharePress.press} loading={sharePress.busy} style={S.actionBtn} />
           <Button
             iconName={copied ? 'check-mark' : 'clipboard'}
             variant="outline"

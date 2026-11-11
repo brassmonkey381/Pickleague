@@ -16,6 +16,7 @@ import { useStatusMessage } from '../lib/useStatusMessage';
 import { useRefresh } from '../lib/useRefresh';
 import { LoadingState } from '@just-messin-around/expo-foundation/ui';
 import { Button, KeyboardTextInput } from '@just-messin-around/expo-foundation/forms';
+import { useAsyncPress } from '@just-messin-around/expo-foundation/hooks';
 import { SPACE, RADIUS, HAIRLINE, webInputFontFloor } from '@just-messin-around/expo-foundation/styles';
 import { FONT, textStyles } from '@just-messin-around/expo-foundation/typography';
 import AppRefreshControl from '../components/AppRefreshControl';
@@ -96,6 +97,7 @@ export default function GiftPicklesScreen({ navigation }: Props) {
       setSending(false);
     }
   }
+  const sendPress = useAsyncPress(send);
 
   if (authorized === null) {
     return <LoadingState label="Checking access…" />;
@@ -175,7 +177,7 @@ export default function GiftPicklesScreen({ navigation }: Props) {
         title={Number.isFinite(n) && n > 0 ? `Send ${n.toLocaleString()}` : 'Send'}
         iconName="pickle"
         iconPosition="trailing"
-        onPress={send}
+        onPress={sendPress.press}
         disabled={!valid}
         loading={sending}
         accessibilityLabel={Number.isFinite(n) && n > 0 ? `Send ${picklesLabel(n)}` : 'Send pickles'}

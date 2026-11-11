@@ -103,7 +103,7 @@ export default function HomeLocationScreen({ navigation }: Props) {
         </View>
         <Text style={[t.meta, S.gap]}>{HOME_LOCATION_PRIVACY}</Text>
         <Button title="Save home location" loading={busy} onPress={() => void save()} style={S.gap} />
-        {saved ? <TextLink label="Remove home location" onPress={() => void remove()} /> : null}
+        {saved ? <TextLink label="Remove home location" disabled={busy} onPress={() => void remove()} /> : null}
       </Panel>
     </ScrollView>
   );

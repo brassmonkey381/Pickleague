@@ -6,6 +6,7 @@ import DateTimePicker, { DateTimePickerEvent } from '@react-native-community/dat
 import { Picker } from '@react-native-picker/picker';
 import { sbCall, friendlySbMessage } from '@just-messin-around/expo-foundation/supabase';
 import { Button } from '@just-messin-around/expo-foundation/forms';
+import { useAsyncPress } from '@just-messin-around/expo-foundation/hooks';
 import { Icon } from '@just-messin-around/expo-foundation/icons';
 import { HAIRLINE, INPUT_MIN_FONT_WEB, RADIUS, SPACE } from '@just-messin-around/expo-foundation/styles';
 import { textStyles } from '@just-messin-around/expo-foundation/typography';
@@ -164,6 +165,7 @@ export default function ScheduleMatchScreen({ navigation, route }: Props) {
       setLoading(false);
     }
   }
+  const schedule = useAsyncPress(scheduleMatch);
 
   const formattedDate = scheduledAt.toLocaleDateString(undefined, { weekday: 'short', month: 'short', day: 'numeric', year: 'numeric' });
   const formattedTime = scheduledAt.toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit' });
@@ -278,7 +280,7 @@ export default function ScheduleMatchScreen({ navigation, route }: Props) {
 
       <Button
         title={loading ? 'Scheduling...' : 'Schedule Match'}
-        onPress={scheduleMatch}
+        onPress={schedule.press}
         loading={loading}
         disabled={loading}
         style={S.button}

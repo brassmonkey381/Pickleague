@@ -1,5 +1,5 @@
-import React, { useCallback, useState } from 'react';
-import { View, Text, FlatList, TouchableOpacity, StyleSheet } from 'react-native';
+import React, { useCallback, useRef, useState } from 'react';
+import { View, Text, FlatList, TouchableOpacity, StyleSheet, ActivityIndicator } from 'react-native';
 import { RouteProp, useFocusEffect } from '@react-navigation/native';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { sbCall, currentUserId, friendlySbMessage } from '@just-messin-around/expo-foundation/supabase';
@@ -43,6 +43,9 @@ export default function TournamentMembersScreen({ navigation, route }: Props) {
   const [loading, setLoading]   = useState(true);
   const [actionTarget, setActionTarget] = useState<TournamentRegistration | null>(null);
   const [wagerTotals, setWagerTotals]   = useState<Record<string, number>>({});
+  // The member whose role/remove write is in flight. A ref too: two taps in one frame both see null.
+  const [busyId, setBusyId] = useState<string | null>(null);
+  const busyRef = useRef(false);
 
   const refresh = useRefresh(load);
 
@@ -106,6 +109,9 @@ export default function TournamentMembersScreen({ navigation, route }: Props) {
   }
 
   async function handleAction(member: TournamentRegistration, action: string) {
+    if (busyRef.current) return;
+    busyRef.current = true;
+    setBusyId(member.id);
     try {
       // Each of these discarded its error, so a failed remove/promote looked
       // exactly like a successful one until the reload silently undid it.
@@ -118,6 +124,9 @@ export default function TournamentMembersScreen({ navigation, route }: Props) {
       }
     } catch (e) {
       toast.error(friendlySbMessage(e, `Couldn't ${action.toLowerCase()}.`));
+    } finally {
+      busyRef.current = false;
+      setBusyId(null);
     }
     load();
   }
@@ -204,10 +213,13 @@ export default function TournamentMembersScreen({ navigation, route }: Props) {
               <TouchableOpacity
                 style={S.kebab}
                 onPress={(e) => { e.stopPropagation?.(); showOptions(item); }}
+                disabled={busyId != null}
                 accessibilityRole="button"
                 accessibilityLabel={`Manage ${item.profile?.full_name ?? 'member'}`}
               >
-                <Icon name="more-vertical" size={20} color={colors.textMuted} />
+                {busyId === item.id
+                  ? <ActivityIndicator size="small" color={colors.textMuted} />
+                  : <Icon name="more-vertical" size={20} color={colors.textMuted} />}
               </TouchableOpacity>
             )}
           </TouchableOpacity>

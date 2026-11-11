@@ -126,7 +126,11 @@ export function useCourtCheckIn(options: CourtCheckInOptions = {}): CourtCheckIn
   const opts = useRef(options);
   opts.current = options;
 
+  // Two taps can land before `busy` re-renders the buttons disabled (PKL-024).
+  const running = useRef(false);
   const run = useCallback<CourtCheckInFlow['run']>(async (kind, fn, failMsg, o = {}) => {
+    if (running.current) return;
+    running.current = true;
     setBusy(kind);
     setMessage(null);
     setOfferUntracked(false);
@@ -156,6 +160,7 @@ export function useCourtCheckIn(options: CourtCheckInOptions = {}): CourtCheckIn
           .catch(() => {});
       }
     } finally {
+      running.current = false;
       setBusy(null);
     }
   }, []);

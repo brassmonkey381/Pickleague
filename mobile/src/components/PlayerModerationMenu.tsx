@@ -7,7 +7,7 @@
 // actions in the same order with the same wording — a profile, a drill thread,
 // a search result. Renders nothing at all on your own row.
 import React, { useState } from 'react';
-import { TouchableOpacity, View, StyleSheet } from 'react-native';
+import { ActivityIndicator, TouchableOpacity, View, StyleSheet } from 'react-native';
 import { friendlySbMessage } from '@just-messin-around/expo-foundation/supabase';
 import { Icon } from '@just-messin-around/expo-foundation/icons';
 import { RADIUS } from '@just-messin-around/expo-foundation/styles';
@@ -59,6 +59,7 @@ export default function PlayerModerationMenu({
   if (!meId || meId === userId) return null;
 
   async function doHidePresence(hide: boolean) {
+    setBusy(true);
     try {
       await hidePresenceFrom(userId, hide);
       toast.success(
@@ -69,6 +70,8 @@ export default function PlayerModerationMenu({
     } catch (e) {
       // Why (the account is gone, signed out), then what to do.
       toast.error(explainRefusal(e, "We couldn't change that just now. Try again.", { action: 'hide' }));
+    } finally {
+      setBusy(false);
     }
   }
 
@@ -138,12 +141,17 @@ export default function PlayerModerationMenu({
           hitSlop); the 34 circle, or the bare glyph in compact, sits inside. */}
       <TouchableOpacity
         onPress={() => setSheetOpen(true)}
+        // Unblock and Hide run as the sheet closes: the spinner says so.
+        disabled={busy}
         style={S.box}
         accessibilityLabel={`More options for ${userName}`}
         accessibilityRole="button"
+        accessibilityState={{ disabled: busy, busy }}
       >
         <View style={[S.btn, compact && S.btnCompact]}>
-          <Icon name="more" size={20} color={compact ? colors.textMuted : colors.textSub} />
+          {busy
+            ? <ActivityIndicator size="small" color={compact ? colors.textMuted : colors.textSub} />
+            : <Icon name="more" size={20} color={compact ? colors.textMuted : colors.textSub} />}
         </View>
       </TouchableOpacity>
 

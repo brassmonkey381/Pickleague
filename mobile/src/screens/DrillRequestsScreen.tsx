@@ -143,6 +143,9 @@ export default function DrillRequestsScreen({ route }: Props) {
   const [courts, setCourts] = useState<CourtRow[]>([]);
   const [courtsLoading, setCourtsLoading] = useState(false);
   const [cancelling, setCancelling]     = useState(false);
+  // Accept / Decline on a card: one write at a time (the ref holds before `responding` renders).
+  const [responding, setResponding]     = useState<{ id: string; action: 'accept' | 'decline' } | null>(null);
+  const respondingRef                   = useRef(false);
 
   const status = useStatusMessage();
   const refresh = useRefresh(load);
@@ -302,6 +305,19 @@ export default function DrillRequestsScreen({ route }: Props) {
       // to play before they show up.
       setChatRequest({ ...req, status: 'accepted', accepted_slot: slot });
       setChatLocationPrompt(true);
+    }
+  }
+
+  async function respondOnCard(req: DrillRequest, action: 'accept' | 'decline') {
+    if (respondingRef.current) return;
+    respondingRef.current = true;
+    setResponding({ id: req.id, action });
+    try {
+      if (action === 'accept') await acceptWithSelectedSlot(req);
+      else await respondToRequest(req, 'decline');
+    } finally {
+      respondingRef.current = false;
+      setResponding(null);
     }
   }
 
@@ -608,10 +624,18 @@ export default function DrillRequestsScreen({ route }: Props) {
               size="sm"
               iconName="check-mark"
               title="Accept"
-              onPress={() => acceptWithSelectedSlot(item)}
-              disabled={selectedSlotIdx[item.id] == null}
+              onPress={() => respondOnCard(item, 'accept')}
+              loading={responding?.id === item.id && responding.action === 'accept'}
+              disabled={selectedSlotIdx[item.id] == null || responding != null}
             />
-            <Button size="sm" variant="outline" title="Decline" onPress={() => respondToRequest(item, 'decline')} />
+            <Button
+              size="sm"
+              variant="outline"
+              title="Decline"
+              onPress={() => respondOnCard(item, 'decline')}
+              loading={responding?.id === item.id && responding.action === 'decline'}
+              disabled={responding != null}
+            />
             {chatButton}
           </View>
         )}

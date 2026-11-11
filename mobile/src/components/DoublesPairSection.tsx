@@ -405,8 +405,9 @@ export default function DoublesPairSection({
                     </Text>
                     {isMyPair && isCaptain && p.status === 'forming' && member && (
                       <TouchableOpacity
-                        style={S.removeBox}
+                        style={[S.removeBox, busy && S.btnDim]}
                         onPress={() => clearSlot(p.id, slot)}
+                        disabled={busy}
                         accessibilityRole="button"
                         accessibilityLabel={`Remove ${member.full_name}`}
                       >
@@ -440,6 +441,7 @@ export default function DoublesPairSection({
                             size="sm"
                             title="Accept"
                             onPress={() => respondToRequest(r.id, true)}
+                            disabled={busy}
                             accessibilityLabel={`Accept ${u?.full_name ?? 'this player'}'s request`}
                           />
                           <Button
@@ -447,6 +449,7 @@ export default function DoublesPairSection({
                             variant="outline"
                             title="Decline"
                             onPress={() => respondToRequest(r.id, false)}
+                            disabled={busy}
                             accessibilityLabel={`Decline ${u?.full_name ?? 'this player'}'s request`}
                           />
                         </View>
@@ -504,15 +507,15 @@ export default function DoublesPairSection({
               <View style={S.captainPanel}>
                 <Text style={S.captainBtnText}>You've been invited to pair with this captain.</Text>
                 <View style={S.inviteBtnRow}>
-                  <Button size="sm" title="Accept Invite" onPress={() => respondToRequest(myReqHere.id, true)} />
-                  <Button size="sm" variant="outline" title="Decline" onPress={() => respondToRequest(myReqHere.id, false)} />
+                  <Button size="sm" title="Accept Invite" onPress={() => respondToRequest(myReqHere.id, true)} loading={busy} />
+                  <Button size="sm" variant="outline" title="Decline" onPress={() => respondToRequest(myReqHere.id, false)} disabled={busy} />
                 </View>
               </View>
             )}
 
             {/* Player POV — request to join */}
             {!myPair && !isMyPair && p.status === 'forming' && onApproved && !teamFullN && !myReqHere && tournamentStatus === 'registration' && (
-              <TouchableOpacity style={S.requestBtn} onPress={() => requestJoin(p.id)} disabled={busy} accessibilityRole="button">
+              <TouchableOpacity style={[S.requestBtn, busy && S.btnDim]} onPress={() => requestJoin(p.id)} disabled={busy} accessibilityRole="button">
                 <Text style={S.requestBtnText}>Request to Join</Text>
               </TouchableOpacity>
             )}

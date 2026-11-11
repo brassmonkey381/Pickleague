@@ -129,7 +129,7 @@ export default function EventDetailScreen({ navigation, route }: Props) {
   // never be picked as the winning slot no matter how many people choose it.
   const [decliners, setDecliners] = useState<SlotVoter[]>([]);
   const [iDeclined, setIDeclined] = useState(false);
-  const [nudging, setNudging] = useState(false);
+  const [nudging, setNudging] = useState<false | 'sms' | 'whatsapp' | 'chat'>(false);
   // League chat webhook (Discord/Slack). Null when unset OR unreadable — RLS
   // only lets the league creator see it.
   const [chatWebhookUrl, setChatWebhookUrl] = useState<string | null>(null);
@@ -400,7 +400,7 @@ export default function EventDetailScreen({ navigation, route }: Props) {
     const kind = pickNudgeKind(event, confirmedSlot);
     if (!kind) return;
 
-    setNudging(true);
+    setNudging(via);
     status.clear();
     try {
       const voterIds = new Set<string>();
@@ -1123,10 +1123,10 @@ export default function EventDetailScreen({ navigation, route }: Props) {
                       : 'Tell them it’s locked in'}
                   </IconTitle>
                   <View style={S.btnRow}>
-                    <Button size="sm" iconName="chat" title="Text" loading={nudging} onPress={() => sendNudge('sms')} />
-                    <Button size="sm" variant="success" title="WhatsApp" disabled={nudging} onPress={() => sendNudge('whatsapp')} />
+                    <Button size="sm" iconName="chat" title="Text" loading={nudging === 'sms'} disabled={!!nudging} onPress={() => sendNudge('sms')} />
+                    <Button size="sm" variant="success" title="WhatsApp" loading={nudging === 'whatsapp'} disabled={!!nudging} onPress={() => sendNudge('whatsapp')} />
                     {chatWebhookUrl && (
-                      <Button size="sm" variant="outline" iconName="megaphone" title="League chat" disabled={nudging} onPress={() => sendNudge('chat')} />
+                      <Button size="sm" variant="outline" iconName="megaphone" title="League chat" loading={nudging === 'chat'} disabled={!!nudging} onPress={() => sendNudge('chat')} />
                     )}
                   </View>
                 </View>

@@ -451,7 +451,7 @@ export default function CourtRoutinesScreen({ route, navigation }: Props) {
                         accessibilityRole="button"
                         accessibilityLabel={r.active ? `Pause ${r.venueName}` : `Resume ${r.venueName}`}
                       >
-                        <Text style={[t.sub, { color: c.textSub }]}>{r.active ? 'Pause' : 'Resume'}</Text>
+                        <Text style={[t.sub, { color: c.textSub }]}>{busyId === r.id ? (r.active ? 'Pausing…' : 'Resuming…') : r.active ? 'Pause' : 'Resume'}</Text>
                       </TouchableOpacity>
                     </View>
                   ) : null}

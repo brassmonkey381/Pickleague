@@ -1,6 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { TouchableOpacity, StyleProp, ViewStyle, TextStyle } from 'react-native';
 import { Icon } from '@just-messin-around/expo-foundation/icons';
+import { useAsyncPress } from '@just-messin-around/expo-foundation/hooks';
 import { useTheme } from '../lib/ThemeContext';
 import { addBookmark, removeBookmark, isBookmarked, BookmarkTargetType } from '../lib/bookmarks';
 
@@ -46,12 +47,14 @@ export default function BookmarkButton({ targetType, targetId, size = 22, style 
       : await removeBookmark(targetType, targetId);
     if (!ok) setOn(!next);
   }
+  const press = useAsyncPress(toggle);
 
   return (
     <TouchableOpacity
-      onPress={toggle}
+      onPress={press.press}
+      disabled={press.busy}
       hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
-      style={style}
+      style={[style, press.busy && { opacity: 0.5 }]}
       accessibilityRole="button"
       accessibilityLabel={on === true ? 'Remove bookmark' : on === false ? 'Add bookmark' : 'Bookmark, checking'}
     >

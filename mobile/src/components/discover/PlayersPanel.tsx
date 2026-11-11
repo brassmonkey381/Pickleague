@@ -36,7 +36,7 @@
 //   ways and hidden test accounts left out by the server. Friends, Requests
 //   and Played with are yours and are not limited.
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { View, Text, ScrollView, TouchableOpacity, StyleSheet } from 'react-native';
+import { View, Text, ScrollView, TouchableOpacity, StyleSheet, ActivityIndicator } from 'react-native';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { useFocusEffect, useIsFocused } from '@react-navigation/native';
 import { currentUserId } from '@just-messin-around/expo-foundation/supabase';
@@ -292,6 +292,8 @@ export default function PlayersPanel({ navigation, active = true, view: viewPara
 
   // One write at a time per person (its row's buttons go busy).
   const [busyId, setBusyId] = useState<string | null>(null);
+  // The ref holds for two taps that land before the re-render.
+  const busyRef = useRef(false);
   async function run<T>(
     userId: string,
     write: () => Promise<T>,
@@ -299,7 +301,8 @@ export default function PlayersPanel({ navigation, active = true, view: viewPara
     failMsg: string,
     name?: string | null,
   ) {
-    if (busyId) return;
+    if (busyRef.current) return;
+    busyRef.current = true;
     setBusyId(userId);
     try {
       const msg = done(await write());
@@ -309,6 +312,7 @@ export default function PlayersPanel({ navigation, active = true, view: viewPara
       // 20 a day, no longer friends. A block stays vague.
       toast.error(explainRefusal(e, failMsg, { personName: firstNameOf(name), action: 'friend' }));
     } finally {
+      busyRef.current = false;
       setBusyId(null);
     }
   }
@@ -366,9 +370,11 @@ export default function PlayersPanel({ navigation, active = true, view: viewPara
 
   // ── Invite ──
   const [sharing, setSharing] = useState(false);
+  const sharingRef = useRef(false);
   /** The referral link when it can pay (you both earn), else my profile link. */
   async function invite(kind: 'best' | 'profile') {
-    if (sharing) return;
+    if (sharingRef.current) return;
+    sharingRef.current = true;
     setSharing(true);
     try {
       if (kind === 'best' && canRefer) {
@@ -393,6 +399,7 @@ export default function PlayersPanel({ navigation, active = true, view: viewPara
     } catch {
       // Share sheet dismissed: nothing to do.
     } finally {
+      sharingRef.current = false;
       setSharing(false);
     }
   }
@@ -592,11 +599,15 @@ export default function PlayersPanel({ navigation, active = true, view: viewPara
                           accessibilityLabel={`Close friend: ${name}`}
                         >
                           {/* Doggle's FavoriteStarIcon: filled in the brand colour, the outline muted. */}
-                          <Icon
-                            name={f.is_close_friend ? 'star' : 'star-outline'}
-                            size={20}
-                            color={f.is_close_friend ? c.primary : c.textMuted}
-                          />
+                          {busyId === f.user_id ? (
+                            <ActivityIndicator size="small" color={c.primary} />
+                          ) : (
+                            <Icon
+                              name={f.is_close_friend ? 'star' : 'star-outline'}
+                              size={20}
+                              color={f.is_close_friend ? c.primary : c.textMuted}
+                            />
+                          )}
                         </TouchableOpacity>
                         <TouchableOpacity
                           style={S.iconBox}
@@ -828,7 +839,7 @@ export default function PlayersPanel({ navigation, active = true, view: viewPara
               title={sharing ? 'Opening…' : 'Share my profile link'}
               iconName={sharing ? undefined : 'share'}
               onPress={() => { void invite('profile'); }}
-              disabled={sharing}
+              loading={sharing}
               style={S.inviteBtn}
             />
           </Panel>

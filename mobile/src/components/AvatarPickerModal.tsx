@@ -6,6 +6,7 @@ import { CachedImage } from '@just-messin-around/expo-foundation/ui/CachedImage'
 import { SPACE, RADIUS, HAIRLINE } from '@just-messin-around/expo-foundation/styles';
 import { FONT, textStyles } from '@just-messin-around/expo-foundation/typography';
 import { Icon } from '@just-messin-around/expo-foundation/icons';
+import { useAsyncPress } from '@just-messin-around/expo-foundation/hooks';
 import * as ImagePicker from 'expo-image-picker';
 import { supabase } from '../lib/supabase';
 import { AVATARS, AvatarDef } from '../data/profileCustomization';
@@ -238,11 +239,12 @@ export default function AvatarPickerModal({
     }
   }
 
-  function pickPhoto() {
+  // Busy from the permission prompt through the upload, so a second tap can't open a second picker.
+  const pick = useAsyncPress(async () => {
     if (uploadInFlight.current) return;
     if (isWeb) fileInputRef.current?.click?.();
-    else pickPhotoNative();
-  }
+    else await pickPhotoNative();
+  });
 
   async function onWebFileChange(e: any) {
     const file: File | undefined = e?.target?.files?.[0];
@@ -371,7 +373,7 @@ export default function AvatarPickerModal({
         </View>
 
         <View style={S.photoRow}>
-          <TouchableOpacity style={S.photoBtn} onPress={pickPhoto} disabled={uploading}>
+          <TouchableOpacity style={S.photoBtn} onPress={() => void pick.press()} disabled={uploading || pick.busy}>
             {uploading ? (
               <View style={S.uploadingRow}>
                 <ActivityIndicator size="small" color={colors.primary} />
@@ -379,7 +381,7 @@ export default function AvatarPickerModal({
               </View>
             ) : (
               <View style={S.uploadingRow}>
-                <Icon name="camera" size={16} color={colors.primary} />
+                {pick.busy ? <ActivityIndicator size="small" color={colors.primary} /> : <Icon name="camera" size={16} color={colors.primary} />}
                 <Text style={S.photoBtnText}>Upload a Photo</Text>
               </View>
             )}

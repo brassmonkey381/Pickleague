@@ -51,7 +51,7 @@
 // - initialChip ('requests'): Home's Up next "+N more" lands on Requests.
 // - A tap goes where the same push would (lib/pushLinks.ts linkOf + routeLink),
 //   and an invite with an embedded code auto-redeems first, as before.
-import React, { useCallback, useEffect, useLayoutEffect, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { View, Text, FlatList, TouchableOpacity, StyleSheet, Platform } from 'react-native';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { useFocusEffect, type RouteProp } from '@react-navigation/native';
@@ -310,6 +310,9 @@ export default function NotificationsScreen({ navigation, route }: Props) {
   }, [initialChip, navigation]);
   const [expanded, setExpanded] = useState<ReadonlySet<string>>(() => new Set());
   const [loadingMore, setLoadingMore] = useState(false);
+  // One tap at a time: an invite tap redeems its code before it navigates.
+  const [tappingId, setTappingId] = useState<string | null>(null);
+  const tappingRef = useRef(false);
 
   const query = useCachedQuery<NotificationPage>(keyFor(chip), () => loadPage(chip), {
     ttlMs: 30_000,
@@ -551,6 +554,13 @@ export default function NotificationsScreen({ navigation, route }: Props) {
     });
   }
 
+  async function tap(n: Notification) {
+    if (tappingRef.current) return;
+    tappingRef.current = true;
+    setTappingId(n.id);
+    try { await handleTap(n); } finally { tappingRef.current = false; setTappingId(null); }
+  }
+
   async function handleTap(n: Notification) {
     void markRead(n);
     // Its target is gone: nothing to open. Show the whole text instead.
@@ -636,8 +646,8 @@ export default function NotificationsScreen({ navigation, route }: Props) {
         <ListCard
           density="compact"
           align="top"
-          style={styles.card}
-          onPress={() => { void handleTap(n); }}
+          style={[styles.card, tappingId === n.id && styles.tapping]}
+          onPress={() => { void tap(n); }}
           accessibilityRole={webLong ? undefined : 'button'}
           accessibilityLabel={webLong ? undefined : a11yLabel}
           accessibilityActions={DELETE_ACTIONS}
@@ -819,6 +829,7 @@ const styles = StyleSheet.create({
   unreadDot: { width: SPACE.sm, height: SPACE.sm, borderRadius: RADIUS.pill },
   body: { marginTop: SPACE.xxs },
   gone: { opacity: 0.5 },
+  tapping: { opacity: 0.5 },
   goneNote: { marginTop: SPACE.xxs },
   // The card and its delete side by side, the delete level with the title line (the
   // compact card's top padding + half a title line is about half of 44).

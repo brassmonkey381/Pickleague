@@ -22,7 +22,7 @@
 // them.
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
-  View, Text, TouchableOpacity, StyleSheet, ScrollView, Platform,
+  View, Text, TouchableOpacity, StyleSheet, ScrollView, Platform, ActivityIndicator,
 } from 'react-native';
 import { setClipboard } from '@just-messin-around/expo-foundation/platform';
 import { shareInvite } from '../lib/share';
@@ -35,6 +35,7 @@ import { Panel, CollapsibleSection, ListCard, ListGroup, TextLink, SegmentedTogg
 import { Icon, IconValue, EmojiGlyph } from '@just-messin-around/expo-foundation/icons';
 import InviteEarnSection from '../components/referrals/InviteEarnSection';
 import { Button } from '@just-messin-around/expo-foundation/forms';
+import { useAsyncPress } from '@just-messin-around/expo-foundation/hooks';
 import { ProgressBar } from '@just-messin-around/expo-foundation/gamification';
 import { SPACE, RADIUS, HAIRLINE, SMALL_TEXT_MAX_SCALE } from '@just-messin-around/expo-foundation/styles';
 import { FONT, textStyles } from '@just-messin-around/expo-foundation/typography';
@@ -281,11 +282,13 @@ function InvRow({
   actionLabel?: string;
   /** Already equipped: the action shows as a plain "Equipped" label. */
   equipped?: boolean;
-  onAction?: () => void;
-  onToggleHidden: () => void;
+  onAction?: () => unknown;
+  onToggleHidden: () => unknown;
   styles: ReturnType<typeof makeStyles>;
 }) {
   const { colors: c } = useTheme();
+  const toggle = useAsyncPress(onToggleHidden);
+  const act = useAsyncPress(() => onAction?.());
   return (
     <View style={[styles.invRow, isHidden && styles.invRowHidden]}>
       <View style={[styles.invIconBox, { backgroundColor: bgColor }]}>
@@ -305,12 +308,15 @@ function InvRow({
         )}
       </View>
       <TouchableOpacity
-        onPress={onToggleHidden}
+        onPress={toggle.press}
+        disabled={toggle.busy}
         style={styles.box44}
         accessibilityRole="button"
         accessibilityLabel={isHidden ? `Show ${name}` : `Hide ${name}`}
       >
-        <Icon name={isHidden ? 'eye-off' : 'eye'} size={18} color={c.textSub} />
+        {toggle.busy
+          ? <ActivityIndicator size="small" color={c.textSub} />
+          : <Icon name={isHidden ? 'eye-off' : 'eye'} size={18} color={c.textSub} />}
       </TouchableOpacity>
       {actionLabel ? (
         equipped ? (
@@ -319,7 +325,7 @@ function InvRow({
             <Text style={styles.equippedText} maxFontSizeMultiplier={SMALL_TEXT_MAX_SCALE}>{actionLabel}</Text>
           </View>
         ) : (
-          <Button size="sm" title={actionLabel} onPress={onAction} />
+          <Button size="sm" title={actionLabel} onPress={act.press} loading={act.busy} />
         )
       ) : null}
     </View>
@@ -364,6 +370,9 @@ export default function ProfileScreen({ navigation }: Props) {
   // Serialises the paddle writes: they read-modify-write the same is_default
   // flag across rows, so two overlapping saves can leave zero (or two) defaults.
   const paddleSaving = useRef(false);
+  const removePaddlePress = useAsyncPress(() => removePaddle());
+  const revert = useAsyncPress((category: CosmeticCategory) => unequip(category));
+  const share = useAsyncPress(() => shareCard());
   const [chemistryResults, setChemistryResults] = useState<ChemistryResult[]>([]);
   const [eloHistory, setEloHistory] = useState<EloMatchRow[]>([]);
   const [shopPurchases, setShopPurchases]     = useState<PurchaseWithItem[]>([]);
@@ -806,7 +815,8 @@ export default function ProfileScreen({ navigation }: Props) {
         ]}
         onEdit={() => setEditOpen(true)}
         onSince={() => setSinceOpen(true)}
-        onShare={() => { void shareCard(); }}
+        onShare={() => { void share.press(); }}
+        shareBusy={share.busy}
         editAnchorRef={editAnchor}
         onEditLayout={anchorOnLayout('edit', editAnchor)}
       />
@@ -917,7 +927,7 @@ export default function ProfileScreen({ navigation }: Props) {
                   )}
                 </View>
                 <Button size="sm" variant="outline" title="Change" onPress={() => setShowPaddlePicker(true)} />
-                <Button size="sm" variant="danger" title="Remove" onPress={removePaddle} />
+                <Button size="sm" variant="danger" title="Remove" onPress={removePaddlePress.press} loading={removePaddlePress.busy} />
               </View>
             ) : (
               <View style={styles.paddleRow}>
@@ -962,7 +972,7 @@ export default function ProfileScreen({ navigation }: Props) {
                     );
                   })}
                   {profile?.avatar_emoji && (
-                    <TextLink iconName="undo" tone="sub" chevron={false} label="Revert to cartoon avatar" onPress={() => unequip('avatar')} />
+                    <TextLink iconName="undo" tone="sub" chevron={false} label="Revert to cartoon avatar" onPress={() => void revert.press('avatar')} disabled={revert.busy} />
                   )}
                 </View>
               )}
@@ -991,7 +1001,7 @@ export default function ProfileScreen({ navigation }: Props) {
                     );
                   })}
                   {profile?.name_color && (
-                    <TextLink iconName="undo" tone="sub" chevron={false} label="Revert to default name color" onPress={() => unequip('flair')} />
+                    <TextLink iconName="undo" tone="sub" chevron={false} label="Revert to default name color" onPress={() => void revert.press('flair')} disabled={revert.busy} />
                   )}
                 </View>
               )}
@@ -1020,7 +1030,7 @@ export default function ProfileScreen({ navigation }: Props) {
                     );
                   })}
                   {profile?.list_name_style_id && (
-                    <TextLink iconName="undo" tone="sub" chevron={false} label="Revert to default list name style" onPress={() => unequip('list_name_style')} />
+                    <TextLink iconName="undo" tone="sub" chevron={false} label="Revert to default list name style" onPress={() => void revert.press('list_name_style')} disabled={revert.busy} />
                   )}
                 </View>
               )}
@@ -1049,7 +1059,7 @@ export default function ProfileScreen({ navigation }: Props) {
                     );
                   })}
                   {profile?.profile_name_style_id && (
-                    <TextLink iconName="undo" tone="sub" chevron={false} label="Revert to default profile name style" onPress={() => unequip('profile_name_style')} />
+                    <TextLink iconName="undo" tone="sub" chevron={false} label="Revert to default profile name style" onPress={() => void revert.press('profile_name_style')} disabled={revert.busy} />
                   )}
                 </View>
               )}

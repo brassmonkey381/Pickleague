@@ -25,6 +25,7 @@ import { useFocusEffect } from '@react-navigation/native';
 import { Panel, SegmentedToggle, ModalBackdrop, ErrorState, celebrate } from '@just-messin-around/expo-foundation/ui';
 import { Icon, EmojiGlyph } from '@just-messin-around/expo-foundation/icons';
 import { Button } from '@just-messin-around/expo-foundation/forms';
+import { useAsyncPress } from '@just-messin-around/expo-foundation/hooks';
 import { ProgressBar } from '@just-messin-around/expo-foundation/gamification';
 import { SPACE, RADIUS, HAIRLINE, SMALL_TEXT_MAX_SCALE, webInputFontFloor } from '@just-messin-around/expo-foundation/styles';
 import { FONT, textStyles } from '@just-messin-around/expo-foundation/typography';
@@ -116,6 +117,8 @@ export default function ShopScreen({ navigation }: Props) {
 
   const status = useStatusMessage();
   const refresh = useRefresh(load);
+  const buy = useAsyncPress((equip: boolean) => confirmBuy(equip));
+  const gift = useAsyncPress(() => confirmGift());
 
   useFocusEffect(useCallback(() => { load(); }, []));
 
@@ -544,8 +547,8 @@ export default function ShopScreen({ navigation }: Props) {
                   </TouchableOpacity>
                   <TouchableOpacity
                     style={[S.modalBtn, S.modalBtnOutline]}
-                    onPress={() => confirmBuy(false)}
-                    disabled={!!buying}
+                    onPress={() => buy.press(false)}
+                    disabled={!!buying || buy.busy}
                     accessibilityRole="button"
                   >
                     {buying?.id === confirmingItem.id && !buying.equip
@@ -556,8 +559,8 @@ export default function ShopScreen({ navigation }: Props) {
 
                 <TouchableOpacity
                   style={[S.modalBtn, S.modalBtnPrimary, S.modalBtnEquip]}
-                  onPress={() => confirmBuy(true)}
-                  disabled={!!buying}
+                  onPress={() => buy.press(true)}
+                  disabled={!!buying || buy.busy}
                   accessibilityRole="button"
                 >
                   {buying?.id === confirmingItem.id && buying.equip
@@ -638,8 +641,8 @@ export default function ShopScreen({ navigation }: Props) {
                   </TouchableOpacity>
                   <TouchableOpacity
                     style={[S.modalBtn, S.modalBtnPrimary]}
-                    onPress={confirmGift}
-                    disabled={sendingGift}
+                    onPress={gift.press}
+                    disabled={sendingGift || gift.busy}
                     accessibilityRole="button"
                   >
                     {sendingGift

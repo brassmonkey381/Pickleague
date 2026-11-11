@@ -39,6 +39,7 @@ import CourtArrivalSettingsPanel from '../components/CourtArrivalSettingsPanel';
 import { clearArrivalTrace, readArrivalTrace, type ArrivalTraceEvent } from '../lib/courtArrivalTrace';
 import { endPresenceForSignOut } from '../lib/signOutPresence';
 import { trackSectionToggle } from '../lib/analytics';
+import { useAsyncPress } from '@just-messin-around/expo-foundation/hooks';
 import {
   DEFAULT_PREFS,
   loadUserPreferencesResult,
@@ -307,6 +308,10 @@ export default function SettingsScreen({ navigation, route }: Props) {
       status.success(`Email sent — check ${email} for a password reset link.`);
     }
   }
+  const reset = useAsyncPress(sendPasswordReset);
+  const retryPrefs = useAsyncPress(loadPrefs);
+  const traceToggle = useAsyncPress(toggleTrace);
+  const traceClear = useAsyncPress(clearTrace);
 
   function openSignOut() {
     setSignOutOpen(true);
@@ -452,7 +457,8 @@ export default function SettingsScreen({ navigation, route }: Props) {
           iconColor={colors.success}
           label={resetSent ? 'Reset email sent' : 'Reset password'}
           desc="We'll email you a link to set a new password"
-          onPress={sendPasswordReset}
+          onPress={reset.press}
+          disabled={reset.busy}
         />
         {WAGERS_ENABLED && (
           <>
@@ -488,7 +494,8 @@ export default function SettingsScreen({ navigation, route }: Props) {
               <SettingActionRow
                 label="Settings not loaded"
                 desc="Tap to retry; switches stay locked"
-                onPress={loadPrefs}
+                onPress={retryPrefs.press}
+                disabled={retryPrefs.busy}
               />
               <Divider S={S} />
             </>
@@ -666,12 +673,13 @@ export default function SettingsScreen({ navigation, route }: Props) {
               label="Court arrival trace"
               desc="This phone's last 200 arrival events"
               detail={trace !== null ? 'Hide' : undefined}
-              onPress={() => void toggleTrace()}
+              onPress={() => void traceToggle.press()}
+              disabled={traceToggle.busy}
             />
             {trace !== null ? (
               <View style={S.traceBox}>
                 <Text style={S.traceText} selectable>{trace}</Text>
-                <Button title="Clear the trace" size="sm" variant="outline" onPress={() => void clearTrace()} style={S.hug} />
+                <Button title="Clear the trace" size="sm" variant="outline" onPress={() => void traceClear.press()} loading={traceClear.busy} style={S.hug} />
               </View>
             ) : null}
           </Panel>

@@ -27,7 +27,7 @@
 // the list stays (switch + star glyph to unstar), and "Find courts on Discover" replaces
 // the court search. With the flag off the search stays as it was.
 import React, { useCallback, useEffect, useState } from 'react';
-import { AccessibilityInfo, AppState, Platform, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
+import { AccessibilityInfo, ActivityIndicator, AppState, Platform, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import { peekQuery, setQueryData, useCachedQuery } from '@just-messin-around/expo-foundation/cache';
 import { friendlySbMessage } from '@just-messin-around/expo-foundation/supabase';
 import { Button } from '@just-messin-around/expo-foundation/forms';
@@ -177,6 +177,8 @@ function StarredCourtSwitches({ busy, setBusy, c }: { busy: boolean; setBusy: (b
   // The court mid-save, with the value its switch shows meanwhile.
   const [saving, setSaving] = useState<{ id: string; on: boolean } | null>(null);
   const [picking, setPicking] = useState(false);
+  // The court whose ★ is mid-unstar, so its own star shows the spinner.
+  const [unstarring, setUnstarring] = useState<string | null>(null);
 
   async function toggle(court: StarredCourtGeofence, on: boolean) {
     setBusy(true);
@@ -207,7 +209,9 @@ function StarredCourtSwitches({ busy, setBusy, c }: { busy: boolean; setBusy: (b
   // Unstarring is here too: a court starred by mistake must not need a trip
   // to the court, where the card's star is.
   async function unstar(court: StarredCourtGeofence) {
+    if (busy) return;
     setBusy(true);
+    setUnstarring(court.venue_id);
     try {
       await toggleCourtFavorite(court.venue_id, false, court.name);
       // Off the list now; the read courtStarsChanged starts confirms it.
@@ -222,6 +226,7 @@ function StarredCourtSwitches({ busy, setBusy, c }: { busy: boolean; setBusy: (b
         explainRefusal(e, "Couldn't change your courts just now. Try again.", { action: 'favorite', venueName: court.name }),
       );
     } finally {
+      setUnstarring(null);
       setBusy(false);
     }
   }
@@ -329,7 +334,11 @@ function StarredCourtSwitches({ busy, setBusy, c }: { busy: boolean; setBusy: (b
               accessibilityLabel={`Remove ${court.name} from your courts`}
             >
               {/* The filled star in the brand colour, as CourtFavoriteStar draws it. */}
-              <Icon name="star" size={22} color={c.primary} />
+              {unstarring === court.venue_id ? (
+                <ActivityIndicator size="small" color={c.primary} />
+              ) : (
+                <Icon name="star" size={22} color={c.primary} />
+              )}
             </TouchableOpacity>
           </View>
         </React.Fragment>

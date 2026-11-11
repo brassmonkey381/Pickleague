@@ -4,6 +4,7 @@
 import { useEffect } from 'react';
 import { Linking, Platform } from 'react-native';
 import { supabase } from '../lib/supabase';
+import { navigateWhenReady } from '../lib/navigationRef';
 import { track } from '../lib/analytics';
 import { authLinkNotice, parseAuthLink, setAuthLinkNotice } from '../lib/authLink';
 
@@ -11,8 +12,13 @@ async function handle(url: string | null): Promise<void> {
   const r = parseAuthLink(url);
   if (!r) return;
   if (r.kind === 'error') {
-    setAuthLinkNotice(authLinkNotice(r));
     track('auth.link_failed', { code: r.code ?? 'unknown' });
+    // Already signed in (e.g. typed the code first): nothing to say.
+    const { data } = await supabase.auth.getSession();
+    if (data.session) return;
+    setAuthLinkNotice(authLinkNotice(r));
+    // Signed out, the web opens on the welcome page: show Sign In with the note.
+    navigateWhenReady('Login', {});
     return;
   }
   // The web client reads a success itself (detectSessionInUrl).

@@ -41,6 +41,7 @@ import { isGodmodeUserId } from '../lib/godmode';
 import { explainRefusal } from '../lib/refusalNotices';
 import { refusalCopy, refusalDetail, refusalMessage } from '../lib/refusals';
 import { useRefresh } from '../lib/useRefresh';
+import { useAsyncPress } from '@just-messin-around/expo-foundation/hooks';
 import AppRefreshControl from '../components/AppRefreshControl';
 import { SkeletonList } from '../components/Skeleton';
 import FriendButton from '../components/FriendButton';
@@ -235,6 +236,7 @@ export default function MyPlaceScreen({ navigation, route }: Props) {
     invalidateMyPlace();
     await Promise.all([catalog.refresh(), layoutQ.refresh(), home.refresh(), owner.refresh(), myStays.refresh(), placeStays.refresh()]);
   });
+  const checkAgain = useAsyncPress(() => refresh.onRefresh());
 
   // ── actions ──
   const say = (kind: DecorNotice['kind'], text: string) => setNotice({ kind, text });
@@ -419,7 +421,7 @@ export default function MyPlaceScreen({ navigation, route }: Props) {
             <Button title="Finish signing up" onPress={() => navigation.navigate('UpgradeAccount')} style={styles.blockBtn} />
           ) : null}
           {block === 'friends_only' ? (
-            <Button size="sm" variant="outline" title="Check again" onPress={() => void refresh.onRefresh()} style={styles.blockBtn} />
+            <Button size="sm" variant="outline" title="Check again" onPress={() => void checkAgain.press()} loading={checkAgain.busy || refresh.refreshing} style={styles.blockBtn} />
           ) : null}
           <Button size="sm" variant="outline" title="Go back" onPress={() => (navigation.canGoBack() ? navigation.goBack() : navigation.navigate('Home'))} style={styles.blockBtn} />
         </Panel>

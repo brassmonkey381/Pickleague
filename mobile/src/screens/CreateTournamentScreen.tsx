@@ -725,6 +725,7 @@ export default function CreateTournamentScreen({ navigation, route }: Props) {
         <Button
           title={loading ? 'Creating…' : success ? 'Created' : 'Create Tournament'}
           onPress={submit}
+          loading={loading}
           disabled={loading || success}
           style={S.submitBtn}
         />

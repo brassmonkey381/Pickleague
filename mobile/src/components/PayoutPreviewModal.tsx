@@ -5,6 +5,7 @@ import {
 } from 'react-native';
 import { RankMedal } from '@just-messin-around/expo-foundation/ui';
 import { Button } from '@just-messin-around/expo-foundation/forms';
+import { useAsyncPress } from '@just-messin-around/expo-foundation/hooks';
 import { Icon } from '@just-messin-around/expo-foundation/icons';
 import { HAIRLINE, RADIUS, SPACE } from '@just-messin-around/expo-foundation/styles';
 import { FONT, textStyles } from '@just-messin-around/expo-foundation/typography';
@@ -86,6 +87,7 @@ export default function PayoutPreviewModal({ visible, tournamentId, prizePool, o
     status.success(row.message ?? 'Prizes paid out.');
     onPaid();
   }
+  const confirmPress = useAsyncPress(confirm);
 
   const totalDistributed = rows.reduce(
     (sum, r) => sum + (r.share_per_user || 0) * (r.uids?.length ?? 0),
@@ -165,7 +167,7 @@ export default function PayoutPreviewModal({ visible, tournamentId, prizePool, o
             <Button title="Close" variant="outline" onPress={onClose} disabled={busy} style={S.btn} />
             <Button
               title="Confirm Payout"
-              onPress={confirm}
+              onPress={confirmPress.press}
               loading={busy}
               disabled={rows.length === 0}
               style={S.btn}

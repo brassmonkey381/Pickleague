@@ -104,6 +104,7 @@ export default function TournamentInvitePlayersScreen({ navigation, route }: Pro
   // A failed read must not render as "no eligible players".
   const [loadError, setLoadError]   = useState<string | null>(null);
   const [busy, setBusy]             = useState<string | null>(null);
+  const inviting = useRef(new Set<string>());
   const [query, setQuery]           = useState('');
   const [tournamentAvg, setTournamentAvg] = useState<number>(3.25);
   // The suggestions (no search), and everyone (what a search searches).
@@ -219,6 +220,9 @@ export default function TournamentInvitePlayersScreen({ navigation, route }: Pro
   }
 
   async function invite(c: Candidate) {
+    // `busy` reaches the button a render late; a second fast tap would charge the ante twice.
+    if (inviting.current.has(c.id)) return;
+    inviting.current.add(c.id);
     // A suggested player (not one found only by a search): recs.acted with
     // their rank among the suggestions.
     const rank = candidates.findIndex(x => x.id === c.id) + 1;
@@ -259,6 +263,7 @@ export default function TournamentInvitePlayersScreen({ navigation, route }: Pro
       setInvites(prev => ({ ...prev, [c.id]: { invited: false, error: friendlier } }));
       return;
     } finally {
+      inviting.current.delete(c.id);
       setBusy(null);
     }
     const row = Array.isArray(data) ? data[0] : (data as any);

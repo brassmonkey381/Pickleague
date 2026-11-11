@@ -465,12 +465,15 @@ export default function MlpTeamSection({
   const [inviteDetails, setInviteDetails] = useState<string[]>([]);
 
   async function godmodeConfirmMyInvites() {
+    if (busyRef.current) return;
+    busyRef.current = true;
     adminStatus.clear();
     setInviteDetails([]);
     setBusy(true);
     const { data, error } = await supabase.rpc('godmode_confirm_my_mlp_invites', {
       p_tournament_id: tournamentId,
     });
+    busyRef.current = false;
     setBusy(false);
     if (error) {
       console.warn('[mlp] godmode_confirm_my_mlp_invites', error);
@@ -489,11 +492,14 @@ export default function MlpTeamSection({
   }
 
   async function godmodeForceFill() {
+    if (busyRef.current) return;
+    busyRef.current = true;
     adminStatus.clear();
     setBusy(true);
     const { data, error } = await supabase.rpc('godmode_force_fill_mlp_teams', {
       p_tournament_id: tournamentId,
     });
+    busyRef.current = false;
     setBusy(false);
     if (error) {
       console.warn('[mlp] godmode_force_fill_mlp_teams', error);
@@ -507,11 +513,14 @@ export default function MlpTeamSection({
   }
 
   async function godmodeDedupe() {
+    if (busyRef.current) return;
+    busyRef.current = true;
     adminStatus.clear();
     setBusy(true);
     const { data, error } = await supabase.rpc('godmode_dedupe_mlp_team_members', {
       p_tournament_id: tournamentId,
     });
+    busyRef.current = false;
     setBusy(false);
     if (error) {
       console.warn('[mlp] godmode_dedupe_mlp_team_members', error);
@@ -702,8 +711,9 @@ export default function MlpTeamSection({
                     {/* Captain can clear slots while forming */}
                     {format === 'mlp' && isMyTeam && isCaptain && t.status === 'forming' && member && (
                       <TouchableOpacity
-                        style={S.removeBox}
+                        style={[S.removeBox, busy && S.btnDim]}
                         onPress={() => clearSlot(t.id, slot)}
+                        disabled={busy}
                         accessibilityRole="button"
                         accessibilityLabel={`Remove ${member.full_name}`}
                       >
@@ -769,7 +779,7 @@ export default function MlpTeamSection({
                   t.female_1_id !== currentUserId &&
                   t.female_2_id !== currentUserId && (
                   <TouchableOpacity
-                    style={[S.captainBtn, S.captainBtnGap]}
+                    style={[S.captainBtn, S.captainBtnGap, busy && S.btnDim]}
                     onPress={() => captainJoinOwnTeam(t)}
                     disabled={busy}
                     accessibilityRole="button"
@@ -791,6 +801,7 @@ export default function MlpTeamSection({
                             size="sm"
                             title="Accept"
                             onPress={() => respondToRequest(r.id, true)}
+                            disabled={busy}
                             accessibilityLabel={`Accept ${u?.full_name ?? 'this player'}'s request`}
                           />
                           <Button
@@ -798,6 +809,7 @@ export default function MlpTeamSection({
                             variant="outline"
                             title="Decline"
                             onPress={() => respondToRequest(r.id, false)}
+                            disabled={busy}
                             accessibilityLabel={`Decline ${u?.full_name ?? 'this player'}'s request`}
                           />
                         </View>
@@ -857,15 +869,15 @@ export default function MlpTeamSection({
               <View style={S.captainPanel}>
                 <Text style={S.captainBtnText}>You've been invited to this team.</Text>
                 <View style={S.inviteBtnRow}>
-                  <Button size="sm" title="Accept Invite" onPress={() => respondToRequest(myReqHere.id, true)} />
-                  <Button size="sm" variant="outline" title="Decline" onPress={() => respondToRequest(myReqHere.id, false)} />
+                  <Button size="sm" title="Accept Invite" onPress={() => respondToRequest(myReqHere.id, true)} loading={busy} />
+                  <Button size="sm" variant="outline" title="Decline" onPress={() => respondToRequest(myReqHere.id, false)} disabled={busy} />
                 </View>
               </View>
             )}
 
             {/* Player POV — request to join */}
             {format === 'mlp' && !myTeam && !isMyTeam && t.status === 'forming' && onApproved && !teamFullN && !myReqHere && tournamentStatus === 'registration' && (
-              <TouchableOpacity style={S.requestBtn} onPress={() => requestJoin(t.id)} disabled={busy} accessibilityRole="button">
+              <TouchableOpacity style={[S.requestBtn, busy && S.btnDim]} onPress={() => requestJoin(t.id)} disabled={busy} accessibilityRole="button">
                 <Text style={S.requestBtnText}>Request to Join</Text>
               </TouchableOpacity>
             )}

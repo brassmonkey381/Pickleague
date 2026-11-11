@@ -20,6 +20,7 @@ import { Panel, ErrorState, EmptyState, TextLink } from '@just-messin-around/exp
 import { ProgressBar } from '@just-messin-around/expo-foundation/gamification';
 import { SPACE, SMALL_TEXT_MAX_SCALE } from '@just-messin-around/expo-foundation/styles';
 import { textStyles } from '@just-messin-around/expo-foundation/typography';
+import { useAsyncPress } from '@just-messin-around/expo-foundation/hooks';
 import { useTheme } from '../lib/ThemeContext';
 import { RootStackParamList } from '../types';
 import { useAchievements } from '../lib/useAchievements';
@@ -50,6 +51,7 @@ export default function AchievementsScreen({ navigation, route }: Props) {
   const { loading, error, data, own, userId, reload, setHidden, setAllHidden } =
     useAchievements(userIdParam, msg => status.error(msg));
   const refresh = useRefresh(reload);
+  const showHideAll = useAsyncPress((hidden: boolean) => setAllHidden(hidden));
   const ftue = useFtueChecklist({ profile: own ? data?.profile ?? null : null, navigation });
   const [open, setOpen] = useState<{ a: PickleagueAchievement; g: AchievementGroup } | null>(null);
 
@@ -115,10 +117,10 @@ export default function AchievementsScreen({ navigation, route }: Props) {
                 {profileVisibilityText(shown, data?.profile?.badges_public !== false)}
               </Text>
               {shown.visible < shown.total ? (
-                <TextLink label="Show all" chevron={false} onPress={() => void setAllHidden(false)} accessibilityLabel="Show all badges on my profile" />
+                <TextLink label="Show all" chevron={false} onPress={() => void showHideAll.press(false)} disabled={showHideAll.busy} accessibilityLabel="Show all badges on my profile" />
               ) : null}
               {shown.visible > 0 ? (
-                <TextLink label="Hide all" chevron={false} onPress={() => void setAllHidden(true)} accessibilityLabel="Hide all badges from my profile" />
+                <TextLink label="Hide all" chevron={false} onPress={() => void showHideAll.press(true)} disabled={showHideAll.busy} accessibilityLabel="Hide all badges from my profile" />
               ) : null}
             </View>
           ) : null}

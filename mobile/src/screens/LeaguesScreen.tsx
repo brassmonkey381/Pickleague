@@ -63,6 +63,7 @@ import AppRefreshControl from '../components/AppRefreshControl';
 import { SkeletonList } from '../components/Skeleton';
 import EmptyState from '../components/EmptyState';
 import { useLeagueJoin } from '../lib/useLeagueJoin';
+import { useAsyncPress } from '@just-messin-around/expo-foundation/hooks';
 import { groupedRowEdges, groupedRowStyle } from '../lib/groupedRows';
 import LeagueRow, { LeagueJoinButton } from '../components/LeagueRow';
 import {
@@ -578,6 +579,8 @@ export default function LeaguesScreen({ navigation, route, active = true, routeM
     setShowJoinCode(false);
     setInviteCode('');
   }
+  const createPress = useAsyncPress(createLeague);
+  const joinPress = useAsyncPress(joinWithCode);
 
   // Cancel, Android back and the iOS swipe-down all close the same way, so a
   // reopened modal never shows the last attempt's code and red error.
@@ -958,7 +961,8 @@ export default function LeaguesScreen({ navigation, route, active = true, routeM
           ) : null}
           <Button
             title={leagueJoin.joining ? 'Joining...' : 'Redeem Code'}
-            onPress={() => { void joinWithCode(); }}
+            onPress={() => { void joinPress.press(); }}
+            loading={joinPress.busy || leagueJoin.joining}
             disabled={leagueJoin.joining}
             style={S.submit}
           />
@@ -1035,7 +1039,8 @@ export default function LeaguesScreen({ navigation, route, active = true, routeM
 
           <Button
             title={creating ? 'Creating...' : 'Create League'}
-            onPress={() => { void createLeague(); }}
+            onPress={() => { void createPress.press(); }}
+            loading={createPress.busy}
             disabled={creating}
             style={S.submit}
           />

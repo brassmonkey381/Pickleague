@@ -10,6 +10,7 @@ import { referralStash } from '../data/referrals';
 import { Icon } from '@just-messin-around/expo-foundation/icons';
 import { FilterPill } from '@just-messin-around/expo-foundation/ui';
 import { Button, TextField } from '@just-messin-around/expo-foundation/forms';
+import { useAsyncPress } from '@just-messin-around/expo-foundation/hooks';
 import { SPACE } from '@just-messin-around/expo-foundation/styles';
 import { FONT, textStyles } from '@just-messin-around/expo-foundation/typography';
 
@@ -151,6 +152,7 @@ export default function UpgradeAccountScreen({ navigation }: Props) {
       setLoading(false);
     }
   }
+  const upgradePress = useAsyncPress(upgrade);
 
   const body = (
     <>
@@ -233,7 +235,7 @@ export default function UpgradeAccountScreen({ navigation }: Props) {
         {errorMessage ? <Text style={S.errorText}>{errorMessage}</Text> : null}
         {successMessage ? <Text style={S.successText}>{successMessage}</Text> : null}
 
-        <Button title={loading ? 'Saving account...' : 'Create Account'} onPress={upgrade} disabled={loading} style={S.button} />
+        <Button title={loading ? 'Saving account...' : 'Create Account'} onPress={upgradePress.press} loading={loading} style={S.button} />
       </ScrollView>
     </>
   );

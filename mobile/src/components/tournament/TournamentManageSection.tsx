@@ -14,7 +14,7 @@
 // Rows are 44 tall (minHeight), hairline-divided; a destructive row is red and
 // sits last. The developer account's tools go in their own group at the end.
 import React from 'react';
-import { View, Text, TouchableOpacity, StyleSheet } from 'react-native';
+import { View, Text, TouchableOpacity, StyleSheet, ActivityIndicator } from 'react-native';
 import { CollapsibleSection } from '@just-messin-around/expo-foundation/ui';
 import { Button, type ButtonVariant } from '@just-messin-around/expo-foundation/forms';
 import { HAIRLINE, RADIUS, SPACE, SMALL_TEXT_MAX_SCALE } from '@just-messin-around/expo-foundation/styles';
@@ -34,6 +34,8 @@ export type ManageRowItem = {
   /** Emphasised: a pending step. */
   attention?: boolean;
   disabled?: boolean;
+  /** Its press is running: a spinner in the chevron's place, and it can't be pressed again. */
+  busy?: boolean;
 };
 
 export type ManageStepAction = {
@@ -81,11 +83,11 @@ export function ManageRow({ row, first }: { row: ManageRowItem; first: boolean }
   return (
     <TouchableOpacity
       onPress={row.onPress}
-      disabled={row.disabled}
+      disabled={row.disabled || row.busy}
       activeOpacity={0.7}
       accessibilityRole="button"
       accessibilityLabel={row.meta ? `${row.label}, ${row.meta}` : row.label}
-      accessibilityState={{ disabled: !!row.disabled }}
+      accessibilityState={{ disabled: !!(row.disabled || row.busy), busy: !!row.busy }}
       style={[styles.row, !first && { borderTopWidth: HAIRLINE, borderTopColor: c.border }, row.disabled && styles.dim]}
     >
       {row.iconName ? <Icon name={row.iconName} size={14} color={row.danger ? c.danger : c.textSub} /> : null}
@@ -109,7 +111,11 @@ export function ManageRow({ row, first }: { row: ManageRowItem; first: boolean }
           {row.meta}
         </Text>
       ) : null}
-      <Icon name="chevron-right" size={16} color={row.danger ? c.danger : c.textMuted} />
+      {row.busy ? (
+        <ActivityIndicator size="small" color={row.danger ? c.danger : c.textMuted} />
+      ) : (
+        <Icon name="chevron-right" size={16} color={row.danger ? c.danger : c.textMuted} />
+      )}
     </TouchableOpacity>
   );
 }

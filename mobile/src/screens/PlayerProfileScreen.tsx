@@ -53,6 +53,7 @@ import FriendButton from '../components/FriendButton';
 import PlannedCheckinsSection from '../components/routines/PlannedCheckinsSection';
 import { TestAccountSwitch } from '../components/TestAccountSwitches';
 import { useRefresh } from '../lib/useRefresh';
+import { useAsyncPress } from '@just-messin-around/expo-foundation/hooks';
 import AppRefreshControl from '../components/AppRefreshControl';
 import { SkeletonList } from '../components/Skeleton';
 import EmptyState from '../components/EmptyState';
@@ -232,6 +233,8 @@ export default function PlayerProfileScreen({ navigation, route }: Props) {
   const openAchievements = (focus?: string) => navigation.navigate('Achievements', {
     userId, userName: profile?.full_name ?? route.params.userName, focus,
   });
+  // Before the early returns (hooks); shareProfile is hoisted.
+  const share = useAsyncPress(() => shareProfile());
 
   if (loading) return <View style={styles.screen}><SkeletonList rows={6} variant="row" /></View>;
   if (!profile) {
@@ -360,7 +363,8 @@ export default function PlayerProfileScreen({ navigation, route }: Props) {
             a11y: `${commonLeagues.length} leagues in common`,
           }] : []),
         ]}
-        onShare={() => { void shareProfile(); }}
+        onShare={() => { void share.press(); }}
+        shareBusy={share.busy}
       />
 
       {/* Seeded from a DUPR roster and not yet claimed? Offer to claim it.

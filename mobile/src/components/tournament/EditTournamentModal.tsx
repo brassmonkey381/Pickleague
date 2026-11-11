@@ -5,6 +5,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { RADIUS, SPACE, webInputFontFloor } from '@just-messin-around/expo-foundation/styles';
 import { FONT } from '@just-messin-around/expo-foundation/typography';
 import { Icon } from '@just-messin-around/expo-foundation/icons';
+import { useAsyncPress } from '@just-messin-around/expo-foundation/hooks';
 import AppDateTimePicker from '../AppDateTimePicker';
 import { useTournamentDetailStyles } from './styles';
 import type { TournamentDetailState } from './useTournamentDetail';
@@ -33,6 +34,7 @@ export default function EditTournamentModal({
   editAnte, setEditAnte, editPayout, setEditPayout,
   editSeeding, setEditSeeding, showStartPicker, setShowStartPicker,
 }: Props) {
+  const save = useAsyncPress(saveTournamentEdits);
   const { S, c } = useTournamentDetailStyles();
   // Android draws this Modal under the status bar (edge-to-edge is on, which
   // forces the dialog translucent), so its top clears the inset there. An iOS
@@ -183,11 +185,11 @@ export default function EditTournamentModal({
         )}
 
         <TouchableOpacity
-          style={[S.editSaveBtn, savingEdit && S.editSaveBtnDisabled]}
-          onPress={saveTournamentEdits}
-          disabled={savingEdit}
+          style={[S.editSaveBtn, (savingEdit || save.busy) && S.editSaveBtnDisabled]}
+          onPress={save.press}
+          disabled={savingEdit || save.busy}
         >
-          <Text style={S.editSaveBtnText}>{savingEdit ? 'Saving…' : 'Save Changes'}</Text>
+          <Text style={S.editSaveBtnText}>{savingEdit || save.busy ? 'Saving…' : 'Save Changes'}</Text>
         </TouchableOpacity>
         <TouchableOpacity style={S.editCancelBtn} onPress={() => setShowEditModal(false)}>
           <Text style={S.editCancelBtnText}>Cancel</Text>

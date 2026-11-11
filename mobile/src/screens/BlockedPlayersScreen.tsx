@@ -1,6 +1,6 @@
 // Settings → Blocked players. Every block made from a player's More menu is undoable
 // here, which is the half of blocking people actually go looking for.
-import React, { useCallback, useState } from 'react';
+import React, { useCallback, useRef, useState } from 'react';
 import {
   View, Text, FlatList, TouchableOpacity, StyleSheet,
 } from 'react-native';
@@ -31,6 +31,7 @@ export default function BlockedPlayersScreen({ navigation }: Props) {
   const [rows, setRows]       = useState<BlockedPlayer[]>([]);
   const [loading, setLoading] = useState(true);
   const [busyId, setBusyId]   = useState<string | null>(null);
+  const busyRef = useRef(false);
   // A failed load must not read as "No blocked players": that copy is a claim
   // about the account, and offline it would be false.
   const [loadError, setLoadError] = useState<unknown>(null);
@@ -51,6 +52,8 @@ export default function BlockedPlayersScreen({ navigation }: Props) {
   useFocusEffect(useCallback(() => { void load(); }, [load]));
 
   async function undo(player: BlockedPlayer) {
+    if (busyRef.current) return;
+    busyRef.current = true;
     setBusyId(player.user_id);
     try {
       await unblockUser(player.user_id);
@@ -59,6 +62,7 @@ export default function BlockedPlayersScreen({ navigation }: Props) {
     } catch (e) {
       toast.error(friendlySbMessage(e, "Couldn't unblock them just now."));
     } finally {
+      busyRef.current = false;
       setBusyId(null);
     }
   }
@@ -115,6 +119,7 @@ export default function BlockedPlayersScreen({ navigation }: Props) {
             variant="outline"
             onPress={() => { void undo(item); }}
             loading={busyId === item.user_id}
+            disabled={busyId != null}
             accessibilityLabel={`Unblock ${item.full_name}`}
             style={S.undoBtn}
           />

@@ -138,6 +138,7 @@ export default function CheckEmailScreen({ navigation, route }: Props) {
           title={confirming ? 'Checking...' : 'Confirm'}
           onPress={confirmCode}
           disabled={confirming || !codeReady(code)}
+          loading={confirming}
           style={S.button}
         />
         {mailUrl ? (
@@ -154,6 +155,7 @@ export default function CheckEmailScreen({ navigation, route }: Props) {
           variant="outline"
           onPress={resend}
           disabled={sending || waitS > 0 || !email}
+          loading={sending}
           style={S.button}
         />
         {note ? <Text style={[S.note, { color: note.ok ? c.success : c.danger }]}>{note.text}</Text> : null}

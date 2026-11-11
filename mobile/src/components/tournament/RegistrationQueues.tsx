@@ -1,9 +1,10 @@
 import React from 'react';
-import { View, Text, TouchableOpacity } from 'react-native';
+import { View, Text, TouchableOpacity, ActivityIndicator } from 'react-native';
 import { TournamentRegistration } from '../../types';
 import { formatPlupr } from '../../lib/plupr';
 import FlairName from '../FlairName';
 import { Icon } from '@just-messin-around/expo-foundation/icons';
+import { useAsyncPress } from '@just-messin-around/expo-foundation/hooks';
 import { useTournamentDetailStyles } from './styles';
 import type { TournamentDetailState } from './useTournamentDetail';
 
@@ -22,6 +23,9 @@ function QueueRow({ r, index, last, approveReg, rejectReg, approveLabel, rejectL
 } & QueueProps) {
   const { S, c } = useTournamentDetailStyles();
   const name = r.profile?.full_name ?? 'Player';
+  const approve = useAsyncPress(() => approveReg(r.id));
+  const reject = useAsyncPress(() => rejectReg(r.id));
+  const busy = approve.busy || reject.busy;
   return (
     <View style={[S.row, last && S.rowLast]}>
       {index != null && <Text style={S.playerSeed}>#{index}</Text>}
@@ -37,19 +41,27 @@ function QueueRow({ r, index, last, approveReg, rejectReg, approveLabel, rejectL
       <View style={S.queueActions}>
         <TouchableOpacity
           style={S.queueBox}
-          onPress={() => approveReg(r.id)}
+          onPress={approve.press}
+          disabled={busy}
           accessibilityRole="button"
           accessibilityLabel={`${approveLabel} ${name}`}
+          accessibilityState={{ disabled: busy, busy: approve.busy }}
         >
-          <View style={S.approveDot}><Icon name="check-mark" size={16} color={c.textInverse} /></View>
+          <View style={S.approveDot}>
+            {approve.busy ? <ActivityIndicator size="small" color={c.textInverse} /> : <Icon name="check-mark" size={16} color={c.textInverse} />}
+          </View>
         </TouchableOpacity>
         <TouchableOpacity
           style={S.queueBox}
-          onPress={() => rejectReg(r.id)}
+          onPress={reject.press}
+          disabled={busy}
           accessibilityRole="button"
           accessibilityLabel={`${rejectLabel} ${name}`}
+          accessibilityState={{ disabled: busy, busy: reject.busy }}
         >
-          <View style={S.rejectDot}><Icon name="close" size={16} color={c.textMuted} /></View>
+          <View style={S.rejectDot}>
+            {reject.busy ? <ActivityIndicator size="small" color={c.textMuted} /> : <Icon name="close" size={16} color={c.textMuted} />}
+          </View>
         </TouchableOpacity>
       </View>
     </View>

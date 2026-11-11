@@ -19,7 +19,7 @@
 // Badges opens Achievements and carries the tour's 'rewards' anchor; pickles
 // open the Shop.
 import React from 'react';
-import { StyleSheet, Text, TouchableOpacity, View } from 'react-native';
+import { ActivityIndicator, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import { BrandBand, Chip, StickerBacking } from '@just-messin-around/expo-foundation/ui';
 import { Icon } from '@just-messin-around/expo-foundation/icons';
 import { numberFont } from '@just-messin-around/expo-foundation/theme';
@@ -49,6 +49,8 @@ type Props = {
   /** Your own card only: "Since" opens its picker (another player's is read-only). */
   onSince?: () => void;
   onShare: () => void;
+  /** The share sheet is being built: the share button shows a spinner and ignores taps. */
+  shareBusy?: boolean;
   /** The tour's 'profile/edit' anchor sits on the avatar. */
   editAnchorRef?: React.RefObject<View | null>;
   onEditLayout?: () => void;
@@ -58,7 +60,7 @@ const AVATAR = 64;
 const STRIP = 44;
 
 export default function PlayerCard({
-  avatar, name, handle, place, since, tags, tagToggle, stats, onEdit, onSince, onShare, editAnchorRef, onEditLayout,
+  avatar, name, handle, place, since, tags, tagToggle, stats, onEdit, onSince, onShare, shareBusy = false, editAnchorRef, onEditLayout,
 }: Props) {
   const { colors: c } = useTheme();
   const t = textStyles(c);
@@ -91,8 +93,8 @@ export default function PlayerCard({
                 </Text>
               </View>
             )}
-            <TouchableOpacity style={S.iconBox} onPress={onShare} accessibilityRole="button" accessibilityLabel="Share your player card">
-              <Icon name="share" size={18} color={ink} />
+            <TouchableOpacity style={S.iconBox} onPress={onShare} disabled={shareBusy} accessibilityRole="button" accessibilityLabel="Share your player card" accessibilityState={{ busy: shareBusy }}>
+              {shareBusy ? <ActivityIndicator size="small" color={ink} /> : <Icon name="share" size={18} color={ink} />}
             </TouchableOpacity>
           </View>
         </BrandBand>

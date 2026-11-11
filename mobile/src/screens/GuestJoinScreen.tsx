@@ -2,6 +2,7 @@ import React, { useEffect, useState } from 'react';
 import { View, Text, StyleSheet, ScrollView } from 'react-native';
 import { Icon } from '@just-messin-around/expo-foundation/icons';
 import { Button } from '@just-messin-around/expo-foundation/forms';
+import { useAsyncPress } from '@just-messin-around/expo-foundation/hooks';
 import { HAIRLINE, RADIUS, SPACE } from '@just-messin-around/expo-foundation/styles';
 import { textStyles } from '@just-messin-around/expo-foundation/typography';
 import EmptyState from '../components/EmptyState';
@@ -107,6 +108,8 @@ export default function GuestJoinScreen({ navigation, route }: Props) {
     track('guest_vote.account_cta', { screen });
     navigation.navigate(screen);
   }
+  const goRegister = useAsyncPress(() => go('Register'));
+  const goLogin = useAsyncPress(() => go('Login'));
 
   if (loading) {
     return <LoadingState label="Loading…" />;
@@ -149,13 +152,17 @@ export default function GuestJoinScreen({ navigation, route }: Props) {
           title="Sign up to vote"
           iconName="arrow-right"
           iconPosition="trailing"
-          onPress={() => { void go('Register'); }}
+          onPress={() => { void goRegister.press(); }}
+          loading={goRegister.busy}
+          disabled={goLogin.busy}
           style={S.cta}
         />
         <Button
           title="I already have an account"
           variant="outline"
-          onPress={() => { void go('Login'); }}
+          onPress={() => { void goLogin.press(); }}
+          loading={goLogin.busy}
+          disabled={goRegister.busy}
           style={S.ctaSecond}
         />
       </View>

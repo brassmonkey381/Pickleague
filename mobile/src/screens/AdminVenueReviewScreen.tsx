@@ -2,7 +2,7 @@
 // them as trusted catalog entries, or reject to hide them from search. Mirrors
 // Doggle's AdminPlaceReviewScreen. Self-guards via the authoritative
 // is_godmode_user() RPC (amIGodmode) — don't rely only on the hidden entry point.
-import React, { useCallback, useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
 import {
   View,
   Text,
@@ -39,6 +39,9 @@ export default function AdminVenueReviewScreen({ navigation }: Props) {
   const [loading, setLoading] = useState(true);
   const [reviews, setReviews] = useState<VenueReview[]>([]);
   const [actingId, setActingId] = useState<string | null>(null);
+  // Which button spins, and a ref so a second tap before the re-render is ignored.
+  const [actingAction, setActingAction] = useState<VenueReviewAction | null>(null);
+  const actingRef = useRef(false);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -59,7 +62,10 @@ export default function AdminVenueReviewScreen({ navigation }: Props) {
   }, [load]);
 
   async function act(venue: VenueReview, action: VenueReviewAction) {
+    if (actingRef.current) return;
+    actingRef.current = true;
     setActingId(venue.id);
+    setActingAction(action);
     status.clear();
     try {
       await adminReviewVenue(venue.id, action);
@@ -68,7 +74,9 @@ export default function AdminVenueReviewScreen({ navigation }: Props) {
     } catch (e: any) {
       status.error(e?.message ?? 'Action failed.');
     } finally {
+      actingRef.current = false;
       setActingId(null);
+      setActingAction(null);
     }
   }
 
@@ -127,14 +135,16 @@ export default function AdminVenueReviewScreen({ navigation }: Props) {
                   title="Reject"
                   variant="outline"
                   onPress={() => act(v, 'reject')}
-                  disabled={acting}
+                  loading={acting && actingAction === 'reject'}
+                  disabled={actingId != null}
                   accessibilityLabel={`Reject ${v.name}`}
                   style={S.action}
                 />
                 <Button
                   title="Confirm"
                   onPress={() => act(v, 'confirm')}
-                  loading={acting}
+                  loading={acting && actingAction === 'confirm'}
+                  disabled={actingId != null}
                   accessibilityLabel={`Confirm ${v.name}`}
                   style={S.action}
                 />

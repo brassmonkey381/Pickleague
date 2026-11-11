@@ -53,7 +53,7 @@ import { rainReward } from '@just-messin-around/expo-foundation/ui/rewardRain';
 import { SPACE } from '@just-messin-around/expo-foundation/styles';
 import { FONT, textStyles } from '@just-messin-around/expo-foundation/typography';
 import { Icon } from '@just-messin-around/expo-foundation/icons';
-import { useCoords } from '@just-messin-around/expo-foundation/hooks';
+import { useAsyncPress, useCoords } from '@just-messin-around/expo-foundation/hooks';
 import { distanceMeters, getForegroundLocationStatus } from '@just-messin-around/expo-foundation/platform';
 import { supabase } from '../lib/supabase';
 import { useTheme } from '../lib/ThemeContext';
@@ -366,6 +366,8 @@ export default function HomeScreen({ navigation }: Props) {
     streakResultRef.current = result;
     enqueue({ kind: 'streak', result });
   }
+  // The claim RPC can take a moment; a second tap waits for the first.
+  const streakPress = useAsyncPress(openStreak);
 
   // Both run on Home's FIRST FOCUS, not on mount: the linking config's
   // initialRouteName mounts Home underneath a cold deep link (/leagues/:id,
@@ -678,7 +680,7 @@ export default function HomeScreen({ navigation }: Props) {
       streak={claimedStreak ?? data.streak}
       onProfile={() => { tap('greeting', 'profile'); navigation.navigate('Profile', {}); }}
       onBalance={() => { tap('greeting', 'pickles'); setPicklesOpen(true); }}
-      onStreak={() => { tap('greeting', 'streak'); void openStreak(); }}
+      onStreak={() => { tap('greeting', 'streak'); void streakPress.press(); }}
     />
   );
   const getStartedSection = getStartedVisible ? (
@@ -708,7 +710,7 @@ export default function HomeScreen({ navigation }: Props) {
       streak={claimedStreak ?? data.streak}
       balance={profile ? profile.pickles ?? 0 : null}
       courtPass={courtPass.summary}
-      onStreak={() => { tap('greeting', 'streak'); void openStreak(); }}
+      onStreak={() => { tap('greeting', 'streak'); void streakPress.press(); }}
       onShop={() => { tap('greeting', 'pickles_shop'); navigation.navigate('Shop'); }}
       onMyPlace={() => { tap('greeting', 'my_place'); navigation.navigate('MyPlace'); }}
       onCourtPass={() => { tap('greeting', 'court_pass'); navigation.navigate('CourtPass'); }}

@@ -13,7 +13,7 @@
 //
 // Renders nothing while COURT_STARS_ENABLED is off.
 import React, { useState } from 'react';
-import { Platform, StyleSheet, TouchableOpacity, type StyleProp, type ViewStyle } from 'react-native';
+import { ActivityIndicator, Platform, StyleSheet, TouchableOpacity, type StyleProp, type ViewStyle } from 'react-native';
 import { Icon } from '@just-messin-around/expo-foundation/icons';
 import { ConfirmModal } from '@just-messin-around/expo-foundation/ui';
 import { COURT_STARS_ENABLED } from '../../lib/features';
@@ -117,13 +117,18 @@ function CourtFavoriteStarBody({ venueId, venueName, style }: Props) {
       <TouchableOpacity
         style={[S.box, style]}
         onPress={() => void toggle()}
+        disabled={busy}
         activeOpacity={0.6}
         accessibilityRole="button"
         accessibilityState={{ selected: starred, busy }}
         accessibilityLabel={starred ? `Remove ${name} from your courts` : `Add ${name} to your courts`}
       >
         {/* Doggle's FavoriteStarIcon: the filled star in the brand colour, the outline muted. */}
-        <Icon name={starred ? 'star' : 'star-outline'} size={22} color={starred ? c.primary : c.textMuted} />
+        {busy ? (
+          <ActivityIndicator size="small" color={c.primary} />
+        ) : (
+          <Icon name={starred ? 'star' : 'star-outline'} size={22} color={starred ? c.primary : c.textMuted} />
+        )}
       </TouchableOpacity>
       <ConfirmModal
         visible={offer !== null}

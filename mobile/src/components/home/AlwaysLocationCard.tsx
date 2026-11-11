@@ -15,7 +15,7 @@ import { Platform, StyleSheet, Text, View } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useFocusEffect } from '@react-navigation/native';
 import { Button } from '@just-messin-around/expo-foundation/forms';
-import { useAlwaysLocation } from '@just-messin-around/expo-foundation/hooks';
+import { useAlwaysLocation, useAsyncPress } from '@just-messin-around/expo-foundation/hooks';
 import { Panel } from '@just-messin-around/expo-foundation/ui';
 import { SPACE } from '@just-messin-around/expo-foundation/styles';
 import { textStyles } from '@just-messin-around/expo-foundation/typography';
@@ -44,6 +44,7 @@ function Card() {
   const { check } = a;
   // Hidden until the saved choice is read, so it never flashes.
   const [dismissed, setDismissed] = React.useState(true);
+  const turnOn = useAsyncPress(() => a.turnOn());
 
   useFocusEffect(
     React.useCallback(() => {
@@ -74,7 +75,7 @@ function Card() {
       </Text>
       <View style={S.actions}>
         <Button title="Not now" variant="outline" onPress={notNow} style={S.flex} />
-        <Button title={settings ? 'Open Settings' : 'Turn on'} onPress={() => void a.turnOn()} style={S.flex} />
+        <Button title={settings ? 'Open Settings' : 'Turn on'} onPress={() => void turnOn.press()} loading={turnOn.busy} style={S.flex} />
       </View>
     </Panel>
   );
