@@ -121,6 +121,7 @@ import PickleagueFeedSection from '../components/feed/PickleagueFeedSection';
 import { HomePlanConfirmSheet, useHomePlanConfirm } from '../components/home/HomePlanConfirm';
 import { PickleAmount } from '../components/PickleAmount';
 import { WEB_COLUMN_MAX_WIDTH } from '../lib/webColumn';
+import { homeFirstWeekLayout, inFirstWeek } from '../lib/homeFirstWeek';
 
 type Props = { navigation: NativeStackNavigationProp<RootStackParamList, 'Home'> };
 
@@ -135,7 +136,6 @@ const JOIN_ROWS = 3;
 const OPEN_ROWS = 3;
 /** The modal handoff pause: longer than RN Modal's ~300ms fade-out. */
 const HANDOFF_MS = 350;
-const NEW_ACCOUNT_MS = 7 * 24 * 60 * 60 * 1000;
 /** The welcome grant the pop-up names (1,000 pickles), rained when it closes. */
 const WELCOME_RAIN = 1000;
 const METERS_PER_MILE = 1609.344;
@@ -427,7 +427,7 @@ export default function HomeScreen({ navigation }: Props) {
 
   const dupr = useDuprImportOffer();
   const getStartedVisible = !ftue.loading && (!ftue.allClaimed || isGuest || dupr.visible);
-  const accountIsNew = profile?.created_at ? now - Date.parse(profile.created_at) < NEW_ACCOUNT_MS : false;
+  const accountIsNew = inFirstWeek(profile?.created_at, now);
 
   // ── NOW ──
   const [courtMode, setCourtMode] = useState<CourtCardMode>('idle');
@@ -485,6 +485,8 @@ export default function HomeScreen({ navigation }: Props) {
   const nowActive = courtMode !== 'idle' || !!session || liveEvents.length > 0;
 
   const isMember = myLeagues.length > 0;
+  // The new-player Home for the first 7 days (lib/homeFirstWeek, PKL-020).
+  const firstWeek = homeFirstWeekLayout(accountIsNew, isMember);
 
   // ── Location: status only; coords only when already granted ──
   const [locGranted, setLocGranted] = useState(false);
@@ -679,7 +681,28 @@ export default function HomeScreen({ navigation }: Props) {
       onStreak={() => { tap('greeting', 'streak'); void openStreak(); }}
     />
   );
-  sections.push(
+  const getStartedSection = getStartedVisible ? (
+    <GetStartedPanel
+      key="get-started"
+      ftue={ftue}
+      isGuest={isGuest}
+      dupr={dupr}
+      defaultOpen={accountIsNew}
+      emphasis={!nowActive}
+      onToggle={(open) => {
+        tap('get_started', open ? 'expand' : 'collapse');
+        trackSectionToggle({ screen: 'Home', section: 'get_started', open });
+      }}
+      onTap={(target, position) => tap('get_started', target, position)}
+    />
+  ) : null;
+
+  // The first week leads with Get started, then leagues near you (once loaded).
+  const joinFirst = firstWeek.leadWithStart && !!joinSection && !loadFailed && !firstLoad;
+  if (firstWeek.leadWithStart && getStartedSection) sections.push(getStartedSection);
+  if (joinFirst) sections.push(joinSection!);
+
+  if (!firstWeek.hideStats) sections.push(
     <HomeStatCard
       key="stats"
       streak={claimedStreak ?? data.streak}
@@ -730,23 +753,8 @@ export default function HomeScreen({ navigation }: Props) {
     );
   }
 
-  if (getStartedVisible) {
-    sections.push(
-      <GetStartedPanel
-        key="get-started"
-        ftue={ftue}
-        isGuest={isGuest}
-        dupr={dupr}
-        defaultOpen={accountIsNew}
-        emphasis={!nowActive}
-        onToggle={(open) => {
-          tap('get_started', open ? 'expand' : 'collapse');
-          trackSectionToggle({ screen: 'Home', section: 'get_started', open });
-        }}
-        onTap={(target, position) => tap('get_started', target, position)}
-      />,
-    );
-  }
+  if (getStartedSection && !firstWeek.leadWithStart) sections.push(getStartedSection);
+  const laterJoin = joinFirst ? null : joinSection;
 
 
   if (loadFailed) {
@@ -767,7 +775,8 @@ export default function HomeScreen({ navigation }: Props) {
     sections.push(<SkeletonList key="skeleton" rows={4} variant="row" />);
   } else if (HOME_FEED_ENABLED) {
     // One card for UP NEXT, YOUR LEAGUES, FRIENDS AT THE COURTS and YOUR COURTS.
-    sections.push(
+    // Not in a new player's first week until they join a league.
+    if (!firstWeek.hideFeed) sections.push(
       <PickleagueFeedSection
         key="feed"
         home={data}
@@ -785,9 +794,9 @@ export default function HomeScreen({ navigation }: Props) {
     );
     // Outside events I marked Interested or Going (none: nothing).
     sections.push(<MyOutsideEventsCard key="my-events" />);
-    if (joinSection) sections.push(joinSection);
+    if (laterJoin) sections.push(laterJoin);
   } else {
-    if (agenda.total > 0 || isMember) {
+    if (!firstWeek.hideFeed && (agenda.total > 0 || isMember)) {
       sections.push(
         <UpNextSection
           key="up-next"
@@ -840,7 +849,7 @@ export default function HomeScreen({ navigation }: Props) {
       );
     }
 
-    if (joinSection) sections.push(joinSection);
+    if (laterJoin) sections.push(laterJoin);
   }
 
   // The idle "At the courts?" row: gone with the bottom bar (its centre Check
