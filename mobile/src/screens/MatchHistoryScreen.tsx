@@ -134,7 +134,7 @@ function TeamFlair({
   if (!player) return <Text style={textStyle}>Player</Text>;
   const playerEl = (
     <FlairName
-      name={player.full_name ?? '?'}
+      name={player.full_name ? shortName(player.full_name) : '?'}
       nameColor={player.name_color}
       styleId={player.list_name_style_id ?? null}
       mode="list"
@@ -147,7 +147,7 @@ function TeamFlair({
       {playerEl}
       {' & '}
       <FlairName
-        name={partner.full_name}
+        name={shortName(partner.full_name)}
         nameColor={partner.name_color}
         styleId={partner.list_name_style_id ?? null}
         mode="list"

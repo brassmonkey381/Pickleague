@@ -46,15 +46,16 @@ export default function PreviewScheduleSection({
             {generatedMatches.find(m => m.round === r)?.label?.split(',')[0]?.trim() ?? `Round ${r}`}
           </Text>
           {previewFiltered.filter(m => m.round === r).map((m, mi, arr) => {
-            const t1 = m.team1.map(id => shortName(playerName(id))).join(' & ');
-            const t2 = m.team2.map(id => shortName(playerName(id))).join(' & ');
+            // One player per line, no "&": the stack reads as a pair (PKL-027).
+            const t1 = m.team1.map(id => shortName(playerName(id))).join('\n');
+            const t2 = m.team2.map(id => shortName(playerName(id))).join('\n');
             const mine = isMine(m);
             return (
               <View key={mi} style={[S.matchRow, mi === arr.length - 1 && S.rowLast, mine && S.matchRowHighlight]}>
                 <Text style={S.matchNum}>{mi + 1}</Text>
-                <Text style={[S.matchup, mine && S.matchupHighlight]} numberOfLines={2}>{t1}</Text>
+                <Text style={[S.matchup, mine && S.matchupHighlight]}>{t1}</Text>
                 <Text style={S.vs}>vs</Text>
-                <Text style={[S.matchup, mine && S.matchupHighlight]} numberOfLines={2}>{t2}</Text>
+                <Text style={[S.matchup, mine && S.matchupHighlight]}>{t2}</Text>
                 {mine && <Text style={S.youTag}>YOU</Text>}
               </View>
             );
