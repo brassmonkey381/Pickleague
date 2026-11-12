@@ -2,7 +2,8 @@
 // the Compact and Row variants). Presentational only: no data, no navigation.
 //
 //   [glyph]  Title, in full                    trailing text  ›
-//            (chip) (chip) subtitle, 2 lines   or [ action ]
+//            (chip) (chip)                     or [ action ]
+//            subtitle, 2 lines
 //
 // Built on the foundation ListCard so the box metrics (56 min height, 10/12
 // padding, hairline divider / border, minHeight never height) stay in one
@@ -13,8 +14,8 @@
 //                      <Panel padded={false}> (Home, Profile "Coming up").
 //
 // Content rules enforced here: the name shows in full (never an
-// ellipsis, PKL-027); at most 2 chips, which sit under the name ahead of the
-// one-line subtitle, plus 1 trailing text badge (an action replaces the badge
+// ellipsis, PKL-027); at most 2 chips, on their own line under the name, then the
+// subtitle (2 lines), plus 1 trailing text badge (an action replaces the badge
 // and the chevron). A row with chips or a long name grows past 56.
 //
 // The action slot sits inside the row's pressable. That is safe on both
@@ -109,24 +110,27 @@ export default function EntityRow({
     </View>
   );
 
-  // PKL-027: the name comes first and always shows in full; the chips go under
-  // it, ahead of the subtitle, instead of squeezing it to "Organi...".
+  // PKL-027: the name comes first and always shows in full; the chips get their
+  // own line under it, and the subtitle (the court) its own line after them,
+  // so neither squeezes the other.
   const titleNode = (
     <Text style={t.title}>{title}</Text>
   );
   const subNode =
     shownChips.length > 0 ? (
-      <View style={styles.metaLine}>
-        {shownChips.map((chip) => (
-          <Badge
-            key={chip.label}
-            label={chip.label}
-            tone={chip.tone ?? 'neutral'}
-            maxFontSizeMultiplier={SMALL_TEXT_MAX_SCALE}
-          />
-        ))}
+      <View style={styles.metaCol}>
+        <View style={styles.chipLine}>
+          {shownChips.map((chip) => (
+            <Badge
+              key={chip.label}
+              label={chip.label}
+              tone={chip.tone ?? 'neutral'}
+              maxFontSizeMultiplier={SMALL_TEXT_MAX_SCALE}
+            />
+          ))}
+        </View>
         {sub ? (
-          <Text style={[t.sub, styles.metaText]} numberOfLines={2}>
+          <Text style={t.sub} numberOfLines={2}>
             {sub}
           </Text>
         ) : null}
@@ -197,8 +201,8 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
   },
-  // Chips, then the subtitle; the subtitle gives way (ellipsis) on a narrow phone.
-  metaLine: { flexDirection: 'row', alignItems: 'center', gap: SPACE.sm, marginTop: 2, minWidth: 0 },
-  metaText: { flexShrink: 1 },
+  // Under the name: the chips on one line, then the subtitle (2 lines).
+  metaCol: { marginTop: 2, gap: 2, minWidth: 0 },
+  chipLine: { flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center', gap: SPACE.sm },
   trailingLine: { flexDirection: 'row', alignItems: 'center', gap: SPACE.xs },
 });
