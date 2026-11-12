@@ -14,6 +14,7 @@ import {
   EMPTY_SCHEDULE_FILTER, type ScheduleFilter, type ScheduleMatch,
 } from './tournamentModel';
 import type { TournamentDetailNavigation, TournamentDetailState } from './useTournamentDetail';
+import { shortName } from '../../lib/finishShare';
 
 /** Matches listed before "Show N more" while no filter is on. */
 const UNFILTERED_LIMIT = 12;
@@ -124,8 +125,8 @@ export default function MatchScheduleSection({
   });
 
   function renderMatch(m: any, i: number) {
-    const t1 = [m.team1_player1, m.team1_player2].filter(Boolean).map(playerName).join(' & ') || '—';
-    const t2 = [m.team2_player1, m.team2_player2].filter(Boolean).map(playerName).join(' & ') || '—';
+    const t1 = [m.team1_player1, m.team1_player2].filter(Boolean).map(id => shortName(playerName(id))).join(' & ') || '—';
+    const t2 = [m.team2_player1, m.team2_player2].filter(Boolean).map(id => shortName(playerName(id))).join(' & ') || '—';
     const isMyMatch = involves(m, myUserId);
     const completed = m.status === 'completed' && m.winner_team != null;
     const team1Won = m.winner_team === 'team1';

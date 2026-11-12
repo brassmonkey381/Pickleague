@@ -357,11 +357,11 @@ export default function MatchHistoryScreen({ navigation, route }: Props) {
   function teamNames(item: Match): { team1: string; team2: string } {
     const isDoubles = item.match_type === 'doubles';
     const team1 = isDoubles && item.partner1?.full_name
-      ? `${item.player1?.full_name ?? '?'} & ${item.partner1.full_name}`
-      : (item.player1?.full_name ?? 'Team 1');
+      ? `${item.player1?.full_name ? shortName(item.player1.full_name) : '?'} & ${shortName(item.partner1.full_name)}`
+      : (item.player1?.full_name ? shortName(item.player1.full_name) : 'Team 1');
     const team2 = isDoubles && item.partner2?.full_name
-      ? `${item.player2?.full_name ?? '?'} & ${item.partner2.full_name}`
-      : (item.player2?.full_name ?? 'Team 2');
+      ? `${item.player2?.full_name ? shortName(item.player2.full_name) : '?'} & ${shortName(item.partner2.full_name)}`
+      : (item.player2?.full_name ? shortName(item.player2.full_name) : 'Team 2');
     return { team1, team2 };
   }
 

@@ -560,7 +560,7 @@ export default function TournamentDetailScreen({ navigation, route }: Props) {
     setupLabel: current.step.label,
     setupWaitingOnAdmin,
     onOpenSetup: openManage,
-    opponents: nextMatch && myUserId ? opponentsOf(nextMatch, myUserId).map(td.playerName).join(' & ') : '',
+    opponents: nextMatch && myUserId ? opponentsOf(nextMatch, myUserId).map(id => shortName(td.playerName(id))).join(' & ') : '',
     partner: nextMatch && myUserId && partnerOf(nextMatch, myUserId) ? td.playerName(partnerOf(nextMatch, myUserId)!) : null,
     roundLabel: nextMatch?.round?.label ?? null,
     recordLine: mine

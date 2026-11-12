@@ -68,6 +68,7 @@ import {
 } from '../components/event/eventModel';
 import AlbumSection from '../components/AlbumSection';
 import GroupSessionSection from '../components/GroupSessionSection';
+import { shortName } from '../lib/finishShare';
 
 type Props = {
   navigation: NativeStackNavigationProp<RootStackParamList, 'EventDetail'>;
@@ -1066,8 +1067,8 @@ export default function EventDetailScreen({ navigation, route }: Props) {
             <SectionHeader title="Matches recorded" count={eventMatches.length} />
             <Panel padded={false}>
               {eventMatches.map((m, i) => {
-                const teamA = [m.p1?.full_name, m.pn1?.full_name].filter(Boolean).join(' & ') || 'Player';
-                const teamB = [m.p2?.full_name, m.pn2?.full_name].filter(Boolean).join(' & ') || 'Player';
+                const teamA = [m.p1?.full_name, m.pn1?.full_name].filter(Boolean).map(n => shortName(n)).join(' & ') || 'Player';
+                const teamB = [m.p2?.full_name, m.pn2?.full_name].filter(Boolean).map(n => shortName(n)).join(' & ') || 'Player';
                 const scoreLabel = m.player1_score != null && m.player2_score != null
                   ? `${m.player1_score}–${m.player2_score}`
                   : null;

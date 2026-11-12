@@ -3,6 +3,7 @@ import {
   ANONYMOUS_PLAYER,
   cardPlayer,
   cardPodium,
+  shortTeam,
   finishShareMessage,
   initialsOf,
   medalFor,
@@ -88,5 +89,15 @@ describe('finishShareMessage', () => {
       .toBe(`I finished 5th of 12 in Tuesday Ladder (Season 3) on Pickleague 🥒 ${link}`);
     expect(finishShareMessage({ kind: 'season', title: 'Season 3', league: 'Tuesday Ladder', rank: 2, of: 12 }, link))
       .toBe(`I finished 2nd in Tuesday Ladder (Season 3) on Pickleague 🥒 ${link}`);
+  });
+});
+
+describe('shortTeam', () => {
+  it('shortens each player of a pair', () => {
+    expect(shortTeam('Alexandrina Montgomery-Vasquez & Sam Lee')).toBe('Alexandrina M. & Sam L.');
+  });
+  it('keeps a blank slot blank', () => {
+    expect(shortTeam(undefined)).toBeUndefined();
+    expect(shortTeam('  ')).toBeUndefined();
   });
 });

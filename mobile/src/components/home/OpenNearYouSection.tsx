@@ -74,7 +74,6 @@ export default function OpenNearYouSection({ items, nearby, now, onPress, total,
               tournament={{ id: tr.id, name: tr.name, location_name: tr.location_name, status: 'registration' }}
               leagueName={tr.leagueName}
               facts={[item.distance, tr.formatLabel]}
-              showStatus
               trailingText={when}
               lastRow={last}
               onPress={() => onPress(item, i)}

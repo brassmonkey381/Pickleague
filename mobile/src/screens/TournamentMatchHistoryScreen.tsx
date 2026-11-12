@@ -20,6 +20,7 @@ import { useRefresh } from '../lib/useRefresh';
 import AppRefreshControl from '../components/AppRefreshControl';
 import { SkeletonList } from '../components/Skeleton';
 import EmptyState from '../components/EmptyState';
+import { shortName } from '../lib/finishShare';
 
 type TypeFilter   = 'all' | 'singles' | 'doubles';
 type StatusFilter = 'all' | 'completed' | 'pending';
@@ -141,8 +142,8 @@ export default function TournamentMatchHistoryScreen({ route }: Props) {
     m.team1_player1 === uid || m.team1_player2 === uid;
 
   function teamName(p1: Profile | null | undefined, p2: Profile | null | undefined) {
-    const n1 = p1?.full_name;
-    const n2 = p2?.full_name;
+    const n1 = p1?.full_name ? shortName(p1.full_name) : undefined;
+    const n2 = p2?.full_name ? shortName(p2.full_name) : undefined;
     if (n1 && n2) return `${n1} & ${n2}`;
     return n1 ?? n2 ?? '—';
   }

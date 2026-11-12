@@ -12,6 +12,7 @@ import { Button } from '@just-messin-around/expo-foundation/forms';
 import { useAsyncPress } from '@just-messin-around/expo-foundation/hooks';
 import { Icon } from '@just-messin-around/expo-foundation/icons';
 import { HAIRLINE, RADIUS, SPACE } from '@just-messin-around/expo-foundation/styles';
+import { shortName } from '../lib/finishShare';
 import { FONT, textStyles } from '@just-messin-around/expo-foundation/typography';
 
 /**
@@ -479,8 +480,8 @@ export default function MlpPlayoffPreview({
             <Text style={S.rotationsHeader}>Rotations</Text>
             {round.matches.map((m, i) => {
               const rotLabel = ROTATION_LABELS[i] ?? `Match ${i + 1}`;
-              const t1 = `${playerName(m.team1_player1)} & ${playerName(m.team1_player2)}`;
-              const t2 = `${playerName(m.team2_player1)} & ${playerName(m.team2_player2)}`;
+              const t1 = `${shortName(playerName(m.team1_player1))} & ${shortName(playerName(m.team1_player2))}`;
+              const t2 = `${shortName(playerName(m.team2_player1))} & ${shortName(playerName(m.team2_player2))}`;
               const completed = m.status === 'completed' && m.winner_team != null;
               const t1Won = m.winner_team === 'team1';
               const tappable = !completed && !!m.team1_player1 && !!m.team2_player1;
