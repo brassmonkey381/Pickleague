@@ -465,7 +465,7 @@ export default function MatchHistoryScreen({ navigation, route }: Props) {
         density="compact"
         leading={tile({ iconName: entityIcon('season') }, 'upcoming')}
         title={
-          <Text style={t.title} numberOfLines={4}>
+          <Text style={t.title}>
             <TeamFlair player={item.player1} partner={isDoubles ? item.partner1 : null} textStyle={t.title} />
             {' vs '}
             <TeamFlair player={item.player2} partner={isDoubles ? item.partner2 : null} textStyle={t.title} />
@@ -531,7 +531,7 @@ export default function MatchHistoryScreen({ navigation, route }: Props) {
           highlighted={isHighlighted}
           leading={tile({ iconName: 'hourglass' }, 'pending')}
           title={
-            <Text style={t.title} numberOfLines={4}>
+            <Text style={t.title}>
               <TeamFlair player={item.player1} partner={isDoubles ? item.partner1 : null} textStyle={t.title} />
               {' vs '}
               <TeamFlair player={item.player2} partner={isDoubles ? item.partner2 : null} textStyle={t.title} />
@@ -569,7 +569,7 @@ export default function MatchHistoryScreen({ navigation, route }: Props) {
           highlighted={isHighlighted}
           leading={tile(team1Won ? 'W' : 'L', team1Won ? 'win' : 'loss', team1Won ? 'Team 1 won' : 'Team 2 won')}
           title={
-            <Text style={[t.title, S.loserName]} numberOfLines={4}>
+            <Text style={[t.title, S.loserName]}>
               <TeamFlair player={item.player1} partner={isDoubles ? item.partner1 : null} textStyle={[t.title, team1Won ? S.winnerName : S.loserName]} />
               {' vs '}
               <TeamFlair player={item.player2} partner={isDoubles ? item.partner2 : null} textStyle={[t.title, !team1Won ? S.winnerName : S.loserName]} />
@@ -602,7 +602,7 @@ export default function MatchHistoryScreen({ navigation, route }: Props) {
         highlighted={isHighlighted}
         leading={tile(won ? 'W' : 'L', won ? 'win' : 'loss', won ? 'Win' : 'Loss')}
         title={
-          <Text style={t.title} numberOfLines={4}>
+          <Text style={t.title}>
             {'vs '}
             <TeamFlair player={oppPlayer} partner={isDoubles ? oppPartner : null} textStyle={t.title} />
           </Text>
