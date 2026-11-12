@@ -1,7 +1,7 @@
 // The shared compact row behind LeagueRow and TournamentRow (plan section 6:
 // the Compact and Row variants). Presentational only: no data, no navigation.
 //
-//   [glyph]  Title, up to 2 lines              trailing text  ›
+//   [glyph]  Title, up to 3 lines              trailing text  ›
 //            (chip) (chip) one-line subtitle   or [ action ]
 //
 // Built on the foundation ListCard so the box metrics (56 min height, 10/12
@@ -12,7 +12,7 @@
 //   layout='row'     → ListCard variant='row', a divider row inside a
 //                      <Panel padded={false}> (Home, Profile "Coming up").
 //
-// Content rules enforced here: the name shows in full (2 lines before an
+// Content rules enforced here: the name shows in full (3 lines before an
 // ellipsis, PKL-027); at most 2 chips, which sit under the name ahead of the
 // one-line subtitle, plus 1 trailing text badge (an action replaces the badge
 // and the chevron). A row with chips or a 2-line name grows past 56.
@@ -109,10 +109,10 @@ export default function EntityRow({
     </View>
   );
 
-  // PKL-027: the name comes first and gets up to 2 lines; the chips go under
+  // PKL-027: the name comes first and gets up to 3 lines; the chips go under
   // it, ahead of the subtitle, instead of squeezing it to "Organi...".
   const titleNode = (
-    <Text style={t.title} numberOfLines={2}>{title}</Text>
+    <Text style={t.title} numberOfLines={3}>{title}</Text>
   );
   const subNode =
     shownChips.length > 0 ? (
