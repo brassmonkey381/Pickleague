@@ -494,23 +494,25 @@ export default function LeagueMembersScreen({ navigation, route }: Props) {
                         styleId={req.profile?.list_name_style_id ?? null}
                         mode="list"
                         style={t.title}
-                        numberOfLines={1}
+                        numberOfLines={2}
                       />
                       <Text style={t.sub} numberOfLines={1}>wants to join</Text>
+                      <View style={S.requestActions}>
+                        <Button
+                          size="sm"
+                          title="Approve"
+                          loading={answering.has(req.id)}
+                          onPress={() => approveRequest(req)}
+                        />
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          title="Deny"
+                          disabled={answering.has(req.id)}
+                          onPress={() => denyRequest(req)}
+                        />
+                      </View>
                     </View>
-                    <Button
-                      size="sm"
-                      title="Approve"
-                      loading={answering.has(req.id)}
-                      onPress={() => approveRequest(req)}
-                    />
-                    <Button
-                      size="sm"
-                      variant="outline"
-                      title="Deny"
-                      disabled={answering.has(req.id)}
-                      onPress={() => denyRequest(req)}
-                    />
                   </View>
                 ))}
               </Panel>
@@ -571,7 +573,7 @@ export default function LeagueMembersScreen({ navigation, route }: Props) {
                   styleId={item.profile?.list_name_style_id ?? null}
                   mode="list"
                   style={[t.title, S.titleText]}
-                  numberOfLines={1}
+                  numberOfLines={2}
                 />
                 {chip ? <Badge label={chip.label} tone={chip.tone} maxFontSizeMultiplier={SMALL_TEXT_MAX_SCALE} /> : null}
               </View>
@@ -691,7 +693,7 @@ export default function LeagueMembersScreen({ navigation, route }: Props) {
                       styleId={p.list_name_style_id}
                       mode="list"
                       style={t.title}
-                      numberOfLines={1}
+                      numberOfLines={2}
                     />
                   }
                   subtitle={`@${p.username}, ${p.rating.toFixed(2)} PLUPR (${eloDiffLabel}), ${hasOverlap ? `${p.overlapHours}h overlap` : 'no overlap'}`}
@@ -733,10 +735,11 @@ function makeStyles(c: ReturnType<typeof useTheme>['colors']) {
     banner:       { marginTop: 0, marginBottom: SPACE.md },
     joinCard:     { marginBottom: SPACE.md },
     block:        { marginBottom: SPACE.md },
-    requestRow:   { flexDirection: 'row', alignItems: 'center', gap: SPACE.sm, minHeight: 56, paddingVertical: SPACE.xs, paddingHorizontal: SPACE.md },
+    requestRow:   { flexDirection: 'row', alignItems: 'flex-start', gap: SPACE.sm, minHeight: 56, paddingVertical: SPACE.xs, paddingHorizontal: SPACE.md },
     divider:      { borderBottomWidth: HAIRLINE, borderBottomColor: c.border },
     avatar:       { width: 36, height: 36, borderRadius: RADIUS.pill, backgroundColor: c.primaryLight, alignItems: 'center', justifyContent: 'center' },
     rowText:      { flex: 1, minWidth: 0 },
+    requestActions: { flexDirection: 'row', gap: SPACE.sm, marginTop: SPACE.xs },
     searchBlock:  { gap: SPACE.xs, marginBottom: SPACE.sm },
     titleLine:    { flexDirection: 'row', alignItems: 'center', gap: SPACE.sm, minWidth: 0 },
     titleText:    { flexShrink: 1 },

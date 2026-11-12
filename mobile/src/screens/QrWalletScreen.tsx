@@ -235,7 +235,7 @@ export default function QrWalletScreen({ navigation }: Props) {
             >
               {thumbs[p.id] ? <Image source={{ uri: thumbs[p.id] }} style={styles.thumb} /> : <View style={styles.thumb} />}
               <View style={styles.flex}>
-                <Text style={[styles.title, { color: c.text }]} numberOfLines={1}>{p.venueName}</Text>
+                <Text style={[styles.title, { color: c.text }]} numberOfLines={2}>{p.venueName}</Text>
                 <Text style={[styles.sub, { color: c.textSub }]} numberOfLines={1}>{p.label}</Text>
               </View>
               <Pressable onPress={() => setRemoving(p)} hitSlop={8} accessibilityRole="button" accessibilityLabel={`Remove ${p.label}`}>

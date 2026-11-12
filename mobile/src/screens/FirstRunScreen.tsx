@@ -290,7 +290,7 @@ function CourtsStep({
                 {court.recommended ? (
                   <Text style={[t.caption, S.tag, { color: c.primary }]}>RECOMMENDED</Text>
                 ) : null}
-                <Text style={t.title} numberOfLines={1}>
+                <Text style={t.title} numberOfLines={2}>
                   {court.name}
                 </Text>
                 <Text style={t.meta} numberOfLines={1}>

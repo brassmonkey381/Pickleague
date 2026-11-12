@@ -1074,7 +1074,7 @@ export default function EventDetailScreen({ navigation, route }: Props) {
                 const winSuffix = m.winner_team === 'team1' ? 'Team A won' : m.winner_team === 'team2' ? 'Team B won' : null;
                 return (
                   <View key={m.id} style={[S.matchRow, i < eventMatches.length - 1 && S.divider]}>
-                    <Text style={t.title} numberOfLines={1}>{teamA} vs {teamB}</Text>
+                    <Text style={t.title} numberOfLines={2}>{teamA} vs {teamB}</Text>
                     <Text style={t.sub} numberOfLines={1}>
                       {[scoreLabel, winSuffix, m.status === 'completed' ? 'final' : m.status].filter(Boolean).join(', ')}
                     </Text>

@@ -250,7 +250,7 @@ export default function PlayersHereList({ venueId, compact, venueName, presenceM
       {players.slice(0, 12).map((p) => (
         <View key={p.checkin_id} style={S.row}>
           <View style={[S.name, S.inline]}>
-            <Text style={[t.body, S.shrink]} numberOfLines={1}>
+            <Text style={[t.body, S.shrink]} numberOfLines={2}>
               {p.anonymous ? '' : p.avatar_emoji ? `${p.avatar_emoji} ` : ''}
               {presenceRowLabel(p)}
             </Text>

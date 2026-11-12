@@ -35,7 +35,7 @@ function QueueRow({ r, index, last, approveReg, rejectReg, approveLabel, rejectL
         styleId={(r.profile as any)?.list_name_style_id ?? null}
         mode="list"
         style={S.playerName}
-        numberOfLines={1}
+        numberOfLines={2}
       />
       <Text style={S.playerRating}>{formatPlupr((r.profile as any)?.rating, (r.profile as any)?.total_matches_played)}</Text>
       <View style={S.queueActions}>

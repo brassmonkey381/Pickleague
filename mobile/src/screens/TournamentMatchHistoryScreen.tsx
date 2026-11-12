@@ -219,7 +219,7 @@ export default function TournamentMatchHistoryScreen({ route }: Props) {
           <Text style={[S.badgeText, { color: badge.fg }]} maxFontSizeMultiplier={SMALL_TEXT_MAX_SCALE}>{badge.text}</Text>
         </View>
         <View style={S.cardText}>
-          <Text style={t.title} numberOfLines={1}>{title}</Text>
+          <Text style={t.title} numberOfLines={2}>{title}</Text>
           <Text style={t.meta} numberOfLines={1} maxFontSizeMultiplier={SMALL_TEXT_MAX_SCALE}>
             {meta.filter(Boolean).join(', ')}
           </Text>

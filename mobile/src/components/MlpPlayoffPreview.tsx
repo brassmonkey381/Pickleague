@@ -424,7 +424,7 @@ export default function MlpPlayoffPreview({
                     <View style={S.standRank}>
                       <RankMedal place={i + 1} size={16} />
                     </View>
-                    <Text style={[S.standCell, S.standName]} numberOfLines={1}>{r.team_name}</Text>
+                    <Text style={[S.standCell, S.standName]} numberOfLines={2}>{r.team_name}</Text>
                     <Text style={[S.standCell, S.standWL]}>{r.sub_matches_won}–{r.sub_matches_lost}</Text>
                   </View>
                 ))}

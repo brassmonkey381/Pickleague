@@ -137,7 +137,7 @@ export default function MatchScheduleSection({
       return (
         <View key={m.id} style={[S.matchRow, isMyMatch && S.matchRowHighlight]}>
           <Text style={S.matchNum}>{i + 1}</Text>
-          <Text style={[S.matchup, S.matchupWinner, isMyMatch && S.matchupHighlight]} numberOfLines={1}>{t1}</Text>
+          <Text style={[S.matchup, S.matchupWinner, isMyMatch && S.matchupHighlight]} numberOfLines={2}>{t1}</Text>
           <Text style={S.vs}>—</Text>
           <Text style={S.matchup} numberOfLines={1}>bye to next round</Text>
           {isMyMatch && <Text style={S.youTag}>YOU</Text>}
@@ -183,7 +183,7 @@ export default function MatchScheduleSection({
             completed && team1Won && S.matchupWinner,
             completed && !team1Won && S.matchupLoser,
             isMyMatch && S.matchupHighlight,
-          ]} numberOfLines={1}>{t1}</Text>
+          ]} numberOfLines={2}>{t1}</Text>
           {completed ? (
             <Text style={S.matchScore}>{m.team1_score}–{m.team2_score}</Text>
           ) : (
@@ -194,7 +194,7 @@ export default function MatchScheduleSection({
             completed && !team1Won && S.matchupWinner,
             completed && team1Won && S.matchupLoser,
             isMyMatch && S.matchupHighlight,
-          ]} numberOfLines={1}>{t2}</Text>
+          ]} numberOfLines={2}>{t2}</Text>
           {isMyMatch && <Text style={S.youTag}>YOU</Text>}
           {tappable && !isMyMatch && <Icon name="chevron-right" size={16} color={c.textMuted} />}
         </Row>

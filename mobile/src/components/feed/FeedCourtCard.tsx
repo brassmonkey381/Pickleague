@@ -154,7 +154,7 @@ export default function FeedCourtCard({
             <View style={styles.nameRow}>
               <Text
                 style={[t.title, styles.shrink]}
-                numberOfLines={1}
+                numberOfLines={2}
                 onPress={() => actions.openPerson(p.userId, p.name)}
                 accessibilityRole="link"
               >
@@ -219,7 +219,7 @@ export default function FeedCourtCard({
               You, your routine
             </Text>
             {chip ? null : (
-              <Text style={[t.meta, { color: c.textSub }]} numberOfLines={1}>
+              <Text style={[t.meta, { color: c.textSub }]} numberOfLines={2}>
                 {meta}
               </Text>
             )}
@@ -281,7 +281,7 @@ export default function FeedCourtCard({
             <View style={styles.nameRow}>
               <Text
                 style={[t.title, styles.shrink]}
-                numberOfLines={1}
+                numberOfLines={2}
                 onPress={() => actions.openPerson(p.userId, p.name)}
                 accessibilityRole="link"
               >
@@ -314,7 +314,7 @@ export default function FeedCourtCard({
               You, planned check-in
             </Text>
             {chip ? null : (
-              <Text style={[t.meta, { color: c.textSub }]} numberOfLines={1}>
+              <Text style={[t.meta, { color: c.textSub }]} numberOfLines={2}>
                 {meta}
               </Text>
             )}

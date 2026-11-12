@@ -19,7 +19,7 @@ export default function PoolAssignmentsPreview({ tournament, pools, playerName }
         {pools.map((pool, pi) => (
           <View key={pi} style={S.poolBlock}>
             <Text style={S.poolLabel}>Pool {String.fromCharCode(65 + pi)}</Text>
-            {pool.map(uid => <Text key={uid} style={S.poolPlayer} numberOfLines={1}>{playerName(uid)}</Text>)}
+            {pool.map(uid => <Text key={uid} style={S.poolPlayer} numberOfLines={2}>{playerName(uid)}</Text>)}
           </View>
         ))}
       </View>

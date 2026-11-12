@@ -398,11 +398,15 @@ export default function CourtCheckinCard({ onModeChange, onTap }: Props = {}) {
     return (
       <Panel padded={false} emphasis style={S.panel}>
         <View style={[S.line, S.titleRow]}>
-          <View style={[S.flex, S.inline]}>
-            <Icon name="pin" size={14} color={c.textSub} />
-            <Text style={[t.title, S.shrink]} numberOfLines={1}>
-              {current.venueName}
-              <Text style={t.sub}>, checked in, til {timeLabel(current.expiresAt)}</Text>
+          <View style={S.flex}>
+            <View style={S.inline}>
+              <Icon name="pin" size={14} color={c.textSub} />
+              <Text style={[t.title, S.shrink]} numberOfLines={2}>
+                {current.venueName}
+              </Text>
+            </View>
+            <Text style={t.sub} numberOfLines={1}>
+              Checked in, til {timeLabel(current.expiresAt)}
             </Text>
           </View>
           {/* Star the court you're at: next time, arriving checks you in. */}

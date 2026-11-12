@@ -171,7 +171,7 @@ export default function UserPickerModal({
       <View style={S.header}>
         <View style={S.headerText}>
           <Text style={t.h3} accessibilityRole="header">{title}</Text>
-          {subtitle ? <Text style={S.username} numberOfLines={1}>{subtitle}</Text> : null}
+          {subtitle ? <Text style={S.username} numberOfLines={2}>{subtitle}</Text> : null}
         </View>
         <TouchableOpacity onPress={onClose} style={S.close} accessibilityRole="button">
           <Text style={[t.title, { color: c.primary }]}>Cancel</Text>
@@ -264,7 +264,7 @@ export default function UserPickerModal({
                 <View style={S.rowText}>
                   <Text style={t.title}>{item.full_name}</Text>
                   <Text style={S.username}>@{item.username}</Text>
-                  {item.detail ? <Text style={S.username} numberOfLines={1}>{item.detail}</Text> : null}
+                  {item.detail ? <Text style={S.username} numberOfLines={2}>{item.detail}</Text> : null}
                 </View>
                 <Icon name="chevron-right" size={16} color={c.textMuted} />
               </TouchableOpacity>

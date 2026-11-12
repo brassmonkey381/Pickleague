@@ -297,7 +297,7 @@ function InvRow({
           : <Text style={styles.invIconEmoji}>{icon}</Text>}
       </View>
       <View style={styles.flexText}>
-        <Text style={[styles.rowTitle, isHidden && styles.textDim]} numberOfLines={1}>{name}</Text>
+        <Text style={[styles.rowTitle, isHidden && styles.textDim]} numberOfLines={2}>{name}</Text>
         {gift && (
           <View style={styles.inlineRow}>
             <Icon name="gift" size={14} color={c.textSub} />
@@ -1114,7 +1114,7 @@ export default function ProfileScreen({ navigation }: Props) {
                       <Text style={styles.chemAvatarEmoji}>{av.emoji}</Text>
                     </View>
                     <View style={styles.flexText}>
-                      <Text style={styles.rowTitle} numberOfLines={1}>{partner.full_name}</Text>
+                      <Text style={styles.rowTitle} numberOfLines={2}>{partner.full_name}</Text>
                       <Text style={styles.rowSub} numberOfLines={1}>
                         {r.insights[0] ?? `${r.matchesTogether} match${r.matchesTogether !== 1 ? 'es' : ''} together`}
                       </Text>

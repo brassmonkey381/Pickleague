@@ -163,7 +163,7 @@ export default function StandingsPreview({
             styleId={row.flair?.styleId ?? null}
             mode="list"
             style={[t.sub, S.name, row.isMe && S.meName]}
-            numberOfLines={1}
+            numberOfLines={2}
           />
         </View>
         {middleLabel ? <Text style={[t.sub, S.colMid, { color: c.text }]} numberOfLines={1}>{record}</Text> : null}

@@ -106,16 +106,18 @@ export default function AgendaRow({ row, now, lastRow, onPress, onAction, onConf
   // "Dinks · (check) Confirmed": a status with a glyph is drawn as a row.
   const subtitleNode =
     row.statusIcon && row.status ? (
-      <View style={[styles.inline, styles.subtitle]}>
+      <View style={styles.subtitle}>
         {row.leagueName ? (
-          <Text style={[t.sub, styles.shrink]} numberOfLines={1}>
-            {`${row.leagueName}, `}
+          <Text style={[t.sub, styles.shrink]} numberOfLines={2}>
+            {row.leagueName}
           </Text>
         ) : null}
-        <Icon name={row.statusIcon} size={12} color={c.success} />
-        <Text style={[t.sub, { color: c.success }]} numberOfLines={1}>
-          {row.status}
-        </Text>
+        <View style={styles.inline}>
+          <Icon name={row.statusIcon} size={12} color={c.success} />
+          <Text style={[t.sub, styles.shrink, { color: c.success }]} numberOfLines={1}>
+            {row.status}
+          </Text>
+        </View>
       </View>
     ) : (
       subtitle || undefined
@@ -142,7 +144,7 @@ const styles = StyleSheet.create({
   pair: { flexDirection: 'row', alignItems: 'center' },
   box: { minWidth: 44, minHeight: 44, alignItems: 'center', justifyContent: 'center' },
   inline: { flexDirection: 'row', alignItems: 'center', gap: SPACE.xs, minWidth: 0 },
-  subtitle: { marginTop: SPACE.xxs },
+  subtitle: { marginTop: SPACE.xxs, minWidth: 0 },
   shrink: { flexShrink: 1 },
   actionRow: { paddingVertical: SPACE.xs },
 });

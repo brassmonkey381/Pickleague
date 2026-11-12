@@ -174,8 +174,8 @@ function PersonRow({
           backgroundColor={person.avatar_bg_color ?? undefined}
         />
         <View style={S.whoText}>
-          <Text style={t.title} numberOfLines={1}>{name}</Text>
-          {subtitle ? <Text style={t.sub} numberOfLines={1}>{subtitle}</Text> : null}
+          <Text style={t.title} numberOfLines={2}>{name}</Text>
+          {subtitle ? <Text style={t.sub} numberOfLines={2}>{subtitle}</Text> : null}
         </View>
       </TouchableOpacity>
       {trailing ? <View style={S.actions}>{trailing}</View> : null}

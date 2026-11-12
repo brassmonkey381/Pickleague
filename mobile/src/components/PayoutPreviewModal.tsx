@@ -136,7 +136,7 @@ export default function PayoutPreviewModal({ visible, tournamentId, prizePool, o
                     <View style={S.placeHeader}>
                       <View style={S.placeBadgeRow}>
                         <RankMedal place={r.place} />
-                        <Text style={S.placeBadge} numberOfLines={1}>{r.team_name ?? '—'}</Text>
+                        <Text style={S.placeBadge} numberOfLines={2}>{r.team_name ?? '—'}</Text>
                       </View>
                       <PickleAmount amount={r.pool_share} preset="title" textStyle={S.heavy} />
                     </View>
@@ -146,7 +146,7 @@ export default function PayoutPreviewModal({ visible, tournamentId, prizePool, o
                     <View style={S.userList}>
                       {(r.user_names ?? []).map((n, j) => (
                         <View key={j} style={S.userRow}>
-                          <Text style={S.userName} numberOfLines={1}>{n}</Text>
+                          <Text style={S.userName} numberOfLines={2}>{n}</Text>
                           <PickleAmount amount={r.share_per_user} prefix="+" preset="sub" textStyle={S.heavy} />
                         </View>
                       ))}

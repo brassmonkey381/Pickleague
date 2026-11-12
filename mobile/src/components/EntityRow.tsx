@@ -1,8 +1,8 @@
 // The shared compact row behind LeagueRow and TournamentRow (plan section 6:
 // the Compact and Row variants). Presentational only: no data, no navigation.
 //
-//   [glyph]  Title  (chip) (chip)              trailing text  ›
-//            one-line subtitle                 or [ action ]
+//   [glyph]  Title, up to 2 lines              trailing text  ›
+//            (chip) (chip) one-line subtitle   or [ action ]
 //
 // Built on the foundation ListCard so the box metrics (56 min height, 10/12
 // padding, hairline divider / border, minHeight never height) stay in one
@@ -12,9 +12,10 @@
 //   layout='row'     → ListCard variant='row', a divider row inside a
 //                      <Panel padded={false}> (Home, Profile "Coming up").
 //
-// Content rules enforced here: the subtitle is one line; at most 2 chips next
-// to the title plus 1 trailing text badge (an action replaces the badge and the
-// chevron); chips sit on the title line so a row stays 56, not 64.
+// Content rules enforced here: the name shows in full (2 lines before an
+// ellipsis, PKL-027); at most 2 chips, which sit under the name ahead of the
+// one-line subtitle, plus 1 trailing text badge (an action replaces the badge
+// and the chevron). A row with chips or a 2-line name grows past 56.
 //
 // The action slot sits inside the row's pressable. That is safe on both
 // platforms: native gives the touch to the innermost touchable, and on web
@@ -108,19 +109,31 @@ export default function EntityRow({
     </View>
   );
 
+  // PKL-027: the name comes first and gets up to 2 lines; the chips go under
+  // it, ahead of the subtitle, instead of squeezing it to "Organi...".
   const titleNode = (
-    <View style={styles.titleLine}>
-      <Text style={[t.title, styles.titleText]} numberOfLines={1}>{title}</Text>
-      {shownChips.map((chip) => (
-        <Badge
-          key={chip.label}
-          label={chip.label}
-          tone={chip.tone ?? 'neutral'}
-          maxFontSizeMultiplier={SMALL_TEXT_MAX_SCALE}
-        />
-      ))}
-    </View>
+    <Text style={t.title} numberOfLines={2}>{title}</Text>
   );
+  const subNode =
+    shownChips.length > 0 ? (
+      <View style={styles.metaLine}>
+        {shownChips.map((chip) => (
+          <Badge
+            key={chip.label}
+            label={chip.label}
+            tone={chip.tone ?? 'neutral'}
+            maxFontSizeMultiplier={SMALL_TEXT_MAX_SCALE}
+          />
+        ))}
+        {sub ? (
+          <Text style={[t.sub, styles.metaText]} numberOfLines={1}>
+            {sub}
+          </Text>
+        ) : null}
+      </View>
+    ) : (
+      sub
+    );
 
   let trailing: ReactNode = null;
   if (action != null) {
@@ -153,7 +166,7 @@ export default function EntityRow({
       {...a11y}
       leading={leading}
       title={titleNode}
-      subtitle={sub}
+      subtitle={subNode}
       trailing={trailing ?? undefined}
       onPress={onPress}
       density={layout === 'compact' ? 'compact' : 'default'}
@@ -183,8 +196,8 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
   },
-  titleLine: { flexDirection: 'row', alignItems: 'center', gap: SPACE.sm, minWidth: 0 },
-  // The name gives way first (ellipsis) so the chips stay readable.
-  titleText: { flexShrink: 1 },
+  // Chips, then the subtitle; the subtitle gives way (ellipsis) on a narrow phone.
+  metaLine: { flexDirection: 'row', alignItems: 'center', gap: SPACE.sm, marginTop: 2, minWidth: 0 },
+  metaText: { flexShrink: 1 },
   trailingLine: { flexDirection: 'row', alignItems: 'center', gap: SPACE.xs },
 });

@@ -204,7 +204,7 @@ export function SearchAreaPanel({
           accessibilityLabel={`Search near ${r.label}`}
         >
           <Icon name="pin" size={16} color={c.textSub} />
-          <Text style={[t.body, S.place]} numberOfLines={1}>{r.label}</Text>
+          <Text style={[t.body, S.place]} numberOfLines={2}>{r.label}</Text>
         </TouchableOpacity>
       ))}
     </View>

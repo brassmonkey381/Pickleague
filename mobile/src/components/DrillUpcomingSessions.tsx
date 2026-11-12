@@ -139,7 +139,7 @@ export default function DrillUpcomingSessions({
               onLayout={focused && onFocusedLayout ? () => onFocusedLayout(focusedRef.current) : undefined}
               style={[S.row, i < sessions.length - 1 && S.rowDivider, focused && S.rowFocused]}
             >
-              <Text style={t.title} numberOfLines={1}>Drill with {partner}</Text>
+              <Text style={t.title} numberOfLines={2}>Drill with {partner}</Text>
               {place ? (
                 <View style={S.placeLine}>
                   <Icon name="pin" size={14} color={c.textSub} style={S.placeGlyph} />

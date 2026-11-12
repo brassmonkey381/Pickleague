@@ -51,9 +51,9 @@ export default function PreviewScheduleSection({
             return (
               <View key={mi} style={[S.matchRow, mi === arr.length - 1 && S.rowLast, mine && S.matchRowHighlight]}>
                 <Text style={S.matchNum}>{mi + 1}</Text>
-                <Text style={[S.matchup, mine && S.matchupHighlight]} numberOfLines={1}>{t1}</Text>
+                <Text style={[S.matchup, mine && S.matchupHighlight]} numberOfLines={2}>{t1}</Text>
                 <Text style={S.vs}>vs</Text>
-                <Text style={[S.matchup, mine && S.matchupHighlight]} numberOfLines={1}>{t2}</Text>
+                <Text style={[S.matchup, mine && S.matchupHighlight]} numberOfLines={2}>{t2}</Text>
                 {mine && <Text style={S.youTag}>YOU</Text>}
               </View>
             );

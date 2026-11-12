@@ -267,7 +267,7 @@ export default function LeagueSpotlight({
       accessibilityLabel={`${headLine}${caption ? `. ${caption}` : ''}. Open league`}
     >
       <View style={styles.flex}>
-        <Text style={[t.sub, styles.headLine]} numberOfLines={1}>{headLine}</Text>
+        <Text style={[t.sub, styles.headLine]} numberOfLines={2}>{headLine}</Text>
         {caption ? (
           <Text style={t.meta} numberOfLines={1} maxFontSizeMultiplier={SMALL_TEXT_MAX_SCALE}>{caption}</Text>
         ) : null}
@@ -288,7 +288,7 @@ export default function LeagueSpotlight({
         accessibilityRole={nextTarget ? 'button' : 'text'}
         accessibilityLabel={nextText}
       >
-        <Text style={[t.sub, styles.flex, { color: c.text }]} numberOfLines={1}>{nextText}</Text>
+        <Text style={[t.sub, styles.flex, { color: c.text }]} numberOfLines={2}>{nextText}</Text>
         {nextTarget ? <Icon name="chevron-right" size={16} color={c.textMuted} /> : null}
       </TouchableOpacity>,
     );

@@ -935,7 +935,7 @@ function DrillChatModal({
     <View style={S.sheet}>
       <View style={S.header}>
         <Icon name="chat" size={16} color={colors.textSub} />
-        <Text style={S.title} numberOfLines={1}>{otherName}</Text>
+        <Text style={S.title} numberOfLines={2}>{otherName}</Text>
         {/* Report or block from inside the thread — where an abusive message is
             actually read. The last few messages ride along on the report so the
             queue still has them if the sender deletes theirs. */}

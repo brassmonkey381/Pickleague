@@ -366,7 +366,7 @@ export default function CourtsScreen({ navigation, route, active = true, inDisco
       {inDiscover ? null : <View style={S.line}>
         <View style={[S.flex, S.inline]}>
           <Icon name="pin" size={16} color={c.textSub} />
-          <Text style={[t.body, S.shrink]} numberOfLines={1}>
+          <Text style={[t.body, S.shrink]} numberOfLines={2}>
             Near {centerLabel ?? 'here'}
           </Text>
         </View>

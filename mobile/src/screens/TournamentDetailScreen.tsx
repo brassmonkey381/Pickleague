@@ -984,7 +984,7 @@ export default function TournamentDetailScreen({ navigation, route }: Props) {
                 accessibilityRole="button"
                 accessibilityLabel={`${stripText}. Open the schedule`}
               >
-                <Text style={[t.sub, styles.stripText, { color: c.text }]} numberOfLines={1}>{stripText}</Text>
+                <Text style={[t.sub, styles.stripText, { color: c.text }]} numberOfLines={2}>{stripText}</Text>
                 <Icon name="chevron-right" size={16} color={c.textMuted} />
               </TouchableOpacity>
             </Panel>

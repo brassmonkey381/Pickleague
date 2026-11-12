@@ -303,7 +303,7 @@ export default function CourtRoutinesScreen({ route, navigation }: Props) {
               return (
                 <Panel key={key} padded={false} style={[S.card, { borderColor: c.primary }]}>
                   <Text style={[S.time, { color: c.text }]}>{formatClockTime(s.localTime)}</Text>
-                  <Text style={t.title} numberOfLines={1}>{s.venueName}</Text>
+                  <Text style={t.title} numberOfLines={2}>{s.venueName}</Text>
                   <Text style={[t.meta, S.cardMeta]} numberOfLines={1}>
                     {formatWeekdayMask(s.days)}, {s.visits} visits in 6 weeks
                   </Text>
@@ -345,7 +345,7 @@ export default function CourtRoutinesScreen({ route, navigation }: Props) {
                         {formatClockTime(r.localTime)}
                         {zoneSuffix(r.tz)}
                       </Text>
-                      <Text style={t.title} numberOfLines={1}>{r.venueName}</Text>
+                      <Text style={t.title} numberOfLines={2}>{r.venueName}</Text>
                       <Text style={[t.meta, S.cardMeta]} numberOfLines={1}>
                         {routineTimeLine(r)}
                       </Text>

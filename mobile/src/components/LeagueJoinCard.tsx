@@ -82,7 +82,7 @@ export default function LeagueJoinCard({
     <Panel emphasis style={style}>
       <View style={styles.row}>
         <View style={styles.text}>
-          <Text style={t.title} numberOfLines={1} accessibilityRole="header">{title}</Text>
+          <Text style={t.title} numberOfLines={2} accessibilityRole="header">{title}</Text>
           <Text style={[t.sub, styles.sub]} numberOfLines={2}>{sub}</Text>
         </View>
         {sent ? (
