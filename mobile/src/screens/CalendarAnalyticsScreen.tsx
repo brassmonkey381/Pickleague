@@ -295,7 +295,7 @@ export function CalendarAnalyticsView({ userId, leagueId }: { userId?: string; l
                   <Text style={[S.matchResult, won ? S.winText : S.lossText]}>
                     {won ? 'W' : 'L'}
                   </Text>
-                  <Text style={S.matchOpponent} numberOfLines={1}>
+                  <Text style={S.matchOpponent} numberOfLines={2}>
                     vs {opponent?.full_name ?? 'Unknown'}{typeTag}
                   </Text>
                   <Text style={S.matchScore}>{myScore}–{oppScore}</Text>

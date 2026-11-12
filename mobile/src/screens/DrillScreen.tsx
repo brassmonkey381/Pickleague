@@ -337,7 +337,7 @@ export default function DrillScreen({ navigation }: Props) {
                   <View key={s.id} style={S.sessionRow}>
                     <View style={[S.sessionDot, sessionFilter === 'past' && S.sessionDotPast]} />
                     <View style={S.flex}>
-                      <Text style={t.title} numberOfLines={1}>{s.partner_name}</Text>
+                      <Text style={t.title} numberOfLines={2}>{s.partner_name}</Text>
                       <Text style={t.sub}>
                         {/* starts_at on this device's clock; the wall-clock slot is the fallback. */}
                         {drillWhenRangeLabel(s.starts_at, { date: s.session_date, slot: s.session_slot }, s.length_minutes ?? 60)}, {durationLabel(s.length_minutes ?? 60)}

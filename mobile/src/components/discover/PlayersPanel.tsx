@@ -146,11 +146,13 @@ function toPicked(p: NearPlayer): PickedUser {
  *  row's buttons BESIDE it (not inside it: a button nested in a touchable
  *  can't be reached by VoiceOver, and on web it is a press inside a press). */
 function PersonRow({
-  person, subtitle, trailing, lastRow, onOpen, c,
+  person, subtitle, trailing, actionsBelow, lastRow, onOpen, c,
 }: {
   person: FriendPerson;
   subtitle: string | null;
   trailing?: React.ReactNode;
+  /** Two buttons (Accept + Decline): they go under the name so it shows in full (PKL-027). */
+  actionsBelow?: boolean;
   lastRow: boolean;
   onOpen: () => void;
   c: Colors;
@@ -158,9 +160,9 @@ function PersonRow({
   const t = textStyles(c);
   const name = person.full_name ?? 'Player';
   return (
-    <View style={[S.row, !lastRow && { borderBottomWidth: HAIRLINE, borderBottomColor: c.border }]}>
+    <View style={[S.row, actionsBelow && S.rowStacked, !lastRow && { borderBottomWidth: HAIRLINE, borderBottomColor: c.border }]}>
       <TouchableOpacity
-        style={S.who}
+        style={[S.who, actionsBelow && S.whoStacked]}
         onPress={onOpen}
         activeOpacity={0.7}
         accessibilityRole="button"
@@ -174,11 +176,11 @@ function PersonRow({
           backgroundColor={person.avatar_bg_color ?? undefined}
         />
         <View style={S.whoText}>
-          <Text style={t.title} numberOfLines={1}>{name}</Text>
-          {subtitle ? <Text style={t.sub} numberOfLines={1}>{subtitle}</Text> : null}
+          <Text style={t.title} numberOfLines={2}>{name}</Text>
+          {subtitle ? <Text style={t.sub} numberOfLines={2}>{subtitle}</Text> : null}
         </View>
       </TouchableOpacity>
-      {trailing ? <View style={S.actions}>{trailing}</View> : null}
+      {trailing ? <View style={[S.actions, actionsBelow && S.actionsBelow]}>{trailing}</View> : null}
     </View>
   );
 }
@@ -483,6 +485,7 @@ export default function PlayersPanel({ navigation, active = true, view: viewPara
                       subtitle={requestAgoLabel(r.created_at, Date.now())}
                       lastRow={i === incoming.length - 1}
                       onOpen={() => openProfile(r.user_id, r.full_name)}
+                      actionsBelow
                       trailing={
                         <>
                           <Button
@@ -928,6 +931,10 @@ const S = StyleSheet.create({
   whoText: { flex: 1, minWidth: 0 },
   emoji: { fontSize: FONT.size.lg },
   actions: { flexDirection: 'row', alignItems: 'center', gap: SPACE.xs },
+  // actionsBelow: name on top, buttons on their own line lined up with the name.
+  rowStacked: { flexDirection: 'column', alignItems: 'stretch' },
+  whoStacked: { flexGrow: 0, flexBasis: 'auto' },
+  actionsBelow: { paddingLeft: AVATAR + SPACE.md },
   iconBox: { minWidth: 44, minHeight: 44, alignItems: 'center', justifyContent: 'center' },
 
   search: {

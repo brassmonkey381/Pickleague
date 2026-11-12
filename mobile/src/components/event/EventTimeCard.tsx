@@ -50,7 +50,8 @@ export default function EventTimeCard(p: EventTimeCardProps) {
         {p.isLive ? 'Live now' : 'Confirmed time'}
       </Text>
       <Text style={[t.title, styles.day]} accessibilityRole="header">{day}</Text>
-      <Text style={t.sub} numberOfLines={1}>{[time, p.place].filter(Boolean).join(', ')}</Text>
+      <Text style={t.sub} numberOfLines={1}>{time}</Text>
+      {p.place ? <Text style={t.sub} numberOfLines={2}>{p.place}</Text> : null}
       <Text style={[t.meta, styles.counts]} maxFontSizeMultiplier={SMALL_TEXT_MAX_SCALE}>{counts}</Text>
 
       {p.rsvpOpen && (

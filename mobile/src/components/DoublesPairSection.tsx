@@ -375,12 +375,12 @@ export default function DoublesPairSection({
                   {p.is_random_generated ? (
                     <Icon name="dice" size={14} color={c.textSub} accessibilityLabel="Randomly drawn" />
                   ) : null}
-                  <Text style={[S.teamName, S.shrink]} numberOfLines={1}>{p.name}</Text>
+                  <Text style={[S.teamName, S.shrink]} numberOfLines={2}>{p.name}</Text>
                 </View>
                 {captain && (
                   <View style={[S.glyphRow, S.teamCaptainRow]}>
                     <Icon name="crown" size={12} color={c.rarityLegendary} accessibilityLabel="Captain" />
-                    <Text style={[S.teamCaptain, S.shrink]} numberOfLines={1}>{captain.full_name}</Text>
+                    <Text style={[S.teamCaptain, S.shrink]} numberOfLines={2}>{captain.full_name}</Text>
                   </View>
                 )}
               </View>
@@ -400,7 +400,7 @@ export default function DoublesPairSection({
                 return (
                   <View key={slot} style={S.slotRow}>
                     <Text style={S.slotLabel}>{label}</Text>
-                    <Text style={S.slotName} numberOfLines={1}>
+                    <Text style={S.slotName} numberOfLines={2}>
                       {member ? member.full_name : <Text style={S.slotEmpty}>— empty —</Text>}
                     </Text>
                     {isMyPair && isCaptain && p.status === 'forming' && member && (
@@ -435,23 +435,25 @@ export default function DoublesPairSection({
                     {pairReqs.filter(r => r.direction === 'request').map(r => {
                       const u = profileMap[r.user_id];
                       return (
-                        <View key={r.id} style={S.reqRow}>
-                          <Text style={S.reqName} numberOfLines={1}>{u?.full_name ?? 'Unknown'}</Text>
-                          <Button
-                            size="sm"
-                            title="Accept"
-                            onPress={() => respondToRequest(r.id, true)}
-                            disabled={busy}
-                            accessibilityLabel={`Accept ${u?.full_name ?? 'this player'}'s request`}
-                          />
-                          <Button
-                            size="sm"
-                            variant="outline"
-                            title="Decline"
-                            onPress={() => respondToRequest(r.id, false)}
-                            disabled={busy}
-                            accessibilityLabel={`Decline ${u?.full_name ?? 'this player'}'s request`}
-                          />
+                        <View key={r.id} style={S.reqStack}>
+                          <Text style={S.reqName} numberOfLines={2}>{u?.full_name ?? 'Unknown'}</Text>
+                          <View style={S.reqActions}>
+                            <Button
+                              size="sm"
+                              title="Accept"
+                              onPress={() => respondToRequest(r.id, true)}
+                              disabled={busy}
+                              accessibilityLabel={`Accept ${u?.full_name ?? 'this player'}'s request`}
+                            />
+                            <Button
+                              size="sm"
+                              variant="outline"
+                              title="Decline"
+                              onPress={() => respondToRequest(r.id, false)}
+                              disabled={busy}
+                              accessibilityLabel={`Decline ${u?.full_name ?? 'this player'}'s request`}
+                            />
+                          </View>
                         </View>
                       );
                     })}
@@ -465,7 +467,7 @@ export default function DoublesPairSection({
                       const u = profileMap[r.user_id];
                       return (
                         <View key={r.id} style={S.reqRow}>
-                          <Text style={S.reqName} numberOfLines={1}>{u?.full_name ?? 'Unknown'}</Text>
+                          <Text style={S.reqName} numberOfLines={2}>{u?.full_name ?? 'Unknown'}</Text>
                           <Text style={S.reqWaiting}>awaiting reply</Text>
                         </View>
                       );
@@ -684,6 +686,8 @@ function makeStyles(c: ReturnType<typeof useTheme>['colors']) {
     reqList:        { marginTop: SPACE.sm },
     reqListTitle:   { ...t.fieldLabel, marginBottom: SPACE.xs },
     reqRow:         { flexDirection: 'row', alignItems: 'center', gap: SPACE.sm, minHeight: 32 },
+    reqStack:     { gap: SPACE.xs, paddingVertical: SPACE.xxs },
+    reqActions:   { flexDirection: 'row', gap: SPACE.sm },
     reqName:        { flex: 1, fontSize: FONT.size.base, color: c.text, fontWeight: W.semibold },
     reqWaiting:     { ...t.caption, fontStyle: 'italic' },
     inviteBtnRow:   { flexDirection: 'row', gap: SPACE.sm, marginTop: SPACE.xs },

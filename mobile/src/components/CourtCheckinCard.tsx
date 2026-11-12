@@ -387,8 +387,8 @@ export default function CourtCheckinCard({ onModeChange, onTap }: Props = {}) {
 
   if (current) {
     // NOW: "(pin) Lake Merritt · checked in · til 7:30", then who's here next to
-    // the actions. "Start playing" rides the title line (the plan's second line
-    // only fits [+1 h] [Check out] beside the avatars) and opens the start
+    // the actions. "Start playing" sits under the court name (the plan's second
+    // line only fits [+1 h] [Check out] beside the avatars) and opens the start
     // sheet with this court preselected. "Start playing" and "+1 h" hide while
     // a play session runs, because the floating PlayIsland shows that same
     // button then (one place per action). Sessions are presence: one started
@@ -398,26 +398,33 @@ export default function CourtCheckinCard({ onModeChange, onTap }: Props = {}) {
     return (
       <Panel padded={false} emphasis style={S.panel}>
         <View style={[S.line, S.titleRow]}>
-          <View style={[S.flex, S.inline]}>
-            <Icon name="pin" size={14} color={c.textSub} />
-            <Text style={[t.title, S.shrink]} numberOfLines={1}>
-              {current.venueName}
-              <Text style={t.sub}>, checked in, til {timeLabel(current.expiresAt)}</Text>
+          <View style={S.flex}>
+            <View style={S.inline}>
+              <Icon name="pin" size={14} color={c.textSub} />
+              <Text style={[t.title, S.shrink]} numberOfLines={2}>
+                {current.venueName}
+              </Text>
+            </View>
+            <Text style={t.sub} numberOfLines={1}>
+              Checked in, til {timeLabel(current.expiresAt)}
             </Text>
+            {/* PKL-027: under the court name, so the name gets the row's width. */}
+            {!playing && (
+              <View style={S.startRow}>
+                <Button
+                  title="Start playing"
+                  size="sm"
+                  variant="success"
+                  disabled={!!busy}
+                  onPress={tap('start_playing', () =>
+                    openPlayStart({ venue: { id: current.venueId, name: current.venueName } }),
+                  )}
+                />
+              </View>
+            )}
           </View>
           {/* Star the court you're at: next time, arriving checks you in. */}
           <CourtFavoriteStar venueId={current.venueId} venueName={current.venueName} />
-          {!playing && (
-            <Button
-              title="Start playing"
-              size="sm"
-              variant="success"
-              disabled={!!busy}
-              onPress={tap('start_playing', () =>
-                openPlayStart({ venue: { id: current.venueId, name: current.venueName } }),
-              )}
-            />
-          )}
         </View>
         <HereLine key={`${current.venueId}:${rosterKey}`} venueId={current.queued ? null : current.venueId}>
           {!playing && (
@@ -567,6 +574,7 @@ function makeStyles(_c: ReturnType<typeof useTheme>['colors']) {
     courtRow: { flexDirection: 'row', alignItems: 'center', gap: SPACE.xs, minHeight: 44 },
     line: { minHeight: 44, justifyContent: 'center' },
     titleRow: { flexDirection: 'row', alignItems: 'center', gap: SPACE.sm },
+    startRow: { flexDirection: 'row', marginTop: SPACE.xs },
     flex: { flex: 1, minWidth: 0 },
     // A pin glyph beside the title, centred on its line.
     inline: { flexDirection: 'row', alignItems: 'center', gap: SPACE.xs },

@@ -330,7 +330,7 @@ export default function PlayerProfileScreen({ navigation, route }: Props) {
             styleId={profile.profile_name_style_id}
             mode="hero"
             name={profile.full_name}
-            numberOfLines={1}
+            numberOfLines={2}
           />
         )}
         handle={[`@${profile.username}`, profile.tagline || null].filter(Boolean).join(', ')}

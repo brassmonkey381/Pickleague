@@ -134,7 +134,7 @@ function TeamFlair({
   if (!player) return <Text style={textStyle}>Player</Text>;
   const playerEl = (
     <FlairName
-      name={player.full_name ?? '?'}
+      name={player.full_name ? shortName(player.full_name) : '?'}
       nameColor={player.name_color}
       styleId={player.list_name_style_id ?? null}
       mode="list"
@@ -147,7 +147,7 @@ function TeamFlair({
       {playerEl}
       {' & '}
       <FlairName
-        name={partner.full_name}
+        name={shortName(partner.full_name)}
         nameColor={partner.name_color}
         styleId={partner.list_name_style_id ?? null}
         mode="list"
@@ -357,11 +357,11 @@ export default function MatchHistoryScreen({ navigation, route }: Props) {
   function teamNames(item: Match): { team1: string; team2: string } {
     const isDoubles = item.match_type === 'doubles';
     const team1 = isDoubles && item.partner1?.full_name
-      ? `${item.player1?.full_name ?? '?'} & ${item.partner1.full_name}`
-      : (item.player1?.full_name ?? 'Team 1');
+      ? `${item.player1?.full_name ? shortName(item.player1.full_name) : '?'} & ${shortName(item.partner1.full_name)}`
+      : (item.player1?.full_name ? shortName(item.player1.full_name) : 'Team 1');
     const team2 = isDoubles && item.partner2?.full_name
-      ? `${item.player2?.full_name ?? '?'} & ${item.partner2.full_name}`
-      : (item.player2?.full_name ?? 'Team 2');
+      ? `${item.player2?.full_name ? shortName(item.player2.full_name) : '?'} & ${shortName(item.partner2.full_name)}`
+      : (item.player2?.full_name ? shortName(item.player2.full_name) : 'Team 2');
     return { team1, team2 };
   }
 
@@ -379,15 +379,18 @@ export default function MatchHistoryScreen({ navigation, route }: Props) {
     return null;
   }
 
-  /** Line 2 of every card: [scope chip] facts, one line, ellipsized. Pending
-   *  cards pass chip: false, so the chip can't squeeze the countdown out of view. */
-  function metaLine(item: HistoryMatch, facts: string, opts?: { chip?: boolean }) {
+  /** Under the title: the facts (date, status...) in up to 2 lines, the court
+   *  on its own line (2 lines), then the scope chip on its own line, so nothing
+   *  squeezes the court out of view (PKL-027). Pending cards pass chip: false. */
+  function metaLine(item: HistoryMatch, facts: string, opts?: { chip?: boolean; place?: string | null }) {
     const chip = opts?.chip === false ? null : scopeChip(item);
-    if (!chip && !facts) return undefined;
+    const place = opts?.place || null;
+    if (!chip && !facts && !place) return undefined;
     return (
-      <View style={S.metaLine}>
+      <View style={S.metaCol}>
+        {facts ? <Text style={t.sub} numberOfLines={2}>{facts}</Text> : null}
+        {place ? <Text style={t.sub} numberOfLines={2}>{place}</Text> : null}
         {chip ? <View style={S.metaChip}>{chip}</View> : null}
-        {facts ? <Text style={[t.sub, S.metaText]} numberOfLines={1}>{facts}</Text> : null}
       </View>
     );
   }
@@ -462,13 +465,13 @@ export default function MatchHistoryScreen({ navigation, route }: Props) {
         density="compact"
         leading={tile({ iconName: entityIcon('season') }, 'upcoming')}
         title={
-          <Text style={t.title} numberOfLines={1}>
+          <Text style={t.title}>
             <TeamFlair player={item.player1} partner={isDoubles ? item.partner1 : null} textStyle={t.title} />
             {' vs '}
             <TeamFlair player={item.player2} partner={isDoubles ? item.partner2 : null} textStyle={t.title} />
           </Text>
         }
-        subtitle={metaLine(item, joinFacts([when, item.location_name ? displayCourtName(item.location_name) : null]))}
+        subtitle={metaLine(item, joinFacts([when]), { place: item.location_name ? displayCourtName(item.location_name) : null })}
         trailing={WAGERS_ENABLED ? wagerMenu(item) : undefined}
       />
     );
@@ -509,9 +512,10 @@ export default function MatchHistoryScreen({ navigation, route }: Props) {
         }
       }
 
-      // Short on purpose: the meta line is one ellipsized line beside the
-      // Confirm button. Viewers outside the match get the real per-team state
-      // (the recorder's team usually confirms at insert).
+      // Short on purpose: the meta line sits beside the Confirm button.
+      // Viewers outside the match get the real per-team state (the recorder's
+      // team usually confirms at insert). PKL-027: the score moved to the
+      // trailing column above Confirm, and the court is on the meta line.
       const stateLabel = canCallerConfirm
         ? 'Confirm needed'
         : myTeamConfirmed
@@ -527,16 +531,17 @@ export default function MatchHistoryScreen({ navigation, route }: Props) {
           highlighted={isHighlighted}
           leading={tile({ iconName: 'hourglass' }, 'pending')}
           title={
-            <Text style={t.title} numberOfLines={1}>
+            <Text style={t.title}>
               <TeamFlair player={item.player1} partner={isDoubles ? item.partner1 : null} textStyle={t.title} />
               {' vs '}
               <TeamFlair player={item.player2} partner={isDoubles ? item.partner2 : null} textStyle={t.title} />
             </Text>
           }
-          subtitle={metaLine(item, joinFacts([deadlineFact, stateLabel, `${item.player1_score}–${item.player2_score}`]), { chip: false })}
+          subtitle={metaLine(item, joinFacts([deadlineFact, stateLabel]), { chip: false, place: court })}
           trailing={
-            canCallerConfirm || WAGERS_ENABLED ? (
-              <View style={S.trailingRow}>
+            <View style={S.trailingRow}>
+              <View style={S.scoreCol}>
+                <Text style={S.score}>{item.player1_score}–{item.player2_score}</Text>
                 {canCallerConfirm ? (
                   <Button
                     size="sm"
@@ -546,9 +551,9 @@ export default function MatchHistoryScreen({ navigation, route }: Props) {
                     disabled={confirmingId != null}
                   />
                 ) : null}
-                {wagerMenu(item)}
               </View>
-            ) : undefined
+              {wagerMenu(item)}
+            </View>
           }
           style={canCallerConfirm ? S.actionCard : undefined}
         />
@@ -564,7 +569,7 @@ export default function MatchHistoryScreen({ navigation, route }: Props) {
           highlighted={isHighlighted}
           leading={tile(team1Won ? 'W' : 'L', team1Won ? 'win' : 'loss', team1Won ? 'Team 1 won' : 'Team 2 won')}
           title={
-            <Text style={[t.title, S.loserName]} numberOfLines={1}>
+            <Text style={[t.title, S.loserName]}>
               <TeamFlair player={item.player1} partner={isDoubles ? item.partner1 : null} textStyle={[t.title, team1Won ? S.winnerName : S.loserName]} />
               {' vs '}
               <TeamFlair player={item.player2} partner={isDoubles ? item.partner2 : null} textStyle={[t.title, !team1Won ? S.winnerName : S.loserName]} />
@@ -573,9 +578,8 @@ export default function MatchHistoryScreen({ navigation, route }: Props) {
           subtitle={metaLine(item, joinFacts([
             shortDate(item.played_at),
             isDoubles ? 'Doubles' : 'Singles',
-            court,
             ...tagFacts(item),
-          ]))}
+          ]), { place: court })}
           trailing={<Text style={S.score}>{item.player1_score}–{item.player2_score}</Text>}
         />
       );
@@ -598,7 +602,7 @@ export default function MatchHistoryScreen({ navigation, route }: Props) {
         highlighted={isHighlighted}
         leading={tile(won ? 'W' : 'L', won ? 'win' : 'loss', won ? 'Win' : 'Loss')}
         title={
-          <Text style={t.title} numberOfLines={1}>
+          <Text style={t.title}>
             {'vs '}
             <TeamFlair player={oppPlayer} partner={isDoubles ? oppPartner : null} textStyle={t.title} />
           </Text>
@@ -606,9 +610,8 @@ export default function MatchHistoryScreen({ navigation, route }: Props) {
         subtitle={metaLine(item, joinFacts([
           shortDate(item.played_at),
           isDoubles && myPartner?.full_name ? `with ${myPartner.full_name}` : null,
-          court,
           ...tagFacts(item),
-        ]))}
+        ]), { place: court })}
         trailing={
           <View style={S.trailingRow}>
             <View style={S.scoreCol}>
@@ -1049,10 +1052,9 @@ function makeStyles(c: ReturnType<typeof useTheme>['colors']) {
     tile: { width: TILE, height: TILE, borderRadius: TILE / 2, alignItems: 'center', justifyContent: 'center' },
     tileText: { fontSize: FONT.size.base, fontWeight: FONT.weight.heavy },
 
-    // Line 2: [scope chip] facts — one line; the facts give way first.
-    metaLine: { flexDirection: 'row', alignItems: 'center', gap: SPACE.sm, marginTop: SPACE.xxs, minWidth: 0 },
-    metaChip: { flexShrink: 1, maxWidth: '55%' },
-    metaText: { flex: 1, minWidth: 0 },
+    // Under the title: facts (2 lines), then the scope chip on its own line.
+    metaCol: { marginTop: SPACE.xxs, gap: SPACE.xxs, minWidth: 0 },
+    metaChip: { flexDirection: 'row', maxWidth: '100%' },
 
     winnerName: { color: c.text },
     loserName: { color: c.textSub },

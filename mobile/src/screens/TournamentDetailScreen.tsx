@@ -560,7 +560,7 @@ export default function TournamentDetailScreen({ navigation, route }: Props) {
     setupLabel: current.step.label,
     setupWaitingOnAdmin,
     onOpenSetup: openManage,
-    opponents: nextMatch && myUserId ? opponentsOf(nextMatch, myUserId).map(td.playerName).join(' & ') : '',
+    opponents: nextMatch && myUserId ? opponentsOf(nextMatch, myUserId).map(id => shortName(td.playerName(id))).join(' & ') : '',
     partner: nextMatch && myUserId && partnerOf(nextMatch, myUserId) ? td.playerName(partnerOf(nextMatch, myUserId)!) : null,
     roundLabel: nextMatch?.round?.label ?? null,
     recordLine: mine
@@ -984,7 +984,7 @@ export default function TournamentDetailScreen({ navigation, route }: Props) {
                 accessibilityRole="button"
                 accessibilityLabel={`${stripText}. Open the schedule`}
               >
-                <Text style={[t.sub, styles.stripText, { color: c.text }]} numberOfLines={1}>{stripText}</Text>
+                <Text style={[t.sub, styles.stripText, { color: c.text }]} numberOfLines={2}>{stripText}</Text>
                 <Icon name="chevron-right" size={16} color={c.textMuted} />
               </TouchableOpacity>
             </Panel>

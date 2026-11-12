@@ -8,6 +8,7 @@ import { computeTeamStandings, type TeamStanding } from '../../lib/tournamentSta
 import { useTournamentDetailStyles } from './styles';
 import SectionCard from './SectionCard';
 import type { TournamentDetailState } from './useTournamentDetail';
+import { shortTeam } from '../../lib/finishShare';
 
 type Props = {
   tournament: Tournament;
@@ -125,15 +126,15 @@ export default function PoolPlayBracketSection({
 
       {/* Visual bracket — populated with actual team names + winners where available */}
       <TournamentBracket
-        slotA1={{ label: 'Pool A, 1st Place', team: a1?.name, highlight: a1?.isMe }}
-        slotB2={{ label: 'Pool B, 2nd Place', team: b2?.name, highlight: b2?.isMe }}
-        slotB1={{ label: 'Pool B, 1st Place', team: b1?.name, highlight: b1?.isMe }}
-        slotA2={{ label: 'Pool A, 2nd Place', team: a2?.name, highlight: a2?.isMe }}
+        slotA1={{ label: 'Pool A, 1st Place', team: shortTeam(a1?.name), highlight: a1?.isMe }}
+        slotB2={{ label: 'Pool B, 2nd Place', team: shortTeam(b2?.name), highlight: b2?.isMe }}
+        slotB1={{ label: 'Pool B, 1st Place', team: shortTeam(b1?.name), highlight: b1?.isMe }}
+        slotA2={{ label: 'Pool A, 2nd Place', team: shortTeam(a2?.name), highlight: a2?.isMe }}
         semi1={{
           label: semi1Match?.status === 'completed'
             ? `Semi 1: ${semi1Match.team1_score}–${semi1Match.team2_score}`
             : 'Semi-Final 1',
-          team: semi1Winner?.name,
+          team: shortTeam(semi1Winner?.name),
           highlight: semi1Winner?.isMe,
           tournamentMatchId: semi1Match?.id,
         }}
@@ -141,7 +142,7 @@ export default function PoolPlayBracketSection({
           label: semi2Match?.status === 'completed'
             ? `Semi 2: ${semi2Match.team1_score}–${semi2Match.team2_score}`
             : 'Semi-Final 2',
-          team: semi2Winner?.name,
+          team: shortTeam(semi2Winner?.name),
           highlight: semi2Winner?.isMe,
           tournamentMatchId: semi2Match?.id,
         }}
@@ -149,7 +150,7 @@ export default function PoolPlayBracketSection({
           label: finalMatch?.status === 'completed'
             ? `Final: ${finalMatch.team1_score}–${finalMatch.team2_score}`
             : 'Grand Final',
-          team: finalWinner?.name,
+          team: shortTeam(finalWinner?.name),
           highlight: finalWinner?.isMe,
           tournamentMatchId: finalMatch?.id,
         }}

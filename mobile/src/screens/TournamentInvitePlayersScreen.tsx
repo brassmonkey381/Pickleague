@@ -373,11 +373,11 @@ export default function TournamentInvitePlayersScreen({ navigation, route }: Pro
                   <Text style={S.avatarEmoji}>{emoji}</Text>
                 </View>
                 <View style={{ flex: 1 }}>
-                  <Text style={S.name} numberOfLines={1}>{item.full_name}</Text>
+                  <Text style={S.name} numberOfLines={2}>{item.full_name}</Text>
                   <Text style={S.sub} numberOfLines={1}>
                     @{item.username}, {formatPlupr(item.rating, item.total_matches_played)} PLUPR, {ratingDeltaTxt}
                   </Text>
-                  {item.playsAt ? <Text style={S.playsAt} numberOfLines={1}>{item.playsAt}</Text> : null}
+                  {item.playsAt ? <Text style={S.playsAt} numberOfLines={2}>{item.playsAt}</Text> : null}
                 </View>
                 {state?.invited ? (
                   <View style={S.btnDone} accessible accessibilityLabel={`${item.full_name} invited`}>

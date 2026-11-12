@@ -78,7 +78,7 @@ function PlayerField({ slot, name, onPress, S }: {
       accessibilityRole="button"
       accessibilityLabel={name ? `${SLOT_LABEL[slot]}: ${name}. Change` : `Choose ${SLOT_LABEL[slot].toLowerCase()}`}
     >
-      <Text style={[S.fieldText, !name && S.fieldPlaceholder]} numberOfLines={1}>
+      <Text style={[S.fieldText, !name && S.fieldPlaceholder]} numberOfLines={2}>
         {name ?? SLOT_LABEL[slot]}
       </Text>
       <Icon name="chevron-down" size={14} color={colors.textMuted} style={S.fieldChevron} />
@@ -1010,7 +1010,7 @@ export default function MatchEntryScreen({ navigation, route }: Props) {
               accessibilityRole="button"
               accessibilityLabel={selectedLeagueName ? `League: ${selectedLeagueName}. Change` : 'Choose a league'}
             >
-              <Text style={[S.fieldText, !selectedLeagueId && S.fieldPlaceholder]} numberOfLines={1}>
+              <Text style={[S.fieldText, !selectedLeagueId && S.fieldPlaceholder]} numberOfLines={2}>
                 {selectedPlayerIds.length === 0
                   ? 'Pick players first…'
                   : (selectedLeagueName
@@ -1030,7 +1030,7 @@ export default function MatchEntryScreen({ navigation, route }: Props) {
                 accessibilityRole="button"
                 accessibilityLabel="Tag a tournament (optional)"
               >
-                <Text style={[S.fieldText, !selectedTournamentId && S.fieldPlaceholder]} numberOfLines={1}>
+                <Text style={[S.fieldText, !selectedTournamentId && S.fieldPlaceholder]} numberOfLines={2}>
                   {selectedTournamentId
                     ? (visibleTournaments.find(t => t.id === selectedTournamentId)?.name ?? 'Optional')
                     : 'Optional'}
@@ -1098,7 +1098,7 @@ export default function MatchEntryScreen({ navigation, route }: Props) {
                 <Text style={S.gameLabel} maxFontSizeMultiplier={SMALL_TEXT_MAX_SCALE}>G{i + 1}</Text>
               )}
               <View style={S.scoreCol}>
-                {i === 0 && <Text style={S.scoreName} numberOfLines={1}>{p1Name}</Text>}
+                {i === 0 && <Text style={S.scoreName} numberOfLines={2}>{p1Name}</Text>}
                 <KeyboardTextInput
                   style={S.scoreInput}
                   keyboardType="number-pad"
@@ -1112,7 +1112,7 @@ export default function MatchEntryScreen({ navigation, route }: Props) {
               </View>
               <Text style={S.vs}>–</Text>
               <View style={S.scoreCol}>
-                {i === 0 && <Text style={S.scoreName} numberOfLines={1}>{p2Name}</Text>}
+                {i === 0 && <Text style={S.scoreName} numberOfLines={2}>{p2Name}</Text>}
                 <KeyboardTextInput
                   style={S.scoreInput}
                   keyboardType="number-pad"
@@ -1167,7 +1167,7 @@ export default function MatchEntryScreen({ navigation, route }: Props) {
         {courtHint && (
           <View style={[S.iconRow, S.courtHintRow]}>
             {courtHint.icons.map((name) => <Icon key={name} name={name} size={14} color={colors.textMuted} />)}
-            <Text style={S.courtHint} numberOfLines={1}>{courtHint.text}</Text>
+            <Text style={S.courtHint} numberOfLines={2}>{courtHint.text}</Text>
           </View>
         )}
         <View style={S.courtTypeRow}>

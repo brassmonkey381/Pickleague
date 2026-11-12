@@ -193,7 +193,7 @@ export default function TournamentYouCard({ view }: { view: YouCardView }) {
       ) : null}
       <Text style={t.title} numberOfLines={2} accessibilityRole="header">{view.title}</Text>
       {(view.lines ?? []).slice(0, 2).map((l, i) => (
-        <Text key={i} style={t.sub} numberOfLines={1}>{l}</Text>
+        <Text key={i} style={t.sub} numberOfLines={2}>{l}</Text>
       ))}
     </View>
   );
@@ -225,7 +225,7 @@ export default function TournamentYouCard({ view }: { view: YouCardView }) {
               </View>
               <Text
                 style={[t.sub, styles.podiumName, { color: p.isMe ? c.primary : c.text }, p.isMe && styles.strong]}
-                numberOfLines={1}
+                numberOfLines={2}
               >
                 {p.names}{p.isMe ? ' (you)' : ''}
               </Text>

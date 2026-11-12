@@ -98,3 +98,10 @@ export function finishShareMessage(d: Pick<FinishShareData, 'kind' | 'title' | '
   const what = d.rank === 1 ? `I won ${where}` : `I finished ${placeHeadline(d.rank, d.of).replace(' place', '')} in ${where}`;
   return `${what} on Pickleague 🥒 ${link}`;
 }
+
+/** "Alexandrina Montgomery-Vasquez & Sam Lee" -> "Alexandrina M. & Sam L." (crowded rows: brackets,
+ *  schedules). Blank stays blank, so an empty slot still reads as TBD. */
+export function shortTeam(label: string | null | undefined): string | undefined {
+  if (!label || !label.trim()) return undefined;
+  return label.split(' & ').map((n) => shortName(n)).join(' & ');
+}

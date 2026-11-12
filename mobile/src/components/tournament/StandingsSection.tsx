@@ -50,7 +50,7 @@ export default function StandingsSection({ data, title }: { data: StandingsData;
         <View style={styles.rank}>
           <RankMedal place={position} />
         </View>
-        <Text style={[t.sub, styles.name, { color: r.isMe ? c.primary : c.text }, r.isMe && styles.strong]} numberOfLines={1}>
+        <Text style={[t.sub, styles.name, { color: r.isMe ? c.primary : c.text }, r.isMe && styles.strong]} numberOfLines={2}>
           {r.name}{r.isMe ? ' (you)' : ''}
         </Text>
         <Text style={[t.sub, styles.wl, { color: c.text }]}>{r.wins}-{r.losses}</Text>

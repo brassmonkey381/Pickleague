@@ -14,6 +14,7 @@ import {
   EMPTY_SCHEDULE_FILTER, type ScheduleFilter, type ScheduleMatch,
 } from './tournamentModel';
 import type { TournamentDetailNavigation, TournamentDetailState } from './useTournamentDetail';
+import { shortName } from '../../lib/finishShare';
 
 /** Matches listed before "Show N more" while no filter is on. */
 const UNFILTERED_LIMIT = 12;
@@ -124,8 +125,12 @@ export default function MatchScheduleSection({
   });
 
   function renderMatch(m: any, i: number) {
-    const t1 = [m.team1_player1, m.team1_player2].filter(Boolean).map(playerName).join(' & ') || '—';
-    const t2 = [m.team2_player1, m.team2_player2].filter(Boolean).map(playerName).join(' & ') || '—';
+    const t1 = [m.team1_player1, m.team1_player2].filter(Boolean).map(id => shortName(playerName(id))).join(' & ') || '—';
+    const t2 = [m.team2_player1, m.team2_player2].filter(Boolean).map(id => shortName(playerName(id))).join(' & ') || '—';
+    // On screen, one player per line, no "&" (the stack reads as a pair,
+    // PKL-027); t1/t2 keep the "&" for the screen-reader label.
+    const t1Lines = t1.split(' & ').join('\n');
+    const t2Lines = t2.split(' & ').join('\n');
     const isMyMatch = involves(m, myUserId);
     const completed = m.status === 'completed' && m.winner_team != null;
     const team1Won = m.winner_team === 'team1';
@@ -137,7 +142,7 @@ export default function MatchScheduleSection({
       return (
         <View key={m.id} style={[S.matchRow, isMyMatch && S.matchRowHighlight]}>
           <Text style={S.matchNum}>{i + 1}</Text>
-          <Text style={[S.matchup, S.matchupWinner, isMyMatch && S.matchupHighlight]} numberOfLines={1}>{t1}</Text>
+          <Text style={[S.matchup, S.matchupWinner, isMyMatch && S.matchupHighlight]}>{t1Lines}</Text>
           <Text style={S.vs}>—</Text>
           <Text style={S.matchup} numberOfLines={1}>bye to next round</Text>
           {isMyMatch && <Text style={S.youTag}>YOU</Text>}
@@ -183,7 +188,7 @@ export default function MatchScheduleSection({
             completed && team1Won && S.matchupWinner,
             completed && !team1Won && S.matchupLoser,
             isMyMatch && S.matchupHighlight,
-          ]} numberOfLines={1}>{t1}</Text>
+          ]}>{t1Lines}</Text>
           {completed ? (
             <Text style={S.matchScore}>{m.team1_score}–{m.team2_score}</Text>
           ) : (
@@ -194,7 +199,7 @@ export default function MatchScheduleSection({
             completed && !team1Won && S.matchupWinner,
             completed && team1Won && S.matchupLoser,
             isMyMatch && S.matchupHighlight,
-          ]} numberOfLines={1}>{t2}</Text>
+          ]}>{t2Lines}</Text>
           {isMyMatch && <Text style={S.youTag}>YOU</Text>}
           {tappable && !isMyMatch && <Icon name="chevron-right" size={16} color={c.textMuted} />}
         </Row>

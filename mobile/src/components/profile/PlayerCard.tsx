@@ -115,7 +115,7 @@ export default function PlayerCard({
           <View style={S.nameCol}>
             {name}
             {handle ? <Text style={t.sub} numberOfLines={2}>{handle}</Text> : null}
-            {place ? <Text style={t.meta} numberOfLines={1}>{place}</Text> : null}
+            {place ? <Text style={t.meta} numberOfLines={2}>{place}</Text> : null}
           </View>
           {onEdit ? (
             <TouchableOpacity style={S.iconBox} onPress={onEdit} accessibilityRole="button" accessibilityLabel="Edit profile">

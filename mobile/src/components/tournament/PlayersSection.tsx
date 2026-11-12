@@ -96,7 +96,7 @@ export default function PlayersSection({
                   nameColor={(r.profile as any)?.name_color}
                   styleId={(r.profile as any)?.list_name_style_id ?? null}
                   mode="list"
-                  numberOfLines={1}
+                  numberOfLines={2}
                   style={[t.title, styles.name, { color: isInvitePending ? c.textMuted : c.text }, isInvitePending && styles.italic]}
                 />
                 {isInvitePending ? (

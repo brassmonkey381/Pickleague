@@ -655,6 +655,8 @@ export default function LeaguesScreen({ navigation, route, active = true, routeM
     return (
       <LeagueRow
         league={l}
+        // Discover is the one list that says "Private" (Brian, PKL-027).
+        showPrivate
         // Each section's leagues in one card, a divider between rows.
         layout="row"
         lastRow={edges.last}

@@ -662,7 +662,7 @@ export default function NotificationsScreen({ navigation, route }: Props) {
               {!n.is_read ? <View style={[styles.unreadDot, { backgroundColor: c.primary }]} /> : null}
               <Text
                 style={[t.title, styles.titleText, n.is_read && { color: c.textSub }, gone && styles.gone]}
-                numberOfLines={open ? undefined : 1}
+                numberOfLines={open ? undefined : 2}
               >
                 {g.title}
               </Text>

@@ -329,9 +329,9 @@ export default function DrillSearchScreen({ route }: Props) {
                   <Text style={S.avatarEmoji}>{avatar.emoji}</Text>
                 </View>
                 <View style={{ flex: 1 }}>
-                  <Text style={S.name} numberOfLines={1}>{item.full_name}</Text>
+                  <Text style={S.name} numberOfLines={2}>{item.full_name}</Text>
                   <Text style={S.username}>@{item.username}, {formatPlupr(item.rating, item.total_matches_played)} PLUPR ({eloDiffLabel})</Text>
-                  {item.playsAt ? <Text style={S.username} numberOfLines={1}>{item.playsAt}</Text> : null}
+                  {item.playsAt ? <Text style={S.username} numberOfLines={2}>{item.playsAt}</Text> : null}
                 </View>
               </View>
 

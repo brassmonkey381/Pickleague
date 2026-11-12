@@ -38,6 +38,10 @@ export type LeagueRowProps = {
   layout?: EntityRowLayout;
   /** The viewer's role: shown as the first chip. null / 'unknown' = no chip. */
   role?: LeagueRowRole;
+  /** Show the "Private" chip on a private league. Default false: only Discover's
+   *  lists show it (Brian, PKL-027: it takes too much room elsewhere, and the
+   *  [Request] button already says so). */
+  showPrivate?: boolean;
   /** The viewer has a pending join request (non-members only): a "Requested" chip. */
   requested?: boolean;
   /** "3 players". 0 / null is omitted, never "0 players". */
@@ -64,6 +68,7 @@ export default function LeagueRow({
   league,
   layout = 'compact',
   role,
+  showPrivate = false,
   requested,
   memberCount,
   facts,
@@ -94,7 +99,7 @@ export default function LeagueRow({
     leagueRoleChip(role),
     // A member already knows; to everyone else it says why the action is
     // [Request] rather than [Join].
-    !isMember && isPrivate && { label: 'Private', tone: 'neutral' },
+    showPrivate && !isMember && isPrivate && { label: 'Private', tone: 'neutral' },
     !isMember && requested && { label: 'Requested', tone: 'info' },
     ...(chips ?? []),
   ];
