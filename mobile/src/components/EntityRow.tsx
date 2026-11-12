@@ -2,7 +2,7 @@
 // the Compact and Row variants). Presentational only: no data, no navigation.
 //
 //   [glyph]  Title, in full                    trailing text  ›
-//            (chip) (chip) one-line subtitle   or [ action ]
+//            (chip) (chip) subtitle, 2 lines   or [ action ]
 //
 // Built on the foundation ListCard so the box metrics (56 min height, 10/12
 // padding, hairline divider / border, minHeight never height) stay in one
@@ -126,7 +126,7 @@ export default function EntityRow({
           />
         ))}
         {sub ? (
-          <Text style={[t.sub, styles.metaText]} numberOfLines={1}>
+          <Text style={[t.sub, styles.metaText]} numberOfLines={2}>
             {sub}
           </Text>
         ) : null}
@@ -167,6 +167,7 @@ export default function EntityRow({
       leading={leading}
       title={titleNode}
       subtitle={subNode}
+      subtitleLines={2}
       trailing={trailing ?? undefined}
       onPress={onPress}
       density={layout === 'compact' ? 'compact' : 'default'}
