@@ -27,7 +27,7 @@ const KEY = 'pickleague:pendingDeepLink';
 const MAX_AGE_MS = 7 * 86_400_000;
 
 /** Paths with nothing to return to — the root, and the two static pages. */
-const NOT_WORTH_REMEMBERING = ['/', '/privacy', '/landing', '/login', '/register'];
+const NOT_WORTH_REMEMBERING = ['/', '/home', '/privacy', '/landing', '/login', '/register'];
 
 type Pending = { path: string; at: number };
 

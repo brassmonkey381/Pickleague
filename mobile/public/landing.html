@@ -5,6 +5,28 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Pickleague: run a real pickleball league, free</title>
 <meta name="description" content="Real league infrastructure for recreational pickleball groups - tracked matches, PLUPR ratings, seven tournament formats, seasons and standings - free at pickleague.club.">
+<link rel="canonical" href="https://www.pickleague.club/">
+<meta property="og:site_name" content="Pickleague">
+<meta property="og:type" content="website">
+<meta property="og:url" content="https://www.pickleague.club/">
+<meta property="og:title" content="Pickleague: run a real pickleball league, free">
+<meta property="og:description" content="Real league infrastructure for recreational pickleball groups - tracked matches, PLUPR ratings, seven tournament formats, seasons and standings - free at pickleague.club.">
+<meta property="og:image" content="https://www.pickleague.club/landing-assets/logo.png">
+<meta name="twitter:card" content="summary">
+<meta name="apple-itunes-app" content="app-id=6796130870">
+<script>
+  // PKL-028: this page is the home page (/) for everyone, crawlers included.
+  // Someone already signed in on this browser, or arriving from a sign-in
+  // email (#access_token / ?code) or a referral link (?ref=), goes straight
+  // to the app at /home with the rest of the address kept.
+  (function () {
+    var go = /access_token=|error_code=/.test(location.hash) || /[?&](code|ref)=/.test(location.search);
+    try {
+      for (var i = 0; !go && i < localStorage.length; i++) go = /^sb-.+-auth-token$/.test(localStorage.key(i) || '');
+    } catch (e) { /* storage blocked: stay on the landing page */ }
+    if (go) location.replace('/home' + location.search + location.hash);
+  })();
+</script>
 <link rel="icon" type="image/png" href="./landing-assets/logo.png">
 <link rel="apple-touch-icon" href="./landing-assets/logo.png">
 <!--
@@ -166,6 +188,7 @@
 
   .footer { margin-top: 96px; border-top: 1px solid var(--hairline); padding-top: 28px; display: grid; gap: 10px; }
   .footer p { color: var(--ink-2); font-size: 12.5px; line-height: 1.5; max-width: 860px; }
+  .footer a { color: var(--accent-deep); font-weight: 600; }
 
   .lightbox {
     position: fixed; inset: 0; z-index: 60; background: rgba(8, 16, 8, 0.88);
@@ -205,7 +228,7 @@
       <img class="logo" src="./landing-assets/logo.png" alt="Pickleague logo">
       <span class="wordmark">Pickleague</span>
     </div>
-    <a class="nav-btn" href="/">Open the app &rarr;</a>
+    <a class="nav-btn" href="/home">Open the app &rarr;</a>
   </nav>
 
   <!-- ── Hero: the league tour plays live ─────────────────── -->
@@ -367,6 +390,7 @@
 
   <footer class="footer">
     <p>Pickleague - free at pickleague.club. Made for rec players who take the fun seriously.</p>
+    <p><a href="/guides/plupr">PLUPR player guide</a> &middot; <a href="/privacy">Privacy</a> &middot; <a href="/delete-account">Delete your account</a></p>
   </footer>
 
 </div>

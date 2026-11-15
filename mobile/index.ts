@@ -3,30 +3,17 @@ import { registerRootComponent } from 'expo';
 
 import { StartupErrorScreen, installFatalErrorHandler } from './src/lib/StartupErrorScreen';
 
-// First-visit web landing: fresh visitors hitting the root get the static
-// marketing page (public/landing.html - authored in marketing-studio, which
-// stamps this flag so the redirect never loops). Runs before the app graph
-// loads. `document` discriminates web from native (RN has a `window` global
-// but no DOM).
+// The web landing page is no longer a JavaScript redirect: the deployed site
+// serves public/landing.html AS the home page (/) to everyone, and the app at
+// /home and its other paths (vercel.json, scripts/web-postbuild.mjs, PKL-028).
+// Signed-in visitors and sign-in email links are forwarded from / to /home by
+// a script in landing.html. `document` discriminates web from native.
 // Dev web only: /?sharelab draws the share card QA grid (src/dev/ShareLabWeb),
 // /?lookslab the shared parts in the current look (src/dev/LooksLabWeb).
 const shareLab =
   __DEV__ && typeof document !== 'undefined' && new URLSearchParams(window.location.search).has('sharelab');
 const looksLab =
   __DEV__ && typeof document !== 'undefined' && new URLSearchParams(window.location.search).has('lookslab');
-
-if (
-  typeof document !== 'undefined' &&
-  !shareLab &&
-  !looksLab &&
-  window.location.pathname === '/' &&
-  // A sign-in link from an auth email lands on / with its result in the hash;
-  // the redirect would drop it (PKL-020).
-  !/access_token=|error_code=/.test(window.location.hash) &&
-  !window.localStorage.getItem('pickleague_landing_seen')
-) {
-  window.location.replace('/landing.html');
-}
 
 installFatalErrorHandler();
 

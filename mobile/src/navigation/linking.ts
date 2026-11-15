@@ -87,7 +87,10 @@ export const linking: LinkingOptions<RootStackParamList> = {
       Register: 'register',
       CheckEmail: 'check-email',
       GuestJoin: 'g/:token',
-      Home: '',
+      // On the web, / is the static landing page (PKL-028, vercel.json), so the
+      // app's Home lives at /home; '' stays an alias so a link to the bare
+      // domain (universal link, push, old bookmark) still opens Home.
+      Home: { path: 'home', alias: [''] },
       ...(DISCOVER_ENABLED ? { Discover: DISCOVER_LINK } : {}),
       Play: 'play',
       // /play/start opens the ▶ Play sheet (PLAY_NAV_ENABLED; the route takes
