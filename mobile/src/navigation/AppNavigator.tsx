@@ -1,9 +1,10 @@
 import React, { useEffect, useMemo, useState } from 'react';
-import { Platform, TouchableOpacity, View } from 'react-native';
+import { Platform, TouchableOpacity, View, useWindowDimensions } from 'react-native';
 import { Icon } from '@just-messin-around/expo-foundation/icons';
 import { NavigationContainer, DefaultTheme, DarkTheme } from '@react-navigation/native';
 import { createNativeStackNavigator } from '@react-navigation/native-stack';
 import { FONT } from '@just-messin-around/expo-foundation/typography';
+import { SPACE } from '@just-messin-around/expo-foundation/styles';
 import { supabase } from '../lib/supabase';
 import { RootStackParamList } from '../types';
 import SplashScreen from '../components/SplashScreen';
@@ -145,21 +146,44 @@ const MIN_MS = Platform.OS === 'web' ? 2200 : 1600;
 
 // On web, constrain the app to a centered 720px column so screens don't
 // stretch edge-to-edge on desktop. On native, this is a pass-through.
+// (PKL-029 p05) When the window is wider than the column, the column is drawn
+// as a card (a hairline each side and a soft shadow), so title bars and
+// banners that stop at its edges read as part of a panel, not a cut-off slab.
 function WebMaxWidth({
   children,
   background,
+  edge,
 }: {
   children: React.ReactNode;
   background: string;
+  edge: string;
 }) {
+  const { width } = useWindowDimensions();
   if (Platform.OS !== 'web') return <>{children}</>;
+  const framed = width > WEB_COLUMN_MAX_WIDTH;
   return (
     <View style={{ flex: 1, backgroundColor: background, alignItems: 'center' }}>
-      <View style={{ flex: 1, width: '100%', maxWidth: WEB_COLUMN_MAX_WIDTH }}>
+      <View
+        style={[
+          { flex: 1, width: '100%', maxWidth: WEB_COLUMN_MAX_WIDTH },
+          framed && { borderLeftWidth: 1, borderRightWidth: 1, borderColor: edge, boxShadow: '0 0 32px rgba(0, 0, 0, 0.08)' },
+        ]}
+      >
         {children}
       </View>
     </View>
   );
+}
+
+/** (PKL-029 p17) Create Account's title lines up with the form's 24 px side
+ *  margin. Web only: the web header is the JS one, which takes this style;
+ *  the native header ignores it. With a back arrow the title sits after it. */
+function registerOptions({ navigation }: { navigation: { canGoBack: () => boolean } }) {
+  const alignTitle = Platform.OS === 'web' && !navigation.canGoBack();
+  return {
+    title: 'Create Account',
+    ...(alignTitle ? ({ headerTitleContainerStyle: { marginHorizontal: SPACE.xl } } as object) : {}),
+  };
 }
 
 /** A header action: a real 44 box (RNW ignores hitSlop) around a 24 glyph,
@@ -359,7 +383,7 @@ export default function AppNavigator() {
       )}
       {!updateRequired && phase === 'error' && <StartupRetryScreen onRetry={retry} />}
       {!updateRequired && phase === 'ready' && (
-        <WebMaxWidth background={colors.bg}>
+        <WebMaxWidth background={colors.bg} edge={colors.border}>
           {/* Web-only; renders null on native and when nothing is pending. */}
           <ContinueInAppBanner />
           {/* With the bottom bar, the screens end above the room it and the
@@ -543,7 +567,7 @@ export default function AppNavigator() {
             ) : (
               <>
                 <Stack.Screen name="Login" component={LoginScreen} options={{ headerShown: false }} />
-                <Stack.Screen name="Register" component={RegisterScreen} options={{ title: 'Create Account' }} />
+                <Stack.Screen name="Register" component={RegisterScreen} options={registerOptions} />
                 <Stack.Screen name="CheckEmail" component={CheckEmailScreen} options={{ headerShown: false }} />
                 <Stack.Screen name="GuestJoin" component={GuestJoinScreen} options={{ title: 'Join the vote' }} />
                 {REFERRALS_ENABLED && (

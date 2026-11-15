@@ -50,6 +50,9 @@ export function existingAccountMessage(email: string): string {
 export const CHECK_EMAIL_TITLE = 'Check your email';
 
 export function checkEmailBody(email: string): string {
+  // (PKL-029 p04) A link without the address (a bookmark, a shared URL) has
+  // no address to name and nothing to check a code against.
+  if (!email.trim()) return 'Open the link in your sign-up email to finish, or sign in below.';
   return `We sent a code to ${email}. Type it below to finish signing up.`;
 }
 

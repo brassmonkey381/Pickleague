@@ -38,6 +38,7 @@ import type { RootStackParamList } from '../types';
 type Props = NativeStackScreenProps<RootStackParamList, 'CheckEmail'>;
 
 const RESEND_TIMEOUT_MS = 20_000;
+const WEB = Platform.OS === 'web';
 
 export default function CheckEmailScreen({ navigation, route }: Props) {
   const { colors: c } = useTheme();
@@ -120,6 +121,9 @@ export default function CheckEmailScreen({ navigation, route }: Props) {
         <Text style={S.text}>{checkEmailBody(email)}</Text>
         {referral ? <Text style={S.sub}>{referralLine(REFERRAL_REWARD_PICKLES)}</Text> : null}
 
+        {/* (PKL-029 p04) Without the address there is nothing to check a
+            code against or resend to, so only the way out shows. */}
+        {email ? (<>
         <TextField
           label={CODE_LABEL}
           placeholder="123456"
@@ -159,14 +163,19 @@ export default function CheckEmailScreen({ navigation, route }: Props) {
           style={S.button}
         />
         {note ? <Text style={[S.note, { color: note.ok ? c.success : c.danger }]}>{note.text}</Text> : null}
+        </>) : null}
 
-        <TouchableOpacity onPress={() => navigation.navigate('Login', { email })} style={S.linkBox} accessibilityRole="button">
-          <Text style={S.link}>Already confirmed? Sign in</Text>
-        </TouchableOpacity>
-        <TouchableOpacity onPress={() => navigation.navigate('Register')} style={S.linkBox} accessibilityRole="button">
-          <Text style={S.link}>Wrong address? Fix it</Text>
-        </TouchableOpacity>
-        <Text style={S.help}>{CHECK_EMAIL_HELP}</Text>
+        <View style={S.footer}>
+          <TouchableOpacity onPress={() => navigation.navigate('Login', { email })} style={S.linkBox} accessibilityRole="button">
+            <Text style={S.link}>{email ? 'Already confirmed? Sign in' : 'Sign in'}</Text>
+          </TouchableOpacity>
+          {email ? (
+            <TouchableOpacity onPress={() => navigation.navigate('Register')} style={S.linkBox} accessibilityRole="button">
+              <Text style={S.link}>Wrong address? Fix it</Text>
+            </TouchableOpacity>
+          ) : null}
+          {email ? <Text style={S.help}>{CHECK_EMAIL_HELP}</Text> : null}
+        </View>
       </View>
     </ScrollView>
   );
@@ -186,9 +195,14 @@ function makeStyles(c: ReturnType<typeof useTheme>['colors']) {
     button:     { marginTop: SPACE.xs },
     codeInput:  { fontSize: 24, letterSpacing: 6, textAlign: 'center' },
     note:       { ...t.bodySub, textAlign: 'center' },
+    // The links and the help note. On the phone the spacing is as it was
+    // (gap + each link's marginTop). (PKL-029 p18) On the web the visible
+    // gaps are even, about 23 px: the 44 boxes' own padding (11 a side) plus
+    // a small top margin, and 12 above the help note.
+    footer:     WEB ? { marginTop: SPACE.xs } : { gap: SPACE.sm },
     // A real 44 box (react-native-web ignores hitSlop).
-    linkBox:    { minHeight: 44, justifyContent: 'center', marginTop: SPACE.sm },
+    linkBox:    { minHeight: 44, justifyContent: 'center', marginTop: WEB ? 0 : SPACE.sm },
     link:       { ...t.body, textAlign: 'center', color: c.primary },
-    help:       { ...t.hint, textAlign: 'center' },
+    help:       { ...t.hint, textAlign: 'center', marginTop: WEB ? SPACE.md : 0 },
   });
 }
