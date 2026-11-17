@@ -7,6 +7,7 @@ import { supabase } from '../lib/supabase';
 import { navigateWhenReady } from '../lib/navigationRef';
 import { track } from '../lib/analytics';
 import { authLinkNotice, parseAuthLink, setAuthLinkNotice } from '../lib/authLink';
+import { isRecoveryLink, setRecoveryPending } from '../lib/passwordRecovery';
 
 async function handle(url: string | null): Promise<void> {
   const r = parseAuthLink(url);
@@ -21,15 +22,20 @@ async function handle(url: string | null): Promise<void> {
     navigateWhenReady('Login', {});
     return;
   }
-  // The web client reads a success itself (detectSessionInUrl).
-  if (Platform.OS === 'web') return;
+  // The web client reads a success itself (detectSessionInUrl). A password
+  // reset link then asks for a new password (NewPasswordHost).
+  if (Platform.OS === 'web') {
+    if (isRecoveryLink(r)) setRecoveryPending(true);
+    return;
+  }
   const { error } = await supabase.auth.setSession({ access_token: r.accessToken, refresh_token: r.refreshToken });
   if (error) {
     setAuthLinkNotice("Your email is confirmed. Sign in below to continue.");
     track('auth.link_failed', { code: 'set_session' });
   } else {
     // AppNavigator sees the new session and opens Home.
-    track('auth.confirmed', { via: 'link' });
+    if (isRecoveryLink(r)) setRecoveryPending(true);
+    else track('auth.confirmed', { via: 'link' });
   }
 }
 
