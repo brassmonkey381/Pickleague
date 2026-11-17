@@ -6,7 +6,7 @@
 <title>Pickleague: run a real pickleball league, free</title>
 <!-- MKT-040: landing v2, built beside the live landing.html for a later swap.
      Not linked, not in sitemap.xml or vercel.json. noindex until Brian swaps it in
-     (on swap: drop the robots tag, restore the canonical / og tags below). -->
+     (on swap: drop the robots tag, restore the canonical / og tags from landing.html). -->
 <meta name="robots" content="noindex, nofollow">
 <meta name="description" content="Real league infrastructure for recreational pickleball groups - game-time votes, play days, PLUPR ratings, seven tournament formats, seasons and standings - free at pickleague.club.">
 <meta name="apple-itunes-app" content="app-id=6796130870">
@@ -23,7 +23,7 @@
 </script>
 <link rel="icon" type="image/png" href="./landing-assets/logo.png">
 <link rel="apple-touch-icon" href="./landing-assets/logo.png">
-<link rel="preload" as="image" href="./landing-v2-assets/01-who-s-in-saturday.webp" fetchpriority="high">
+<link rel="preload" as="image" href="./landing-v2-assets/03-brackets-and-formats-handled.webp" fetchpriority="high">
 <link rel="preload" as="font" type="font/ttf" href="./landing-v2-assets/LilitaOne-Regular.ttf" crossorigin>
 <style>
   @font-face {
@@ -31,113 +31,147 @@
     src: url('./landing-v2-assets/LilitaOne-Regular.ttf') format('truetype');
     font-display: optional; /* no swap, so no layout shift */
   }
-  /* Rally, the app's default look (mobile/src/lib/skins.ts). */
+  /* Tokens: Rally, the app's default look (mobile/src/lib/skins.ts). The look
+     picker below rewrites these on <html> with the other looks' real tokens. */
   :root {
-    --bg: #fffdf5; --surface: #ffffff; --ink: #0f3d2a; --sub: #4a6458;
-    --line: #d9dfc4; --tint: #f1f6c4; --lime: #e8f03c; --deep: #0f3d2a; --deeper: #0b2e20;
-    --edge: #0f3d2a; --on-deep: #f6f9e6; --on-deep-sub: #b4c7b9;
+    --bg: #fffdf5; --surface: #ffffff; --ink: #0f3d2a; --sub: #4a6458; --line: #d9dfc4; --tint: #f1f6c4;
+    --primary: #0f3d2a; --primary-ink: #e8f03c; --band: #e8f03c; --band-ink: #0f3d2a; --edge: #0f3d2a;
+    --hl: #e8f03c; --on-hl: #0f3d2a; --deep: #0f3d2a; --on-deep: #f6f9e6; --on-deep-sub: #b4c7b9;
+    --r-card: 18px; --r-btn: 14px; --r-chip: 8px;
   }
   @media (prefers-color-scheme: dark) {
     :root {
-      --bg: #0c1f17; --surface: #13301f; --ink: #f6f9e6; --sub: #b4c7b9;
-      --line: #2c5a43; --tint: #1b3a28; --edge: #e8f03c; --deep: #13301f; --deeper: #10281b;
+      --bg: #0c1f17; --surface: #13301f; --ink: #f6f9e6; --sub: #b4c7b9; --line: #2c5a43; --tint: #1b3a28;
+      --primary: #e8f03c; --primary-ink: #0c1f17; --edge: #e8f03c; --deep: #10281b;
     }
   }
   * { box-sizing: border-box; margin: 0; padding: 0; }
   html { scroll-behavior: smooth; }
-  @media (prefers-reduced-motion: reduce) { html { scroll-behavior: auto; } }
   body {
     background: var(--bg); color: var(--ink);
     font: 17px/1.55 -apple-system, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
     -webkit-font-smoothing: antialiased; overflow-x: hidden;
   }
+  body, .clip, .btn, .card, .stats, .install, .chip, .look-btn, .table-row {
+    transition: background-color .45s ease, color .45s ease, border-color .45s ease, border-radius .45s ease, box-shadow .45s ease;
+  }
   .display { font-family: 'Lilita One', "Arial Black", -apple-system, "Segoe UI", sans-serif; font-weight: 400; letter-spacing: 0.2px; }
   .wrap { max-width: 1180px; margin: 0 auto; padding: 0 32px; }
   a { color: inherit; }
+  .num { font-variant-numeric: tabular-nums; }
 
-  /* Nav */
   .nav { display: flex; align-items: center; justify-content: space-between; gap: 16px; padding: 22px 0; }
   .brand { display: flex; align-items: center; gap: 12px; text-decoration: none; }
   .brand img { width: 48px; height: 48px; border-radius: 12px; display: block; }
   .brand span { font-size: 30px; }
-  .nav-btn {
-    border: 2px solid var(--edge); border-radius: 999px; padding: 9px 18px;
-    font-weight: 800; font-size: 15px; text-decoration: none; white-space: nowrap;
-  }
+  .nav-btn { border: 2px solid var(--edge); border-radius: 999px; padding: 9px 18px; font-weight: 800; font-size: 15px; text-decoration: none; white-space: nowrap; }
   .nav-btn:hover { background: var(--tint); }
 
-  /* Buttons */
   .btn {
     display: inline-flex; align-items: center; justify-content: center; min-height: 52px;
-    border-radius: 14px; padding: 0 26px; font-weight: 800; font-size: 17px; text-decoration: none;
-    border: 2px solid var(--edge);
+    border-radius: var(--r-btn); padding: 0 26px; font-weight: 800; font-size: 17px; text-decoration: none;
+    border: 2px solid var(--edge); background: transparent; color: var(--ink); cursor: pointer; font-family: inherit;
   }
-  .btn-primary { background: var(--deep); color: var(--lime); box-shadow: 4px 4px 0 var(--edge); }
-  @media (prefers-color-scheme: dark) { .btn-primary { background: var(--lime); color: #0f3d2a; box-shadow: 4px 4px 0 #0b2e20; } }
+  .btn-primary { background: var(--primary); color: var(--primary-ink); box-shadow: 4px 4px 0 var(--edge); }
   .btn-primary:hover { transform: translate(1px, 1px); box-shadow: 3px 3px 0 var(--edge); }
-  .btn-ghost { background: transparent; }
   .btn-ghost:hover { background: var(--tint); }
 
-  /* Clip frames: the size is set before anything loads (aspect-ratio), so nothing moves. */
-  .clip {
-    position: relative; border: 3px solid var(--edge); border-radius: 22px; overflow: hidden;
-    background: var(--deep); box-shadow: 8px 8px 0 var(--edge); width: 100%;
-  }
-  .clip video { display: block; width: 100%; height: 100%; object-fit: cover; }
+  .clip { position: relative; border: 3px solid var(--edge); border-radius: calc(var(--r-card) + 4px); overflow: hidden;
+    background: var(--deep); box-shadow: 8px 8px 0 var(--edge); width: 100%; }
+  .clip video, .clip img { display: block; width: 100%; height: 100%; object-fit: cover; }
 
-  /* Hero */
-  .hero { display: grid; grid-template-columns: 1.1fr 1fr; gap: 56px; align-items: center; padding: 28px 0 72px; }
-  .kicker { display: inline-block; background: var(--lime); color: #0f3d2a; border: 2px solid var(--edge);
-    border-radius: 999px; padding: 5px 14px; font-weight: 800; font-size: 13px; letter-spacing: 1.2px; text-transform: uppercase; }
-  h1 { font-size: clamp(48px, 6vw, 84px); line-height: 0.98; margin: 20px 0 20px; }
-  h1 em { font-style: normal; background: linear-gradient(transparent 58%, var(--lime) 58%); padding: 0 4px; color: inherit; }
-  @media (prefers-color-scheme: dark) { h1 em { background: none; color: var(--lime); } }
-  .lede { color: var(--sub); font-size: clamp(17px, 1.4vw, 20px); max-width: 33em; }
-  .ctas { display: flex; flex-wrap: wrap; gap: 14px; margin-top: 30px; }
-  .fine { color: var(--sub); font-size: 14px; margin-top: 18px; }
-  .hero .clip { max-width: 460px; justify-self: center; aspect-ratio: 640 / 800; }
-
-  /* Story rows */
-  .row { display: grid; grid-template-columns: 1fr 1fr; gap: 64px; align-items: center; padding: 64px 0; border-top: 2px dashed var(--line); }
-  .row.flip .copy { order: 2; }
-  .row .clip { max-width: 440px; justify-self: center; }
   .eyebrow { color: var(--sub); font-weight: 800; font-size: 13px; letter-spacing: 1.6px; text-transform: uppercase; }
   h2 { font-size: clamp(34px, 3.4vw, 50px); line-height: 1.04; margin: 10px 0 16px; }
   .copy p { color: var(--sub); max-width: 32em; }
-  .ticks { list-style: none; margin-top: 18px; display: grid; gap: 10px; }
-  .ticks li { padding-left: 32px; position: relative; font-weight: 600; }
-  .ticks li::before { content: ''; position: absolute; left: 0; top: 3px; width: 20px; height: 20px; border-radius: 50%;
-    background: var(--lime); border: 2px solid var(--edge); }
+  section { scroll-margin-top: 16px; }
 
-  /* Stats */
-  .stats { display: grid; grid-template-columns: repeat(3, 1fr); gap: 0; margin: 24px 0 8px;
-    background: var(--deep); color: var(--on-deep); border: 3px solid var(--edge); border-radius: 24px; overflow: hidden; }
+  /* Hero */
+  .hero { display: grid; grid-template-columns: 1.1fr 1fr; gap: 56px; align-items: center; padding: 28px 0 80px; }
+  .kicker { display: inline-block; background: var(--hl); color: var(--on-hl); border: 2px solid var(--edge);
+    border-radius: 999px; padding: 5px 14px; font-weight: 800; font-size: 13px; letter-spacing: 1.2px; text-transform: uppercase; }
+  h1 { font-size: clamp(48px, 6vw, 84px); line-height: 0.98; margin: 20px 0 20px; }
+  h1 em { font-style: normal; background: linear-gradient(transparent 58%, var(--hl) 58%); padding: 0 4px; color: inherit; }
+  .lede { color: var(--sub); font-size: clamp(17px, 1.4vw, 20px); max-width: 33em; }
+  .ctas { display: flex; flex-wrap: wrap; gap: 14px; margin-top: 30px; }
+  .fine { color: var(--sub); font-size: 14px; margin-top: 18px; }
+  .hero .clip { max-width: 440px; justify-self: center; aspect-ratio: 640 / 800; }
+
+  /* Scrollytelling: the stage stays put while the steps scroll past. */
+  .story-head { padding: 72px 0 8px; border-top: 2px dashed var(--line); }
+  .story { display: grid; grid-template-columns: 1fr 1fr; gap: 64px; }
+  .steps { padding: 6vh 0 18vh; }
+  .step { min-height: 78vh; display: flex; flex-direction: column; justify-content: center; }
+  /* Steps stay readable; the active one gets the filled badge and full-ink heading. */
+  .step h3 { color: var(--sub); transition: color .4s ease; }
+  .step.on h3 { color: var(--ink); }
+  .step:not(.on) .step-n { background: transparent; color: var(--sub); border-color: var(--sub); }
+  .step-n { display: inline-flex; width: 36px; height: 36px; border-radius: 50%; align-items: center; justify-content: center;
+    background: var(--hl); color: var(--on-hl); border: 2px solid var(--edge); font-weight: 900; margin-bottom: 14px; }
+  .step h3 { font-size: clamp(28px, 2.6vw, 40px); line-height: 1.06; margin-bottom: 12px; }
+  .step p { color: var(--sub); max-width: 30em; }
+  .stage { position: sticky; top: 10vh; height: 80vh; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 18px; }
+  .stage .clip { width: auto; height: min(70vh, 560px); aspect-ratio: 640 / 800; }
+  .stage video { position: absolute; inset: 0; object-fit: contain; opacity: 0; transition: opacity .45s ease; }
+  .stage video.on { opacity: 1; }
+  .dots { display: flex; gap: 8px; }
+  .dots i { width: 10px; height: 10px; border-radius: 50%; border: 2px solid var(--edge); transition: background-color .3s ease, width .3s ease; }
+  .dots i.on { background: var(--edge); width: 26px; border-radius: 6px; }
+
+  /* Standings demo (PLUPR) */
+  .row { display: grid; grid-template-columns: 1fr 1fr; gap: 64px; align-items: center; padding: 72px 0; border-top: 2px dashed var(--line); }
+  .row.flip .copy { order: 2; }
+  .card { background: var(--surface); border: 3px solid var(--edge); border-radius: var(--r-card); box-shadow: 8px 8px 0 var(--edge); padding: 18px; }
+  .match { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 4px 12px; background: var(--hl); color: var(--on-hl);
+    border: 2px solid var(--edge); border-radius: var(--r-chip); padding: 10px 14px; font-weight: 800; font-size: 15px;
+    transform: translateY(-8px); opacity: 0; transition: transform .5s ease, opacity .5s ease; }
+  .table.go .match { transform: none; opacity: 1; }
+  .score { font-size: 20px; white-space: nowrap; }
+  .table-head, .table-row { display: grid; grid-template-columns: 28px 1fr 56px 112px; gap: 10px; align-items: center; }
+  .table-head { color: var(--sub); font-size: 12px; font-weight: 800; letter-spacing: 1px; text-transform: uppercase; padding: 16px 10px 6px; }
+  .rows { position: relative; height: 280px; } /* 5 rows x 56px: fixed, rows move by transform only */
+  .table-row { position: absolute; left: 0; right: 0; height: 52px; padding: 0 10px; border-radius: var(--r-chip);
+    background: var(--bg); border: 2px solid var(--line); transition: transform .8s cubic-bezier(.2,.8,.2,1), background-color .45s ease, border-color .45s ease; }
+  .table-row b { font-weight: 800; }
+  .table-row .pos { color: var(--sub); font-weight: 800; }
+  .table-row .rating { text-align: right; font-weight: 800; }
+  .delta { display: inline-block; min-width: 3.6em; margin-left: 6px; text-align: right; font-size: 13px; font-weight: 800; opacity: 0; transition: opacity .4s ease .6s; }
+  .table.go .delta { opacity: 1; }
+  .up { color: #2e8b3e; } .down { color: #c0392b; }
+  @media (prefers-color-scheme: dark) { .up { color: #8fdc9b; } .down { color: #ff8f80; } }
+  .table-row.mover { border-color: var(--edge); background: var(--tint); }
+
+  /* Stats (count up) */
+  .stats { display: grid; grid-template-columns: repeat(3, 1fr); margin: 24px 0 8px; background: var(--deep); color: var(--on-deep);
+    border: 3px solid var(--edge); border-radius: calc(var(--r-card) + 6px); overflow: hidden; }
   .stats div { padding: 34px 30px; }
-  .stats div + div { border-left: 2px solid rgba(232, 240, 60, 0.25); }
-  .stat-num { font-size: clamp(38px, 3.6vw, 56px); color: var(--lime); line-height: 1; }
+  .stats div + div { border-left: 2px solid rgba(255, 255, 255, 0.14); }
+  .stat-num { font-size: clamp(42px, 4vw, 60px); color: var(--hl); line-height: 1; display: inline-block; min-width: 2.6ch; }
   .stat-label { color: var(--on-deep-sub); font-size: 15px; margin-top: 10px; }
 
-  /* Fun pair */
-  .pair-head { text-align: center; padding: 72px 0 8px; border-top: 2px dashed var(--line); margin-top: 64px; }
-  .pair-head p { color: var(--sub); max-width: 34em; margin: 0 auto; }
-  .pair { display: grid; grid-template-columns: 1fr 1fr; gap: 40px; padding: 40px 0 24px; }
-  .pair figure { display: grid; gap: 16px; justify-items: center; }
-  .pair .clip { max-width: 440px; }
-  .pair figcaption { color: var(--sub); text-align: center; max-width: 26em; font-size: 16px; }
-  .pair figcaption b { color: var(--ink); }
+  /* Look picker */
+  .looks { display: flex; flex-wrap: wrap; gap: 10px; margin-top: 22px; }
+  .look-btn { display: inline-flex; align-items: center; gap: 10px; min-height: 48px; padding: 0 16px 0 10px; cursor: pointer;
+    border: 2px solid var(--edge); border-radius: 999px; background: var(--surface); color: var(--ink); font: 800 15px/1 inherit; font-family: inherit; }
+  .look-btn[aria-pressed="true"] { background: var(--hl); color: var(--on-hl); box-shadow: 3px 3px 0 var(--edge); }
+  .sw { width: 24px; height: 24px; border-radius: 50%; border: 2px solid var(--edge); display: grid; grid-template-columns: 1fr 1fr; overflow: hidden; }
+  .sw i { display: block; }
+  .phone { max-width: 300px; justify-self: center; aspect-ratio: 310 / 664; border-radius: 40px; box-shadow: 8px 8px 0 var(--edge); }
+  .phone img { position: absolute; inset: 0; opacity: 0; transition: opacity .45s ease; }
+  .phone img.on { opacity: 1; }
+  .look-note { font-size: 14px; color: var(--sub); margin-top: 14px; min-height: 1.6em; }
 
   /* Install band */
-  .install { margin: 72px 0 0; background: var(--lime); color: #0f3d2a; border: 3px solid var(--edge); border-radius: 28px;
+  .install { margin: 72px 0 0; background: var(--band); color: var(--band-ink); border: 3px solid var(--edge); border-radius: calc(var(--r-card) + 10px);
     padding: 44px; display: grid; grid-template-columns: auto 1fr auto; gap: 36px; align-items: center; box-shadow: 8px 8px 0 var(--edge); }
-  .install h2 { margin: 0 auto; max-width: 18ch; text-align: center; color: #0f3d2a; }
-  .install p { text-align: center; margin-top: 10px; color: #234d3a; }
+  .install h2 { margin: 0 auto; max-width: 18ch; text-align: center; }
+  .install p { text-align: center; margin-top: 10px; opacity: .85; }
   .install .ctas { justify-content: center; }
-  .install .btn { border-color: #0f3d2a; color: #0f3d2a; }
-  .install .btn-primary { background: #0f3d2a; color: #e8f03c; box-shadow: 4px 4px 0 #0b2e20; }
-  .store { line-height: 1.1; text-align: left; flex-direction: column; align-items: flex-start; justify-content: center; }
+  .install .btn { border-color: currentColor; color: inherit; }
+  .install .btn-primary { background: var(--band-ink); color: var(--band); box-shadow: 4px 4px 0 rgba(0,0,0,.35); border-color: var(--band-ink); }
+  .store { line-height: 1.1; flex-direction: column; align-items: flex-start; justify-content: center; }
   .store small { font-size: 10px; letter-spacing: 0.9px; text-transform: uppercase; font-weight: 800; }
-  .install .store.soon { border-style: dashed; background: rgba(255, 255, 255, 0.35); cursor: default; } /* not a link yet; full-contrast ink */
-  .qr { background: #fff; border: 2px solid #0f3d2a; border-radius: 16px; padding: 12px 12px 8px; width: 148px; text-align: center; }
+  .install .store.soon { border-style: dashed; cursor: default; }
+  .qr { background: #fff; color: #0f3d2a; border: 2px solid var(--edge); border-radius: 16px; padding: 12px 12px 8px; width: 148px; text-align: center; }
   .qr img { width: 120px; height: 120px; display: block; margin: 0 auto; }
   .qr figcaption { font-size: 10px; font-weight: 800; letter-spacing: 0.7px; text-transform: uppercase; margin-top: 8px; }
 
@@ -145,20 +179,46 @@
   .footer p { color: var(--sub); font-size: 13.5px; }
   .footer a { font-weight: 700; }
 
+  /* Scroll-linked reveals: CSS scroll timelines where supported, else an
+     IntersectionObserver adds .in. Transform/opacity only, so no layout shift. */
+  .rv { opacity: 0; transform: translateY(28px); }
+  .rv.in { opacity: 1; transform: none; transition: opacity .7s ease, transform .7s ease; }
+  @supports (animation-timeline: view()) {
+    .rv, .rv.in { opacity: 1; transform: none; transition: none;
+      animation: rise linear both; animation-timeline: view(); animation-range: entry 0% entry 70%; }
+  }
+  @keyframes rise { from { opacity: 0; transform: translateY(28px); } to { opacity: 1; transform: none; } }
+
   @media (max-width: 900px) {
     .wrap { padding: 0 16px; }
     .brand span { font-size: 24px; }
     .brand img { width: 40px; height: 40px; }
-    .hero, .row, .pair { grid-template-columns: 1fr; gap: 32px; }
-    .hero { padding: 8px 0 48px; }
-    .row { padding: 48px 0; }
+    .hero, .row { grid-template-columns: 1fr; gap: 32px; }
+    .hero { padding: 8px 0 56px; }
+    .row { padding: 52px 0; }
     .row.flip .copy { order: 0; }
-    .hero .clip, .row .clip, .pair .clip { max-width: 400px; }
+    .hero .clip { max-width: 400px; }
+    /* Phone: the stage pins to the top and the steps scroll underneath. */
+    .story { grid-template-columns: 1fr; gap: 0; }
+    .stage { order: -1; top: 8px; height: auto; padding: 8px 0 12px; background: var(--bg); z-index: 2; }
+    .stage .clip { height: min(46vh, 400px); }
+    .steps { padding: 4vh 0 10vh; }
+    .step { min-height: 62vh; justify-content: flex-start; padding-top: 6vh; }
     .stats { grid-template-columns: 1fr; }
-    .stats div + div { border-left: 0; border-top: 2px solid rgba(232, 240, 60, 0.25); }
+    .stats div + div { border-left: 0; border-top: 2px solid rgba(255, 255, 255, 0.14); }
     .install { grid-template-columns: 1fr; padding: 32px 20px; }
     .install .qr { display: none; } /* a phone can't scan its own screen */
     .ctas .btn { flex: 1 1 100%; }
+    .table-head, .table-row { grid-template-columns: 20px 1fr 44px 100px; gap: 6px; }
+    .phone { max-width: 260px; }
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    html { scroll-behavior: auto; }
+    *, *::before, *::after { transition: none !important; animation: none !important; }
+    .rv { opacity: 1; transform: none; }
+    .match { transform: none; opacity: 1; }
+    .delta { opacity: 1; }
   }
 </style>
 </head>
@@ -183,87 +243,113 @@
       <p class="fine">Free on the web and on iPhone. No club membership, no entry fees.</p>
     </div>
     <div class="clip" style="aspect-ratio: 640 / 800">
-      <video data-src="./landing-v2-assets/01-who-s-in-saturday.mp4" poster="./landing-v2-assets/01-who-s-in-saturday.webp"
-        width="640" height="800" autoplay muted loop playsinline preload="none"
-        aria-label="Your league votes on game time and Saturday 9 AM locks in with seven players."></video>
+      <video class="focus" data-src="./landing-v2-assets/03-brackets-and-formats-handled.mp4" poster="./landing-v2-assets/03-brackets-and-formats-handled.webp"
+        width="640" height="800" muted loop playsinline preload="none"
+        aria-label="Pick a league format, then the bracket fills in to a champion."></video>
     </div>
   </header>
 
-  <section class="row" id="story">
-    <div class="copy">
+  <!-- One voting story: the stage stays put while three steps scroll past. -->
+  <section id="story">
+    <div class="story-head rv">
       <div class="eyebrow">From group chat to game day</div>
       <h2 class="display">One vote. One locked play day.</h2>
-      <p>Stop scrolling 80 messages to find out who's in. Put the times up, let the league vote, and lock the play day with the court and the players who said yes.</p>
-      <ul class="ticks">
-        <li>Everyone sees the same plan</li>
-        <li>Seasons and scheduled play days keep games on the calendar</li>
-        <li>Recording a match takes seconds on any phone or laptop</li>
-      </ul>
     </div>
-    <div class="clip" style="aspect-ratio: 640 / 694">
-      <video data-src="./landing-v2-assets/02-your-league-runs-on-a-group-chat-chat-wipe.mp4" poster="./landing-v2-assets/02-your-league-runs-on-a-group-chat-chat-wipe.webp"
-        width="640" height="694" autoplay muted loop playsinline preload="none"
-        aria-label="A chaotic group chat becomes one vote, then a locked play day at Lakeside Park."></video>
+    <div class="story">
+      <div class="steps">
+        <article class="step on" data-step="0">
+          <span class="step-n">1</span>
+          <h3 class="display">Your crew plans in a group chat.</h3>
+          <p>Eighty messages, three maybes and still no court. Pickleague turns the thread into one question everyone can answer.</p>
+        </article>
+        <article class="step" data-step="1">
+          <span class="step-n">2</span>
+          <h3 class="display">Put the times up. Everyone votes.</h3>
+          <p>Each time shows who's in. The winner locks in as the play day, with the court and the players who said yes.</p>
+        </article>
+        <article class="step" data-step="2">
+          <span class="step-n">3</span>
+          <h3 class="display">Even these five show up.</h3>
+          <p>The early bird, the maybe, the court snob, the timer and the wildcard. One vote gets them all on the same page.</p>
+        </article>
+      </div>
+      <div class="stage" aria-live="off">
+        <div class="clip">
+          <video class="on" data-src="./landing-v2-assets/02-your-league-runs-on-a-group-chat-chat-wipe.mp4" poster="./landing-v2-assets/02-your-league-runs-on-a-group-chat-chat-wipe.webp"
+            width="640" height="694" muted loop playsinline preload="none" aria-label="A chaotic group chat becomes one vote, then a locked play day at Lakeside Park."></video>
+          <video data-src="./landing-v2-assets/01-who-s-in-saturday.mp4" poster="./landing-v2-assets/01-who-s-in-saturday.webp"
+            width="640" height="800" muted loop playsinline preload="none" aria-label="Your league votes on game time and Saturday 9 AM locks in with seven players."></video>
+          <video data-src="./landing-v2-assets/06-every-court-has-these-5-players-vote.mp4" poster="./landing-v2-assets/06-every-court-has-these-5-players-vote.webp"
+            width="640" height="800" muted loop playsinline preload="none" aria-label="The early bird, the maybe, the court snob, the timer and the wildcard, then everyone votes."></video>
+        </div>
+        <div class="dots" aria-hidden="true"><i class="on"></i><i></i><i></i></div>
+      </div>
     </div>
   </section>
 
-  <section class="row flip">
-    <div class="copy">
-      <div class="eyebrow">Tournaments</div>
-      <h2 class="display">Seven formats. Zero spreadsheets.</h2>
-      <p>MLP, round robin, single and double elimination, pool play and more. Pick a format and Pickleague draws the schedule, keeps the standings and fills the bracket all the way to a champion.</p>
-    </div>
-    <div class="clip" style="aspect-ratio: 640 / 800">
-      <video data-src="./landing-v2-assets/03-brackets-and-formats-handled.mp4" poster="./landing-v2-assets/03-brackets-and-formats-handled.webp"
-        width="640" height="800" autoplay muted loop playsinline preload="none"
-        aria-label="Pick a league format, then the bracket fills in to a champion."></video>
-    </div>
-  </section>
-
-  <section class="stats" aria-label="Pickleague in numbers">
-    <div><div class="stat-num display">7 formats</div><p class="stat-label">Brackets and standings generated for you.</p></div>
-    <div><div class="stat-num display">PLUPR</div><p class="stat-label">A live skill rating updated by every recorded match, so games stay close and rankings stay honest.</p></div>
-    <div><div class="stat-num display">$0</div><p class="stat-label">No club membership, no entry fees, no catch. Free in the browser and on the App Store.</p></div>
-  </section>
-
+  <!-- PLUPR + standings: the table moves when a match is recorded. -->
   <section class="row">
+    <div class="copy rv">
+      <div class="eyebrow">Ratings and standings</div>
+      <h2 class="display">Record a match. Watch the table move.</h2>
+      <p>Entering a score takes seconds on any phone or laptop. Every match updates PLUPR, a live skill rating, and the season standings, so matchups stay close and "who's actually best" finally has receipts.</p>
+      <p style="margin-top:12px">Everyone starts at 3.25.</p>
+    </div>
+    <div class="card table rv" id="table" aria-label="Sample standings: Sam and Priya beat Jordan and Chris 11 to 8, and Sam moves up to third.">
+      <div class="match"><span>Match recorded</span><span class="score display num">11 &ndash; 8</span><span>Sam &amp; Priya beat Jordan &amp; Chris</span></div>
+      <div class="table-head"><span>#</span><span>Player</span><span style="text-align:right">W&ndash;L</span><span style="text-align:right">PLUPR</span></div>
+      <div class="rows">
+        <div class="table-row" data-from="0" data-to="0"><span class="pos num">1</span><b>Chris L.</b><span class="num" style="text-align:right" data-wl="7-2|7-3">7&ndash;2</span><span class="rating num"><span data-r="3.88|3.82">3.88</span><span class="delta"></span></span></div>
+        <div class="table-row" data-from="1" data-to="1"><span class="pos num">2</span><b>Jordan K.</b><span class="num" style="text-align:right" data-wl="6-3|6-4">6&ndash;3</span><span class="rating num"><span data-r="3.74|3.68">3.74</span><span class="delta"></span></span></div>
+        <div class="table-row" data-from="2" data-to="3"><span class="pos num">3</span><b>Alex M.</b><span class="num" style="text-align:right" data-wl="5-4|5-4">5&ndash;4</span><span class="rating num"><span data-r="3.66|3.66">3.66</span><span class="delta"></span></span></div>
+        <div class="table-row mover" data-from="3" data-to="2"><span class="pos num">4</span><b>Sam R.</b><span class="num" style="text-align:right" data-wl="5-4|6-4">5&ndash;4</span><span class="rating num"><span data-r="3.61|3.67">3.61</span><span class="delta"></span></span></div>
+        <div class="table-row mover" data-from="4" data-to="4"><span class="pos num">5</span><b>Priya S.</b><span class="num" style="text-align:right" data-wl="4-5|5-5">4&ndash;5</span><span class="rating num"><span data-r="3.52|3.58">3.52</span><span class="delta"></span></span></div>
+      </div>
+    </div>
+  </section>
+
+  <section class="stats rv" aria-label="Pickleague in numbers">
+    <div><div class="stat-num display num" data-count="7">7</div><p class="stat-label">tournament formats: MLP, round robin, single and double elimination, pool play and more, drawn for you.</p></div>
+    <div><div class="stat-num display num" data-count="3.25" data-dp="2">3.25</div><p class="stat-label">where every new player starts on PLUPR, then every recorded match moves it.</p></div>
+    <div><div class="stat-num display num">$0</div><p class="stat-label">No club membership, no entry fees, no catch. Free in the browser and on the App Store.</p></div>
+  </section>
+
+  <!-- Interactive looks: tapping one recolours the whole page with that look's tokens. -->
+  <section class="row flip" id="looks">
     <div class="copy">
       <div class="eyebrow">Make it yours</div>
       <h2 class="display">Your app, your colours.</h2>
-      <p>Rally is the default. Switch the whole app to another look any time in Settings, from bright court colours to Night session.</p>
+      <p>Four looks, switched any time in Settings. Try one: this page changes with it.</p>
+      <div class="looks" role="group" aria-label="Pick a look">
+        <button class="look-btn" type="button" data-look="rally" aria-pressed="true"><span class="sw"><i style="background:#e8f03c"></i><i style="background:#0f3d2a"></i></span>Rally</button>
+        <button class="look-btn" type="button" data-look="court" aria-pressed="false"><span class="sw"><i style="background:#2f6b45"></i><i style="background:#a8d8ff"></i></span>Court</button>
+        <button class="look-btn" type="button" data-look="clubhouse" aria-pressed="false"><span class="sw"><i style="background:#f5efe2"></i><i style="background:#1f4a33"></i></span>Clubhouse</button>
+        <button class="look-btn" type="button" data-look="night" aria-pressed="false"><span class="sw"><i style="background:#0b1a0d"></i><i style="background:#d8e84a"></i></span>Night session</button>
+      </div>
+      <p class="look-note" id="look-note">Rally: the default. Bright ball yellow on deep court green.</p>
     </div>
-    <div class="clip" style="aspect-ratio: 380 / 860; max-width: 300px">
-      <video data-src="./landing-v2-assets/04-four-looks-pick-yours.mp4" poster="./landing-v2-assets/04-four-looks-pick-yours.webp"
-        width="380" height="860" autoplay muted loop playsinline preload="none"
-        aria-label="The PickLeague home screen flips through four looks, from Rally to Night session."></video>
+    <div class="clip phone">
+      <img class="on" data-look="rally" src="./landing-v2-assets/look-rally.webp" alt="Pickleague home screen in the Rally look" width="310" height="664">
+      <img data-look="court" src="./landing-v2-assets/look-court.webp" alt="Pickleague home screen in the Court look" width="310" height="664" loading="lazy">
+      <img data-look="clubhouse" src="./landing-v2-assets/look-clubhouse.webp" alt="Pickleague home screen in the Clubhouse look" width="310" height="664" loading="lazy">
+      <img data-look="night" src="./landing-v2-assets/look-night.webp" alt="Pickleague home screen in the Night session look" width="310" height="664" loading="lazy">
     </div>
   </section>
 
-  <div class="pair-head">
-    <div class="eyebrow">The fun part</div>
-    <h2 class="display">The league runs itself, so the chat can go back to trash talk.</h2>
-    <p>Streaks, pickles and a crew that finally shows up on time.</p>
-  </div>
-  <section class="pair">
-    <figure>
-      <div class="clip" style="aspect-ratio: 640 / 680">
-        <video data-src="./landing-v2-assets/05-play-hard-earn-pickles-my-place.mp4" poster="./landing-v2-assets/05-play-hard-earn-pickles-my-place.webp"
-          width="640" height="680" autoplay muted loop playsinline preload="none"
-          aria-label="Pickles earned from matches turn a plain room into a pickleball den."></video>
-      </div>
-      <figcaption><b>Pickles for every match.</b> Matches and streaks earn pickles. Spend them on your room, avatars, badges and profile flair.</figcaption>
-    </figure>
-    <figure>
-      <div class="clip" style="aspect-ratio: 640 / 800">
-        <video data-src="./landing-v2-assets/06-every-court-has-these-5-players-vote.mp4" poster="./landing-v2-assets/06-every-court-has-these-5-players-vote.webp"
-          width="640" height="800" autoplay muted loop playsinline preload="none"
-          aria-label="The early bird, the maybe, the court snob, the timer and the wildcard, then everyone votes."></video>
-      </div>
-      <figcaption><b>Every court has these five.</b> The early bird, the maybe, the court snob, the timer and the wildcard. Pickleague gets them all on the same page.</figcaption>
-    </figure>
+  <section class="row">
+    <div class="copy rv">
+      <div class="eyebrow">The fun part</div>
+      <h2 class="display">Pickles for every match.</h2>
+      <p>Matches and streaks earn pickles. Spend them on your room, avatars, badges and profile flair. The league runs itself, so the group chat can go back to trash talk.</p>
+    </div>
+    <div class="clip" style="aspect-ratio: 640 / 680; max-width: 440px; justify-self: center">
+      <video class="focus" data-src="./landing-v2-assets/05-play-hard-earn-pickles-my-place.mp4" poster="./landing-v2-assets/05-play-hard-earn-pickles-my-place.webp"
+        width="640" height="680" muted loop playsinline preload="none"
+        aria-label="Pickles earned from matches turn a plain room into a pickleball den."></video>
+    </div>
   </section>
 
-  <section class="install">
+  <section class="install rv">
     <figure class="qr">
       <img src="./landing-assets/qr-appstore.svg" alt="QR code linking to Pickleague on the App Store" width="120" height="120">
       <figcaption>Scan to install</figcaption>
@@ -291,36 +377,127 @@
 </div>
 
 <script>
+(function () {
   try { localStorage.setItem('pickleague_landing_seen', '1'); } catch (e) { /* private mode */ }
+  var still = !!(window.matchMedia && matchMedia('(prefers-reduced-motion: reduce)').matches);
+  var hasIO = 'IntersectionObserver' in window;
+  var $ = function (s, r) { return [].slice.call((r || document).querySelectorAll(s)); };
+  var load = function (v) { if (!v.src && v.dataset.src) { v.src = v.dataset.src; v.load(); } };
+  var restart = function (v) { if (still) return; load(v); try { v.currentTime = 0; } catch (e) {} var p = v.play(); if (p && p.catch) p.catch(function () {}); };
+  var afterIdle = function (f) {
+    var go = function () { (window.requestIdleCallback || function (g) { setTimeout(g, 300); })(f, { timeout: 2000 }); };
+    if (document.readyState === 'complete') go(); else addEventListener('load', go);
+  };
 
-  // Clips load only when near the screen and play only while visible.
-  // Reduced motion: never load them; the poster stays.
-  (function () {
-    var vids = [].slice.call(document.querySelectorAll('video[data-src]'));
-    var still = window.matchMedia && matchMedia('(prefers-reduced-motion: reduce)').matches;
-    if (still || !('IntersectionObserver' in window)) {
-      vids.forEach(function (v) { v.removeAttribute('autoplay'); });
-      if (still) return;
-      vids.forEach(function (v) { v.src = v.dataset.src; });
-      return;
+  // 1. Reveals: only needed where CSS scroll timelines are missing.
+  var cssTimeline = window.CSS && CSS.supports && CSS.supports('animation-timeline: view()');
+  if (!cssTimeline) {
+    if (!hasIO || still) $('.rv').forEach(function (el) { el.classList.add('in'); });
+    else {
+      var rio = new IntersectionObserver(function (es) { es.forEach(function (e) { if (e.isIntersecting) { e.target.classList.add('in'); rio.unobserve(e.target); } }); }, { threshold: 0.12 });
+      $('.rv').forEach(function (el) { rio.observe(el); });
     }
-    var io = new IntersectionObserver(function (entries) {
-      entries.forEach(function (e) {
-        var v = e.target;
-        if (e.isIntersecting) {
-          if (!v.src) { v.src = v.dataset.src; v.load(); }
-          var p = v.play(); if (p && p.catch) p.catch(function () {});
-        } else if (v.src) {
-          v.pause();
-        }
+  }
+
+  afterIdle(function () {
+    if (!hasIO) return;
+    // 2. Clips restart from frame 0 each time they come into focus, and pause when they leave.
+    var fio = new IntersectionObserver(function (es) {
+      es.forEach(function (e) { var v = e.target; if (e.intersectionRatio >= 0.55) restart(v); else if (v.src) v.pause(); });
+    }, { threshold: [0, 0.55] });
+    $('video.focus').forEach(function (v) { fio.observe(v); });
+    // Fetch focus clips a little before they arrive.
+    var pio = new IntersectionObserver(function (es) { es.forEach(function (e) { if (e.isIntersecting && !still) { load(e.target); pio.unobserve(e.target); } }); }, { rootMargin: '300px 0px' });
+    $('video.focus').forEach(function (v) { pio.observe(v); });
+
+    // 3. Scrollytelling: the step in the middle of the screen drives the stage.
+    var steps = $('.step'), vids = $('.stage video'), dots = $('.dots i'), cur = -1;
+    var show = function (i) {
+      if (i === cur) return; cur = i;
+      steps.forEach(function (s, k) { s.classList.toggle('on', k === i); });
+      dots.forEach(function (d, k) { d.classList.toggle('on', k === i); });
+      vids.forEach(function (v, k) { v.classList.toggle('on', k === i); if (k === i) restart(v); else if (v.src) v.pause(); });
+      if (!still && vids[i + 1]) load(vids[i + 1]);
+    };
+    var sio = new IntersectionObserver(function (es) {
+      es.forEach(function (e) { if (e.isIntersecting) show(+e.target.dataset.step); });
+    }, { rootMargin: matchMedia('(max-width: 900px)').matches ? '-62% 0px -30% 0px' : '-45% 0px -45% 0px' });
+    steps.forEach(function (s) { sio.observe(s); });
+    var stageIO = new IntersectionObserver(function (es) {
+      es.forEach(function (e) { if (!e.isIntersecting) vids.forEach(function (v) { if (v.src) v.pause(); }); else if (cur >= 0) restart(vids[cur]); });
+    });
+    stageIO.observe(document.querySelector('.stage'));
+  });
+
+  // 4. Standings: rows slide to their new places and ratings tick over.
+  var table = document.getElementById('table');
+  var rows = $('.table-row', table);
+  var ROW = 56;
+  var place = function (key) { rows.forEach(function (r) { r.style.transform = 'translateY(' + (+r.dataset[key] * ROW) + 'px)'; }); };
+  place('from');
+  var tick = function (el, from, to, dp, ms) {
+    if (still) { el.textContent = to.toFixed(dp); return; }
+    var t0 = performance.now();
+    var step = function (t) { var k = Math.min(1, (t - t0) / ms); var e = 1 - Math.pow(1 - k, 3); el.textContent = (from + (to - from) * e).toFixed(dp); if (k < 1) requestAnimationFrame(step); };
+    requestAnimationFrame(step);
+  };
+  var playTable = function () {
+    table.classList.add('go');
+    setTimeout(function () {
+      place('to');
+      rows.forEach(function (r) {
+        r.querySelector('.pos').textContent = +r.dataset.to + 1;
+        var wl = r.querySelector('[data-wl]'); wl.innerHTML = wl.dataset.wl.split('|')[1].replace('-', '&ndash;');
+        var rt = r.querySelector('[data-r]'), ab = rt.dataset.r.split('|').map(Number);
+        tick(rt, ab[0], ab[1], 2, 900);
+        var d = Math.round((ab[1] - ab[0]) * 100) / 100;
+        var dl = r.querySelector('.delta'); if (d) { dl.className = 'delta ' + (d > 0 ? 'up' : 'down'); dl.textContent = (d > 0 ? '+' : '−') + Math.abs(d).toFixed(2); }
       });
-    }, { rootMargin: '200px 0px', threshold: 0.01 });
-    // Start after the page has loaded and gone idle, so decoding the first clip
-    // never competes with first paint (the poster is already on screen).
-    var start = function () { vids.forEach(function (v) { io.observe(v); }); };
-    var idle = function () { (window.requestIdleCallback || function (f) { setTimeout(f, 300); })(start, { timeout: 2000 }); };
-    if (document.readyState === 'complete') idle(); else addEventListener('load', idle);
-  })();
+    }, still ? 0 : 700);
+  };
+  // 5. Count-up stats.
+  var counted = false;
+  var countUp = function () {
+    if (counted) return; counted = true;
+    $('[data-count]').forEach(function (el) { var to = +el.dataset.count, dp = +(el.dataset.dp || 0); tick(el, 0, to, dp, 1100); });
+  };
+  if (hasIO) {
+    new IntersectionObserver(function (es, o) { es.forEach(function (e) { if (e.isIntersecting) { playTable(); o.disconnect(); } }); }, { threshold: 0.5 }).observe(table);
+    new IntersectionObserver(function (es, o) { es.forEach(function (e) { if (e.isIntersecting) { countUp(); o.disconnect(); } }); }, { threshold: 0.6 }).observe(document.querySelector('.stats'));
+  } else { playTable(); }
+
+  // 6. Looks: real tokens from mobile/src/lib/skins.ts. Night session always uses its dark set.
+  var LOOKS = {
+    rally: { note: 'Rally: the default. Bright ball yellow on deep court green.', r: [18, 14, 8],
+      light: { bg: '#fffdf5', surface: '#ffffff', ink: '#0f3d2a', sub: '#4a6458', line: '#d9dfc4', tint: '#f1f6c4', primary: '#0f3d2a', 'primary-ink': '#e8f03c', band: '#e8f03c', 'band-ink': '#0f3d2a', edge: '#0f3d2a', hl: '#e8f03c', 'on-hl': '#0f3d2a', deep: '#0f3d2a' },
+      dark: { bg: '#0c1f17', surface: '#13301f', ink: '#f6f9e6', sub: '#b4c7b9', line: '#2c5a43', tint: '#1b3a28', primary: '#e8f03c', 'primary-ink': '#0c1f17', band: '#e8f03c', 'band-ink': '#0f3d2a', edge: '#e8f03c', hl: '#e8f03c', 'on-hl': '#0f3d2a', deep: '#10281b' } },
+    court: { note: 'Court: crisp lines, club green and a sky-blue highlight.', r: [10, 8, 6],
+      light: { bg: '#eef1ea', surface: '#ffffff', ink: '#14231a', sub: '#56645b', line: '#dce2d8', tint: '#e3eee5', primary: '#2f6b45', 'primary-ink': '#ffffff', band: '#2f6b45', 'band-ink': '#ffffff', edge: '#14231a', hl: '#a8d8ff', 'on-hl': '#14231a', deep: '#2f6b45' },
+      dark: { bg: '#0e1712', surface: '#16231b', ink: '#e8efe9', sub: '#9db0a3', line: '#263a2d', tint: '#1b2f23', primary: '#6fbf8a', 'primary-ink': '#0e1712', band: '#1c4a30', 'band-ink': '#ffffff', edge: '#6fbf8a', hl: '#7fb0e0', 'on-hl': '#0e1712', deep: '#1c4a30' } },
+    clubhouse: { note: 'Clubhouse: linen, forest green and a touch of gold.', r: [4, 3, 3],
+      light: { bg: '#f5efe2', surface: '#fffcf5', ink: '#1c1f1a', sub: '#5e5a4e', line: '#e4dac6', tint: '#ede4d0', primary: '#1f4a33', 'primary-ink': '#f5efe2', band: '#1f4a33', 'band-ink': '#f5efe2', edge: '#1f4a33', hl: '#f7d77c', 'on-hl': '#1c1f1a', deep: '#1f4a33' },
+      dark: { bg: '#15140f', surface: '#1f1d16', ink: '#efe7d6', sub: '#a89f8a', line: '#353126', tint: '#2a271e', primary: '#8fbf9e', 'primary-ink': '#15140f', band: '#1f4a33', 'band-ink': '#f5efe2', edge: '#d4a55a', hl: '#d4a55a', 'on-hl': '#15140f', deep: '#1f4a33' } },
+    night: { note: 'Night session: lights on, court dark, neon ball.', r: [6, 4, 4], dark: { bg: '#0b1a0d', surface: '#112515', ink: '#e9f2e9', sub: '#93a897', line: '#1f3a26', tint: '#163a22', primary: '#d8e84a', 'primary-ink': '#0b1a0d', band: '#071209', 'band-ink': '#e9f2e9', edge: '#d8e84a', hl: '#d8e84a', 'on-hl': '#0b1a0d', deep: '#071209' } }
+  };
+  var root = document.documentElement, note = document.getElementById('look-note');
+  var darkOS = window.matchMedia ? matchMedia('(prefers-color-scheme: dark)') : null;
+  var current = 'rally';
+  var apply = function (id) {
+    var L = LOOKS[id]; current = id;
+    var set = L.light && !(darkOS && darkOS.matches) ? L.light : (L.dark || L.light);
+    Object.keys(set).forEach(function (k) { root.style.setProperty('--' + k, set[k]); });
+    var dark = set === L.dark;
+    root.style.setProperty('--on-deep', dark ? set.ink : '#f6f9e6');
+    root.style.setProperty('--on-deep-sub', dark ? set.sub : 'rgba(246, 249, 230, .78)');
+    root.style.setProperty('--r-card', L.r[0] + 'px'); root.style.setProperty('--r-btn', L.r[1] + 'px'); root.style.setProperty('--r-chip', L.r[2] + 'px');
+    root.style.colorScheme = dark ? 'dark' : 'light';
+    $('.look-btn').forEach(function (b) { b.setAttribute('aria-pressed', String(b.dataset.look === id)); });
+    $('.phone img').forEach(function (im) { im.classList.toggle('on', im.dataset.look === id); });
+    note.textContent = L.note;
+  };
+  $('.look-btn').forEach(function (b) { b.addEventListener('click', function () { apply(b.dataset.look); }); });
+  if (darkOS && darkOS.addEventListener) darkOS.addEventListener('change', function () { if (current !== 'rally') apply(current); });
+})();
 </script>
 </body>
 </html>
