@@ -11,7 +11,9 @@ import { useStatusMessage } from '../lib/useStatusMessage';
 import { sbCall, friendlySbMessage } from '@just-messin-around/expo-foundation/supabase';
 import { HAIRLINE, RADIUS, SPACE, webInputFontFloor } from '@just-messin-around/expo-foundation/styles';
 import { FONT } from '@just-messin-around/expo-foundation/typography';
-import { RankMedal, ordinal } from '@just-messin-around/expo-foundation/ui';
+import { Dialog, RankMedal, ordinal } from '@just-messin-around/expo-foundation/ui';
+import { TextField } from '@just-messin-around/expo-foundation/forms';
+import { contributeAmounts, potAfterLine } from '../lib/potContribute';
 import { Icon } from '@just-messin-around/expo-foundation/icons';
 import { PickleAmount, picklesLabel } from './PickleAmount';
 import { ToastOutlet } from '@just-messin-around/expo-foundation/toast';
@@ -133,6 +135,7 @@ export default function PicklePotCard(props: PicklePotCardProps) {
         scopeType={scopeType}
         scopeId={scopeId}
         scopeLabel={scopeLabel}
+        pool={pool}
         myBalance={myPickleBalance}
         onDone={(msg) => { setShowContribute(false); pickleDone(msg); onChange(); }}
         S={S}
@@ -169,28 +172,31 @@ export default function PicklePotCard(props: PicklePotCardProps) {
 // ─────────────────────────────────────────────────────────────────────
 
 function ContributeModal({
-  visible, onClose, scopeType, scopeId, scopeLabel, myBalance, onDone, S,
+  visible, onClose, scopeType, scopeId, scopeLabel, pool, myBalance, onDone, S,
 }: {
   visible: boolean; onClose: () => void;
   scopeType: ScopeType; scopeId: string; scopeLabel: string;
+  pool: number;
   myBalance?: number; onDone: (message: string) => void;
   S: ReturnType<typeof makeStyles>;
 }) {
   const { colors: c } = useTheme();
   const [amount, setAmount] = useState('');
   const [busy, setBusy]     = useState(false);
+  const [error, setError]   = useState<string | null>(null);
   const inFlight            = useRef(false);
-  const status              = useStatusMessage();
 
   const n = parseInt(amount, 10);
   const valid = Number.isFinite(n) && n > 0 && (myBalance == null || n <= myBalance);
+  const chips = contributeAmounts(myBalance);
+  const over = myBalance != null && Number.isFinite(n) && n > myBalance;
 
   async function submit() {
     if (inFlight.current) return;
     if (!valid) return;
     inFlight.current = true;
     setBusy(true);
-    status.clear();
+    setError(null);
     try {
       // Not retried: this debits the admin's balance, and a retry after a lost
       // reply would contribute twice.
@@ -200,11 +206,11 @@ function ContributeModal({
         p_amount:     n,
       }), { retries: 0 });
       const row = Array.isArray(data) ? data[0] : data;
-      if (!row?.success) { status.error(row?.message ?? 'Could not contribute.'); return; }
+      if (!row?.success) { setError(row?.message ?? 'Could not contribute.'); return; }
       setAmount('');
       onDone(row.message ?? `Contributed ${picklesLabel(n)} to the ${scopeLabel.toLowerCase()} pot.`);
     } catch (e) {
-      status.error(friendlySbMessage(e, 'Could not contribute.', {
+      setError(friendlySbMessage(e, 'Could not contribute.', {
         network: 'Lost the connection — check the pot balance before contributing again, in case it went through.',
       }));
     } finally {
@@ -213,55 +219,62 @@ function ContributeModal({
     }
   }
 
+  // (PKL-031) The kit Dialog: band title with the pot's size, the balance,
+  // quick amounts, a labelled field and what the pot will hold after.
   return (
-    <Modal visible={visible} transparent animationType="slide" onRequestClose={onClose}>
-      <Pressable style={S.modalBackdrop} onPress={(e) => { if (e.target === e.currentTarget) onClose(); }}>
-        <View style={S.modalCard} {...keyboardDismissTap}>
-          <Text style={S.modalTitle}>Contribute to {scopeLabel} Pot</Text>
-          <Text style={S.modalBody}>
-            Your pickles go straight into the pot for the winners.
-          </Text>
-          {myBalance != null && (
-            <View style={S.modalSubRow}>
-              <Text style={S.modalSubText}>Your balance:</Text>
-              <PickleAmount amount={myBalance} preset="meta" color={c.textSub} />
-            </View>
-          )}
-
-          <Text style={S.label}>Amount to contribute</Text>
-          <KeyboardTextInput
-            style={[S.input, webInputFontFloor(S.input)]}
-            keyboardType="number-pad"
-            placeholder="100"
-            value={amount}
-            onChangeText={setAmount}
-          />
-
-          {myBalance != null && Number.isFinite(n) && n > myBalance && (
-            <Text style={S.errorText}>You only have {picklesLabel(myBalance)}.</Text>
-          )}
-
-          <StatusBanner status={status.value} />
-
-          <View style={S.modalBtnRow}>
-            <TouchableOpacity style={[S.modalBtn, S.btnSecondary]} onPress={onClose} disabled={busy}>
-              <Text style={S.btnSecondaryText}>Cancel</Text>
-            </TouchableOpacity>
-            <TouchableOpacity
-              style={[S.modalBtn, S.btnPrimary, !valid && S.btnDisabled]}
-              onPress={submit}
-              disabled={!valid || busy}
-            >
-              {busy
-                ? <ActivityIndicator color={S.btnPrimaryText.color as string} size="small" />
-                : <Text style={S.btnPrimaryText}>Contribute</Text>}
-            </TouchableOpacity>
-          </View>
+    <Dialog
+      visible={visible}
+      onClose={onClose}
+      title="Add to the pot"
+      subtitle={`${scopeLabel} pot, ${pool.toLocaleString()}`}
+      iconName="pickle"
+      busy={busy}
+      error={error ?? (over ? `You only have ${picklesLabel(myBalance!)}.` : null)}
+      body="Your pickles go straight into the pot for the winners."
+      primary={{
+        label: valid ? `Add ${picklesLabel(n)}` : 'Add pickles',
+        onPress: () => { void submit(); },
+        disabled: !valid,
+        loading: busy,
+      }}
+    >
+      {myBalance != null ? (
+        <View style={[S.haveRow, { backgroundColor: c.primaryLight }]}>
+          <Text style={S.haveLabel}>You have</Text>
+          <PickleAmount amount={myBalance} preset="body" color={c.text} iconColor={c.primary} textStyle={S.haveValue} />
         </View>
-      </Pressable>
-      {/* Toasts and the pickle rain show above this Modal. */}
-      <ToastOutlet />
-    </Modal>
+      ) : null}
+      {chips.length > 0 ? (
+        <View style={S.chipRow}>
+          {chips.map((ch) => {
+            const on = Number.isFinite(n) && n === ch.value;
+            return (
+              <Pressable
+                key={ch.label}
+                onPress={() => { setAmount(String(ch.value)); setError(null); }}
+                style={[S.amountChip, { backgroundColor: on ? c.text : c.primaryLight }]}
+                accessibilityRole="button"
+                accessibilityState={{ selected: on }}
+                accessibilityLabel={ch.label === 'Max' ? `Max, ${picklesLabel(ch.value)}` : picklesLabel(ch.value)}
+              >
+                <Text style={[S.amountChipText, { color: on ? c.bg : c.text }]}>{ch.label}</Text>
+              </Pressable>
+            );
+          })}
+        </View>
+      ) : null}
+      <TextField
+        label="Amount"
+        keyboardType="number-pad"
+        placeholder="100"
+        value={amount}
+        onChangeText={(v) => { setAmount(v.replace(/[^0-9]/g, '')); setError(null); }}
+        containerStyle={S.amountField}
+        trailingWidth={84}
+        trailing={<Text style={S.unit}>pickles</Text>}
+        hint={valid ? potAfterLine(pool, n, myBalance) : undefined}
+      />
+    </Dialog>
   );
 }
 
@@ -478,6 +491,15 @@ function makeStyles(c: ReturnType<typeof useTheme>['colors']) {
   // shadow: the card is a plain hairline Panel; the modals are overlays and
   // keep the backdrop), FONT sizes only, and 44px boxes on every button.
   return StyleSheet.create({
+    // (PKL-031) The Contribute dialog.
+    haveRow:   { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', borderRadius: RADIUS.md, paddingHorizontal: SPACE.md, paddingVertical: SPACE.md },
+    haveLabel: { fontSize: FONT.size.md, color: c.text, fontWeight: FONT.weight.semibold },
+    haveValue: { fontWeight: FONT.weight.heavy, fontSize: FONT.size.lg },
+    chipRow:   { flexDirection: 'row', gap: SPACE.sm },
+    amountChip: { flex: 1, minHeight: 40, borderRadius: RADIUS.sm, alignItems: 'center', justifyContent: 'center' },
+    amountChipText: { fontSize: FONT.size.md, fontWeight: FONT.weight.bold },
+    amountField: { marginBottom: 0 },
+    unit:      { fontSize: FONT.size.md, color: c.textSub, paddingRight: SPACE.sm },
     card: {
       backgroundColor: c.surface, borderRadius: RADIUS.lg, padding: SPACE.md, marginBottom: SPACE.md,
       borderWidth: HAIRLINE, borderColor: c.border,
