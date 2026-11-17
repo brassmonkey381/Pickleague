@@ -7,11 +7,15 @@
 // the JS message is not in the .ips, so the crash is unreadable without a Mac
 // attached to the device.
 //
-// This module renders the error instead. It deliberately depends on nothing but
-// react + react-native: no theme, no navigation, no Supabase, no foundation —
-// any of which may be the thing that failed.
+// This module renders the error instead, on the kit's friendly CrashScreen in
+// Rally's colours as plain hex (PKL-031). CrashScreen depends on nothing but
+// react, react-native and react-native-svg: no theme, no navigation, no
+// Supabase. The details (one tap, "Show details for support") keep the phase,
+// the message and the stack in every build: this is the only way to read a
+// startup crash on a phone without a Mac attached.
 import React from 'react';
-import { ScrollView, StyleSheet, Text, View } from 'react-native';
+import { CrashScreen } from '@just-messin-around/expo-foundation/ui';
+import { CRASH_BODY, CRASH_TITLE, CRASH_TITLE_FONT, PICKLEAGUE_CRASH_PALETTE } from './crashPalette';
 
 export function describeError(error: unknown): string {
   if (error instanceof Error) {
@@ -24,17 +28,18 @@ export function describeError(error: unknown): string {
   }
 }
 
-export function StartupErrorScreen({ error, phase }: { error: unknown; phase: string }) {
+export function StartupErrorScreen({ error, phase, onRetry }: { error: unknown; phase: string; onRetry?: () => void }) {
   return (
-    <View style={styles.root}>
-      <ScrollView contentContainerStyle={styles.body}>
-        <Text style={styles.title}>Startup error</Text>
-        <Text style={styles.phase}>{phase}</Text>
-        <Text style={styles.message} selectable>
-          {describeError(error)}
-        </Text>
-      </ScrollView>
-    </View>
+    <CrashScreen
+      error={error}
+      onRetry={onRetry}
+      title={CRASH_TITLE}
+      body={CRASH_BODY}
+      palette={PICKLEAGUE_CRASH_PALETTE}
+          titleFontFamily={CRASH_TITLE_FONT}
+      showStack
+      extraDetails={`Phase: ${phase}`}
+    />
   );
 }
 
@@ -84,16 +89,14 @@ export class AppErrorBoundary extends React.Component<
 
   render() {
     if (this.state.error) {
-      return <StartupErrorScreen error={this.state.error} phase={this.state.phase} />;
+      return (
+        <StartupErrorScreen
+          error={this.state.error}
+          phase={this.state.phase}
+          onRetry={() => this.setState({ error: null, phase: 'while rendering' })}
+        />
+      );
     }
     return this.props.children;
   }
 }
-
-const styles = StyleSheet.create({
-  root: { flex: 1, backgroundColor: '#1b1b1b', paddingTop: 64 },
-  body: { padding: 20, paddingBottom: 64 },
-  title: { color: '#ff6b6b', fontSize: 22, fontWeight: '700', marginBottom: 4 },
-  phase: { color: '#9a9a9a', fontSize: 13, marginBottom: 16 },
-  message: { color: '#f2f2f2', fontSize: 13, fontFamily: 'Courier', lineHeight: 19 },
-});

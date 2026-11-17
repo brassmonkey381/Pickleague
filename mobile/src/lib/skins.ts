@@ -26,7 +26,10 @@ const PARTS: ThemeParts = {
   segments: 'track',
   sheet: 'band',
   sectionHeader: 'marker',
-  toast: 'sticker',
+  // (kit 1.128) Toasts on the card face (surface, edge outline, a highlight
+  // disc) so they read on yellow bands; confirms draw as the kit Dialog.
+  toast: 'card',
+  dialog: 'card',
   empty: 'ball',
   navBar: 'island',
   dayBands: 'date',

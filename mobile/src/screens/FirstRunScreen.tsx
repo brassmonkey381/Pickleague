@@ -1,10 +1,16 @@
 // First run (PKL-020 change 3): Welcome, Your courts, Alerts, one per screen,
 // then Home. Brian picked option A without the "How do you play" step. The
 // shell is the kit's FirstRunSteps; the rules are in lib/firstRun.ts.
+// PKL-031: each step leads with art in the Look's band (kit 1.128 `hero`),
+// Welcome lists the two steps as numbered cards, Alerts shows two sample
+// alerts and the kinds as chips with Not now, and Your courts loads with
+// skeleton rows instead of a spinner.
 import React, { useCallback, useEffect, useRef, useState } from 'react';
-import { ActivityIndicator, Platform, StyleSheet, Text, TextInput, TouchableOpacity, View } from 'react-native';
+import { Platform, StyleSheet, Text, TextInput, TouchableOpacity, View } from 'react-native';
 import type { NativeStackScreenProps } from '@react-navigation/native-stack';
-import { FirstRunSteps, type FirstRunStep } from '@just-messin-around/expo-foundation/ui';
+import { FirstRunSteps, Skeleton, type FirstRunStep } from '@just-messin-around/expo-foundation/ui';
+import { edgeColor, highlightColors } from '@just-messin-around/expo-foundation/theme';
+import { AlertsArt, CourtsArt, WelcomeArt } from '../components/firstRun/FirstRunArt';
 import { Button } from '@just-messin-around/expo-foundation/forms';
 import { Icon } from '@just-messin-around/expo-foundation/icons';
 import { textStyles } from '@just-messin-around/expo-foundation/typography';
@@ -35,7 +41,10 @@ type CourtsState =
   | { kind: 'needPlace' }
   | { kind: 'error'; message: string };
 
-export default function FirstRunScreen({ navigation }: Props) {
+export default function FirstRunScreen({ navigation, nativePreview }: Props & {
+  /** Dev lab only (src/dev/RevampLabWeb): draw the phone steps on the web. */
+  nativePreview?: boolean;
+}) {
   const { colors: c } = useTheme();
   const toast = useToast();
 
@@ -125,7 +134,7 @@ export default function FirstRunScreen({ navigation }: Props) {
   }, [picked, courts, toast]);
 
   // ── Alerts ──
-  const pushPossible = Platform.OS !== 'web';
+  const pushPossible = Platform.OS !== 'web' || !!nativePreview;
   const turnOnAlerts = useCallback(async () => {
     if (!pushPossible) return;
     const outcome = await enablePushNotifications();
@@ -144,10 +153,18 @@ export default function FirstRunScreen({ navigation }: Props) {
     {
       key: 'welcome',
       title: 'Welcome to Pickleague',
-      body: 'Two quick things so we can find you games: the courts you play at, and your alerts.',
+      body: "Two quick things and we'll find you games.",
       nextLabel: "Let's go",
       skippable: false,
-      content: <CheckList rows={['Your courts', 'Alerts', 'Then Home: leagues near you']} />,
+      hero: <WelcomeArt />,
+      content: (
+        <StepCards
+          rows={[
+            { title: 'Your courts', sub: "See who's playing where you play" },
+            { title: 'Alerts', sub: 'Invites and scores to confirm' },
+          ]}
+        />
+      ),
     },
     {
       key: 'courts',
@@ -155,6 +172,7 @@ export default function FirstRunScreen({ navigation }: Props) {
       body: `Pick up to ${MAX_COURT_FAVORITES}. We'll show who's playing there and tell you about games nearby.`,
       nextLabel: picked.length > 0 ? `Save ${picked.length === 1 ? 'court' : `${picked.length} courts`}` : 'Next',
       onNext: saveCourts,
+      hero: <CourtsArt />,
       content: (
         <CourtsStep
           state={courts}
@@ -171,15 +189,15 @@ export default function FirstRunScreen({ navigation }: Props) {
     },
     {
       key: 'alerts',
-      title: 'Alerts',
+      title: 'Never miss a game',
       body: pushPossible
-        ? 'Get a nudge for match invites, scores to confirm and league news. You choose which ones in Settings.'
+        ? "We'll nudge you for these. Pick which ones in Settings any time."
         : 'Alerts work in the Pickleague phone app. On the web, check Home for what is new.',
       nextLabel: pushPossible ? 'Turn on alerts' : 'Done',
       onNext: turnOnAlerts,
-      content: pushPossible ? (
-        <CheckList rows={['Match invites and challenges', 'Scores to confirm (unconfirmed matches drop after an hour)', 'League and event news']} />
-      ) : null,
+      secondaryLabel: pushPossible ? 'Not now' : undefined,
+      hero: <AlertsArt />,
+      content: pushPossible ? <AlertChips kinds={['Match invites', 'Scores to confirm', 'League news']} /> : null,
     },
   ];
 
@@ -195,15 +213,56 @@ export default function FirstRunScreen({ navigation }: Props) {
 
 }
 
-function CheckList({ rows }: { rows: string[] }) {
+/** Welcome's numbered steps: a disc with the number, a title, a line. */
+function StepCards({ rows }: { rows: { title: string; sub: string }[] }) {
+  const { colors: c } = useTheme();
+  const t = textStyles(c);
+  const hl = highlightColors(c);
+  const edge = edgeColor(c);
+  return (
+    <View style={S.cards}>
+      {rows.map((r, i) => (
+        <View key={r.title} style={[S.stepCard, { backgroundColor: c.surface, borderColor: c.border, borderRadius: c.radiusCard ?? 14 }]}>
+          <View style={[S.num, { backgroundColor: hl.bg, borderColor: edge }]}>
+            <Text style={[t.title, { color: edge }]}>{i + 1}</Text>
+          </View>
+          <View style={S.flex}>
+            <Text style={t.title}>{r.title}</Text>
+            <Text style={t.sub}>{r.sub}</Text>
+          </View>
+        </View>
+      ))}
+    </View>
+  );
+}
+
+/** The kinds of alerts, as tags (changed in Settings, not here). */
+function AlertChips({ kinds }: { kinds: string[] }) {
   const { colors: c } = useTheme();
   const t = textStyles(c);
   return (
-    <View style={S.alertList}>
-      {rows.map(r => (
-        <View key={r} style={S.alertRow}>
-          <Icon name="check" size={18} color={c.primary} />
-          <Text style={[t.body, S.flex]}>{r}</Text>
+    <View style={S.chips}>
+      {kinds.map(k => (
+        <View key={k} style={[S.chip, { backgroundColor: c.primaryLight, borderRadius: c.radiusChip ?? 8 }]}>
+          <Text style={[t.sub, S.chipText, { color: c.text }]}>{k}</Text>
+        </View>
+      ))}
+    </View>
+  );
+}
+
+/** Your courts while it loads: rows shaped like the court rows. */
+function CourtSkeletons() {
+  const { colors: c } = useTheme();
+  return (
+    <View style={S.gap} accessibilityLabel="Finding courts near you" accessibilityRole="progressbar">
+      {[0, 1, 2].map(i => (
+        <View key={i} style={[S.row, { borderColor: c.border, backgroundColor: c.surface }]}>
+          <View style={[S.flex, S.skelText]}>
+            <Skeleton width="70%" height={16} />
+            <Skeleton width="45%" height={12} />
+          </View>
+          <Skeleton width={24} height={24} radius={12} />
         </View>
       ))}
     </View>
@@ -230,7 +289,7 @@ function CourtsStep({
   const [locBusy, setLocBusy] = useState(false);
 
   if (state.kind === 'idle' || state.kind === 'loading') {
-    return <ActivityIndicator style={S.spinner} color={c.primary} />;
+    return <CourtSkeletons />;
   }
   if (state.kind === 'error') {
     return (
@@ -367,9 +426,13 @@ function CitySearch({ onCity }: { onCity: (city: CitySuggestion) => void }) {
 const S = StyleSheet.create({
   flex: { flex: 1 },
   gap: { gap: 10 },
-  spinner: { marginTop: 24 },
-  alertList: { gap: 12 },
-  alertRow: { flexDirection: 'row', alignItems: 'center', gap: 10 },
+  cards: { gap: 10 },
+  stepCard: { flexDirection: 'row', alignItems: 'center', gap: 14, borderWidth: 1, paddingHorizontal: 14, paddingVertical: 12 },
+  num: { width: 32, height: 32, borderRadius: 16, borderWidth: 2, alignItems: 'center', justifyContent: 'center' },
+  chips: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
+  chip: { paddingHorizontal: 12, paddingVertical: 8 },
+  chipText: { fontWeight: '700' },
+  skelText: { gap: 8 },
   row: { flexDirection: 'row', alignItems: 'center', gap: 12, borderWidth: 2, borderRadius: 14, paddingHorizontal: 14, paddingVertical: 12, minHeight: 64 },
   tag: { fontWeight: '700', letterSpacing: 1, marginBottom: 2 },
   input: { borderWidth: 1, borderRadius: 12, paddingHorizontal: 14, minHeight: 48 },

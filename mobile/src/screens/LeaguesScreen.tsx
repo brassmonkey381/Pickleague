@@ -98,6 +98,7 @@ import { fixtureLeagues, isFixtureId, usePlayFixtureOn } from '../lib/__dev__/pl
 import { useSearchArea } from '../lib/useSearchArea';
 import { searchAreaKey, widerSearchRadius } from '../lib/searchArea';
 import { listLeaguePreviews, previewAsLeague, type LeaguePreview } from '../data/leaguePreview';
+import JoinCodeModal from '../components/home/JoinCodeModal';
 import { ToastOutlet } from '@just-messin-around/expo-foundation/toast';
 
 type Props = {
@@ -573,14 +574,7 @@ export default function LeaguesScreen({ navigation, route, active = true, routeM
     }
   }
 
-  async function joinWithCode() {
-    const redeemed = await leagueJoin.redeemCode(inviteCode);
-    if (!redeemed) return;
-    setShowJoinCode(false);
-    setInviteCode('');
-  }
   const createPress = useAsyncPress(createLeague);
-  const joinPress = useAsyncPress(joinWithCode);
 
   // Cancel, Android back and the iOS swipe-down all close the same way, so a
   // reopened modal never shows the last attempt's code and red error.
@@ -939,46 +933,17 @@ export default function LeaguesScreen({ navigation, route, active = true, routeM
         }}
       />
 
-      {/* Join with Code modal */}
-      <Modal visible={showJoinCode} animationType="slide" presentationStyle="pageSheet" onRequestClose={closeJoinCode}>
-        <ScrollView contentContainerStyle={S.modal} keyboardShouldPersistTaps="handled">
-          <Text style={[t.h1, S.modalTitle]}>Join with Invite Code</Text>
-          <Text style={[t.bodySub, S.modalHint]}>
-            Enter the invite code shared with you for a league or tournament. Codes look like{' '}
-            <Text style={S.bold}>3F7A-B2C9-D1E4</Text>.
-          </Text>
-          <TextInput
-            style={[S.input, S.codeInput]}
-            placeholder="XXXX-XXXX-XXXX"
-            placeholderTextColor={c.textMuted}
-            value={inviteCode}
-            onChangeText={setInviteCode}
-            autoCapitalize="characters"
-            autoCorrect={false}
-          />
-          {leagueJoin.error ? (
-            <View style={S.errorBox}>
-              <Text style={[t.sub, S.errorText]}>{leagueJoin.error}</Text>
-            </View>
-          ) : null}
-          <Button
-            title={leagueJoin.joining ? 'Joining...' : 'Redeem Code'}
-            onPress={() => { void joinPress.press(); }}
-            loading={joinPress.busy || leagueJoin.joining}
-            disabled={leagueJoin.joining}
-            style={S.submit}
-          />
-          <Pressable
-            onPress={closeJoinCode}
-            accessibilityRole="button"
-            style={S.cancel}
-          >
-            <Text style={[t.sub, { color: c.textMuted }]}>Cancel</Text>
-          </Pressable>
-        </ScrollView>
-        {/* Toasts and the pickle rain show above this Modal. */}
-        <ToastOutlet />
-      </Modal>
+      {/* Join with a code: the same sheet as Home's (PKL-031). */}
+      <JoinCodeModal
+        visible={showJoinCode}
+        leagueJoin={leagueJoin}
+        initialCode={inviteCode}
+        onClose={closeJoinCode}
+        onRedeemed={() => {
+          setShowJoinCode(false);
+          setInviteCode('');
+        }}
+      />
 
       {/* Create modal */}
       <Modal visible={showCreate} animationType="slide" presentationStyle="pageSheet" onRequestClose={() => setShowCreate(false)}>
