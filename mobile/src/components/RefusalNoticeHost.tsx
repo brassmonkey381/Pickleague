@@ -6,37 +6,50 @@
 // marked seen only then. Checked on mount, on every return to the
 // foreground, and the moment one is stored while the app is open.
 //
-// A card over the top of the screen, like the kit's UpdateReadyBanner (same
-// inset and slot), not a Modal: it never fights the end sheet or the start
-// sheet for the screen (iOS presents one Modal at a time), and while another
-// Modal is up it simply waits underneath until that one closes.
+// A sticky notice in the kit's notice stack (kit 1.128: the one top slot,
+// below the safe area and any top banner), not a Modal: it never fights the
+// end sheet or the start sheet for the screen (iOS presents one Modal at a
+// time). Inside a Modal it shows above the sheet through the kit's outlet.
 //
 // Mounted once at the app root (navigation/AppNavigator) after the splash, so
 // it never opens behind it; signed in or not, so a sign-out notice still
 // shows on the sign-in screen.
-import React, { useCallback, useEffect, useState } from 'react';
-import { AppState, Platform, StyleSheet, Text, View } from 'react-native';
-import { Button } from '@just-messin-around/expo-foundation/forms';
+import { useCallback, useEffect, useRef } from 'react';
+import { AppState } from 'react-native';
 import { useSignal } from '@just-messin-around/expo-foundation/hooks';
-import { TopChromeView } from '@just-messin-around/expo-foundation/navigation';
-import { HAIRLINE, RADIUS, SPACE } from '@just-messin-around/expo-foundation/styles';
-import { FONT, textStyles } from '@just-messin-around/expo-foundation/typography';
-import { useTheme } from '../lib/ThemeContext';
+import { useToast } from '@just-messin-around/expo-foundation/toast';
 import {
   markRefusalNoticeShown,
   peekRefusalNotices,
   refusalNoticed,
-  type PendingNotice,
 } from '../lib/refusalNotices';
 
 export default function RefusalNoticeHost() {
-  const { colors: c } = useTheme();
-  const t = textStyles(c);
-  const [notice, setNotice] = useState<PendingNotice | null>(null);
+  const toast = useToast();
+  // The notice on screen (its key and time), so a reload doesn't show it twice.
+  const showing = useRef<string | null>(null);
 
   const load = useCallback(() => {
-    void peekRefusalNotices().then((list) => setNotice(list[0] ?? null));
-  }, []);
+    void peekRefusalNotices().then((list) => {
+      const n = list[0];
+      if (!n) return;
+      const id = `${n.key}@${n.atMs}`;
+      if (showing.current === id) return;
+      showing.current = id;
+      toast.show({
+        kind: 'notice',
+        title: n.title,
+        text: n.body,
+        sticky: true,
+        onDismiss: () => {
+          void markRefusalNoticeShown(n.key, n.atMs).then(() => {
+            showing.current = null;
+            load();
+          });
+        },
+      });
+    });
+  }, [toast]);
 
   useEffect(() => {
     load();
@@ -47,52 +60,5 @@ export default function RefusalNoticeHost() {
   }, [load]);
   useSignal(refusalNoticed, load);
 
-  const dismiss = () => {
-    if (!notice) return;
-    const { key, atMs } = notice;
-    setNotice(null);
-    void markRefusalNoticeShown(key, atMs).then(load);
-  };
-
-  if (!notice) return null;
-  return (
-    <TopChromeView owner="refusal-notice" style={S.container} pointerEvents="box-none">
-      <View
-        style={[S.card, { backgroundColor: c.surface, borderColor: c.border, borderLeftColor: c.danger }]}
-        accessibilityRole="alert"
-        accessibilityLiveRegion="polite"
-      >
-        <Text style={[t.sub, S.title, { color: c.text }]}>{notice.title}</Text>
-        <Text style={[t.sub, { color: c.text }]}>{notice.body}</Text>
-        <View style={S.actions}>
-          <Button title="OK" variant="outline" onPress={dismiss} style={S.btn} />
-        </View>
-      </View>
-    </TopChromeView>
-  );
+  return null;
 }
-
-const S = StyleSheet.create({
-  container: {
-    position: 'absolute',
-    top: Platform.OS === 'web' ? SPACE.lg : SPACE.xl * 2, // clears the status bar (matches the toasts and the update banner)
-    left: 0,
-    right: 0,
-    alignItems: 'center',
-    zIndex: 9997, // under the offline banner (9998) and the toasts (9999)
-    paddingHorizontal: SPACE.md,
-  },
-  card: {
-    width: '100%',
-    maxWidth: 360,
-    borderRadius: RADIUS.md,
-    padding: SPACE.md,
-    borderWidth: HAIRLINE,
-    borderLeftWidth: 4,
-    elevation: 6,
-    gap: SPACE.sm,
-  },
-  title: { fontWeight: FONT.weight.bold },
-  actions: { flexDirection: 'row', justifyContent: 'flex-end' },
-  btn: { minWidth: 88 },
-});

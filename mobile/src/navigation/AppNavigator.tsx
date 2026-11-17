@@ -40,6 +40,9 @@ import PlayIsland from '../components/PlayIsland';
 import PlayStartSheetHost from '../components/play/PlayStartSheet';
 import PlayEndSheetHost from '../components/play/PlayEndSheet';
 import RefusalNoticeHost from '../components/RefusalNoticeHost';
+import BadgeToast from '../components/BadgeToast';
+import EmailConfirmedBanner from '../components/EmailConfirmedBanner';
+import NewPasswordHost from '../components/NewPasswordHost';
 import { startOfflineWrites } from '../lib/offlineWrites';
 
 import LoginScreen from '../screens/LoginScreen';
@@ -611,6 +614,12 @@ export default function AppNavigator() {
       {/* Refusals the player wasn't looking at (a queued write refused later): a card
           that stays until OK. After the splash, so it never opens behind it. */}
       {!updateRequired && phase === 'ready' && splashDone && <RefusalNoticeHost />}
+      {/* A badge earned: a celebration card in the same notice stack. */}
+      <BadgeToast />
+      {/* Web: "Email confirmed" after the confirm link, in the same stack. */}
+      <EmailConfirmedBanner />
+      {/* After a password reset link: "Choose a new password" (lib/passwordRecovery). */}
+      <NewPasswordHost signedIn={!!session} />
       {!splashDone && (
         <SplashScreen onDone={() => setSplashDone(true)} minMs={MIN_MS} />
       )}
