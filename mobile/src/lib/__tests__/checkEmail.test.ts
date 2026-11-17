@@ -44,6 +44,12 @@ describe('copy', () => {
     expect(notConfirmedMessage('a@b.co')).toContain('a@b.co');
     expect(checkEmailBody('a@b.co')).not.toContain('·');
   });
+  it('no address in the link: no blank, no stray full stop (PKL-029 p04)', () => {
+    for (const e of ['', '  ']) {
+      expect(checkEmailBody(e)).not.toMatch(/to \./);
+      expect(checkEmailBody(e)).toContain('sign in');
+    }
+  });
   it('Open Mail only where there is one inbox to open', () => {
     expect(mailAppUrl('ios')).toBe('message://');
     expect(mailAppUrl('android')).toBeNull();
