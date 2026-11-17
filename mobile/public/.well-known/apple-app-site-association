@@ -15,6 +15,11 @@
             "comment": "Marketing page whose whole job is to sell the install. Opening the app instead would hide it from the people it is for."
           },
           {
+            "/": "/guides/*",
+            "exclude": true,
+            "comment": "Web guides (the PLUPR player guide). A reader, often someone without the app yet, should get the page, not an app launch (PKL-028)."
+          },
+          {
             "/": "/api/*",
             "exclude": true,
             "comment": "Open Graph card endpoints - crawler surface, never a human destination."

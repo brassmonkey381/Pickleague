@@ -8,19 +8,42 @@
     {
       "source": "/.well-known/apple-app-site-association",
       "headers": [{ "key": "Content-Type", "value": "application/json" }]
+    },
+    {
+      "source": "/_expo/static/(.*)",
+      "headers": [{ "key": "Cache-Control", "value": "public, max-age=31536000, immutable" }]
+    },
+    {
+      "source": "/:seg(login|register|check-email|claim)",
+      "headers": [{ "key": "X-Robots-Tag", "value": "noindex" }]
+    },
+    {
+      "source": "/:seg(g|invite|players|profile)/:rest*",
+      "headers": [{ "key": "X-Robots-Tag", "value": "noindex" }]
+    },
+    {
+      "source": "/guides/plupr.html",
+      "headers": [{ "key": "X-Robots-Tag", "value": "noindex" }]
     }
+  ],
+  "redirects": [
+    { "source": "/landing", "destination": "/", "permanent": true },
+    { "source": "/landing.html", "destination": "/", "permanent": true },
+    { "source": "/index.html", "destination": "/", "permanent": true },
+    { "source": "/privacy.html", "destination": "/privacy", "permanent": true },
+    { "source": "/guides/plupr/", "destination": "/guides/plupr", "permanent": true }
   ],
   "rewrites": [
     { "source": "/privacy", "destination": "/privacy.html" },
     { "source": "/delete-account", "destination": "/delete-account.html" },
-    { "source": "/landing", "destination": "/landing.html" },
+    { "source": "/guides/plupr", "destination": "/guides/plupr/index.html" },
     {
       "source": "/events/:id",
       "has": [
         {
           "type": "header",
           "key": "user-agent",
-          "value": ".*(facebookexternalhit|Facebot|WhatsApp|Twitterbot|Slackbot|Discordbot|LinkedInBot|TelegramBot|Applebot|SkypeUriPreview|redditbot|Googlebot|bingbot|Iframely|Embedly).*"
+          "value": ".*(facebookexternalhit|Facebot|WhatsApp|Twitterbot|Slackbot|Discordbot|LinkedInBot|TelegramBot|SkypeUriPreview|redditbot|Iframely|Embedly).*"
         }
       ],
       "destination": "/api/og?type=event&id=:id"
@@ -31,7 +54,7 @@
         {
           "type": "header",
           "key": "user-agent",
-          "value": ".*(facebookexternalhit|Facebot|WhatsApp|Twitterbot|Slackbot|Discordbot|LinkedInBot|TelegramBot|Applebot|SkypeUriPreview|redditbot|Googlebot|bingbot|Iframely|Embedly).*"
+          "value": ".*(facebookexternalhit|Facebot|WhatsApp|Twitterbot|Slackbot|Discordbot|LinkedInBot|TelegramBot|SkypeUriPreview|redditbot|Iframely|Embedly).*"
         }
       ],
       "destination": "/api/og?type=league&id=:id"
@@ -42,7 +65,7 @@
         {
           "type": "header",
           "key": "user-agent",
-          "value": ".*(facebookexternalhit|Facebot|WhatsApp|Twitterbot|Slackbot|Discordbot|LinkedInBot|TelegramBot|Applebot|SkypeUriPreview|redditbot|Googlebot|bingbot|Iframely|Embedly).*"
+          "value": ".*(facebookexternalhit|Facebot|WhatsApp|Twitterbot|Slackbot|Discordbot|LinkedInBot|TelegramBot|SkypeUriPreview|redditbot|Iframely|Embedly).*"
         }
       ],
       "destination": "/api/og?type=tournament&id=:id"
@@ -53,7 +76,7 @@
         {
           "type": "header",
           "key": "user-agent",
-          "value": ".*(facebookexternalhit|Facebot|WhatsApp|Twitterbot|Slackbot|Discordbot|LinkedInBot|TelegramBot|Applebot|SkypeUriPreview|redditbot|Googlebot|bingbot|Iframely|Embedly).*"
+          "value": ".*(facebookexternalhit|Facebot|WhatsApp|Twitterbot|Slackbot|Discordbot|LinkedInBot|TelegramBot|SkypeUriPreview|redditbot|Iframely|Embedly).*"
         }
       ],
       "destination": "/api/og?type=season&id=:id"
@@ -64,11 +87,14 @@
         {
           "type": "header",
           "key": "user-agent",
-          "value": ".*(facebookexternalhit|Facebot|WhatsApp|Twitterbot|Slackbot|Discordbot|LinkedInBot|TelegramBot|Applebot|SkypeUriPreview|redditbot|Googlebot|bingbot|Iframely|Embedly).*"
+          "value": ".*(facebookexternalhit|Facebot|WhatsApp|Twitterbot|Slackbot|Discordbot|LinkedInBot|TelegramBot|SkypeUriPreview|redditbot|Iframely|Embedly).*"
         }
       ],
       "destination": "/api/og?type=player&id=:id"
     },
-    { "source": "/(.*)", "destination": "/index.html" }
+    {
+      "source": "/:seg(home|about|achievements|admin|analytics|availability|blocked-players|bookmarks|check-email|claim|court-pass|courts|discover|drill|events|friends|g|gift-pickles|godmode|invite|leagues|login|match-entry|matches|moderation|notifications|pickles|place|play|players|profile|public-events|register|routines|scoring-algo|seasons|settings|shop|tournaments|unlock-progress)/:rest*",
+      "destination": "/app.html"
+    }
   ]
 }
