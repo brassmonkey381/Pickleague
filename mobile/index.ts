@@ -9,11 +9,14 @@ import { StartupErrorScreen, installFatalErrorHandler } from './src/lib/StartupE
 // Signed-in visitors and sign-in email links are forwarded from / to /home by
 // a script in landing.html. `document` discriminates web from native.
 // Dev web only: /?sharelab draws the share card QA grid (src/dev/ShareLabWeb),
-// /?lookslab the shared parts in the current look (src/dev/LooksLabWeb).
+// /?lookslab the shared parts in the current look (src/dev/LooksLabWeb),
+// /?revamplab=<scene> the PKL-031 overlays and screens (src/dev/RevampLabWeb).
 const shareLab =
   __DEV__ && typeof document !== 'undefined' && new URLSearchParams(window.location.search).has('sharelab');
 const looksLab =
   __DEV__ && typeof document !== 'undefined' && new URLSearchParams(window.location.search).has('lookslab');
+const revampLab =
+  __DEV__ && typeof document !== 'undefined' && new URLSearchParams(window.location.search).has('revamplab');
 
 installFatalErrorHandler();
 
@@ -31,7 +34,10 @@ try {
     : looksLab
       ? // eslint-disable-next-line @typescript-eslint/no-var-requires
         require('./src/dev/LooksLabWeb').default
-      : require('./App').default;
+      : revampLab
+        ? // eslint-disable-next-line @typescript-eslint/no-var-requires
+          require('./src/dev/RevampLabWeb').default
+        : require('./App').default;
 } catch (error) {
   Root = () =>
     React.createElement(StartupErrorScreen, { error, phase: 'while loading the app bundle' });
