@@ -101,7 +101,7 @@ h2 { font-size: clamp(2.4rem, 4.2vw + .6rem, 4.6rem); line-height: .98; margin: 
 .sec { padding-block: var(--pad); position: relative; }
 .panel { background: var(--deep); color: var(--on-deep); border-radius: clamp(24px, 3.5vw, 48px); margin-inline: clamp(0px, 1vw, 16px); }
 .panel .eyebrow, .panel .copy p, .panel .lede { color: var(--on-deep-sub); }
-body, .panel, .card, .btn, .sticker, .look-btn, .t-row, .fc-face, .loud, .tile { transition: background-color .5s ease, color .5s ease, border-color .5s ease, border-radius .5s ease; }
+body, .panel, .card, .btn, .sticker, .look-btn, .t-row, .fc-face, .tile { transition: background-color .5s ease, color .5s ease, border-color .5s ease, border-radius .5s ease; }
 
 /* ---------- Buttons: the app's sticker button, with a lift */
 .btn {
@@ -414,16 +414,6 @@ html.js .deck:not(.dealt) .fc { transform: rotateY(180deg); }
 .fmt-cta-go small { font-size: 14px; font-weight: 700; }
 .cta-ball { position: absolute; z-index: -1; width: clamp(140px, 16vw, 230px); height: auto; aspect-ratio: 1; right: -40px; top: -56px; opacity: .34; rotate: 18deg; }
 
-/* ---------- 6. The loud beat: one line, a marquee, four real mechanics */
-.loud { background: var(--hl); color: var(--on-hl); border-radius: clamp(24px, 3.5vw, 48px); margin-inline: clamp(0px, 1vw, 16px); overflow: hidden; }
-.lit-line { font-size: clamp(2.6rem, 5vw, 5.6rem); line-height: 1.02; text-wrap: balance; }
-.lit-line .wd { display: inline; }
-.lit-line .l2 { display: block; text-align: right; }
-.marquee { margin: clamp(48px, 7vh, 88px) 0; overflow: hidden; border-block: 2px solid color-mix(in srgb, var(--on-hl) 22%, transparent); padding: 18px 0;
-  -webkit-mask-image: linear-gradient(90deg, transparent, #000 8%, #000 92%, transparent); mask-image: linear-gradient(90deg, transparent, #000 8%, #000 92%, transparent); }
-.mq-track { display: flex; width: max-content; }
-.mq-set { display: flex; align-items: center; gap: 28px; padding-right: 28px; font-size: clamp(22px, 2vw, 30px); white-space: nowrap; }
-.mq-set i { width: 12px; height: 12px; border-radius: 50%; background: var(--on-hl); flex: none; }
 .score { --scf: clamp(4.4rem, 7.4vw, 8rem); }
 .score-k { font-weight: 800; font-size: 13px; letter-spacing: .14em; text-transform: uppercase; margin-bottom: 20px; }
 .score-row { display: grid; grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr) auto minmax(0, 1fr); align-items: start; column-gap: clamp(10px, 1.6vw, 24px); }
@@ -443,9 +433,6 @@ html.js .deck:not(.dealt) .fc { transform: rotateY(180deg); }
   transition: transform .18s var(--ease-out), box-shadow .18s var(--ease-out), scale .55s var(--spring), opacity .2s ease; }
 .btn.start:hover { --sh: 7px; }
 html.js .finale.pre .btn.start { scale: .4; opacity: 0; }
-.mid-cta { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 20px; }
-.mid-cta p { font-size: clamp(22px, 1.8vw + 8px, 30px); line-height: 1.15; max-width: 32ch; text-wrap: balance; }
-.loud .btn-primary { background: var(--on-hl); color: var(--hl); border-color: var(--on-hl); box-shadow: var(--sh) var(--sh) 0 rgb(0 0 0 / .28); }
 
 /* ---------- 7. The fun part: two stickers */
 .bento { display: grid; grid-template-columns: 1fr 1fr; gap: clamp(28px, 4vw, 56px); margin-top: 48px; }
@@ -485,7 +472,7 @@ html.js .finale.pre .btn.start { scale: .4; opacity: 0; }
 
 /* ---------- 9. Close + sign-off */
 .close { padding-bottom: 24px; }
-/* One finale: the close, the call "0 - 0 - 2, START!", and two lines from "2 places" down to the two QR codes */
+/* One finale: the close, the call "0 - 0 - START!", then the two places to get Pickleague in one centred row */
 .finale { position: relative; display: grid; grid-template-columns: minmax(0, 1fr); grid-template-areas: "copy" "score";
   row-gap: clamp(32px, 3vw, 40px); column-gap: 32px; align-items: end; padding: clamp(40px, 4.4vw, 64px) clamp(20px, 5vw, 80px); }
 .fin-copy { grid-area: copy; display: grid; grid-template-columns: minmax(0, 1.15fr) minmax(0, 1fr); gap: 20px clamp(28px, 5vw, 72px); align-items: end; }
@@ -498,25 +485,18 @@ html.js .finale.pre .btn.start { scale: .4; opacity: 0; }
 .finale .sc-n { background: var(--hl); color: var(--on-hl); }
 .finale .sc-n::after { background: var(--hl); box-shadow: 0 1px 0 rgb(0 0 0 / .18); }
 .finale .sc-dash { background: var(--on-deep); }
-.finale .sc.two p b { color: var(--hl); }
 .finale .btn { border-color: var(--on-deep); color: var(--on-deep); background: transparent; box-shadow: var(--sh) var(--sh) 0 rgb(0 0 0 / .35); }
 .finale .btn.start { background: var(--hl); color: var(--on-hl); border-color: var(--hl); rotate: -4deg; }
 .finale .btn.start:hover { --sh: 7px; }
-.finale .score-row { grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr) auto minmax(0, 1fr) auto; row-gap: 66px; }
-.places { --plw: 168px; grid-column: 5; grid-row: 2; justify-self: center; margin-inline: -240px; position: relative; z-index: 1; display: grid;
+.finale .score-row { grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr) auto minmax(0, 1.2fr); }
+.places { --plw: 168px; margin-top: clamp(40px, 4vw, 56px); position: relative; z-index: 1; display: grid;
   grid-template-columns: var(--plw) var(--plw); justify-content: center; align-items: start; column-gap: clamp(36px, 3.4vw, 52px); row-gap: 16px; }
-.places.wide { grid-column: 1 / -1; margin-inline: 0; } /* JS: tile 3 too near the edge, so centre the pair under the whole row */
 .place { display: grid; justify-items: center; gap: 14px; width: var(--plw); }
 .places .btn { width: 100%; min-height: 58px; padding: 0 12px; align-items: center; text-align: center; }
 .places .android { grid-column: 1 / -1; justify-self: center; text-align: center; margin: 2px 0 0; }
 .pl-k { display: none; font-weight: 800; font-size: 12.5px; letter-spacing: .12em; text-transform: uppercase; color: var(--hl); }
-.pl-go { position: relative; grid-column: 6; grid-row: 1; align-self: start; height: calc(var(--scf) * 1.26); display: flex; align-items: center; padding: 0 8px 0 4px; }
+.pl-go { position: relative; align-self: start; justify-self: center; height: calc(var(--scf) * 1.26); display: flex; align-items: center; padding: 0 8px 0 4px; }
 .pl-go .cball { position: absolute; right: -34px; bottom: -14px; }
-.fin-wire { position: absolute; inset: 0; width: 100%; height: 100%; overflow: visible; pointer-events: none; z-index: 0; }
-.fin-wire path { fill: none; stroke: var(--hl); stroke-width: 3; stroke-linecap: round; stroke-linejoin: round; }
-.fin-wire .ln { stroke-dasharray: 1; stroke-dashoffset: 0; }
-html.js .finale.pre .fin-wire .ln { stroke-dashoffset: 1; }
-html.js .finale.pre .fin-wire .hd { opacity: 0; }
 .store { flex-direction: column; align-items: flex-start; line-height: 1.1; gap: 0; }
 .store small { font-size: 10.5px; letter-spacing: .08em; text-transform: uppercase; font-weight: 800; }
 .cball { position: relative; width: 46px; height: 46px; flex: none; }
@@ -582,9 +562,6 @@ html.js .finale.pre .fin-wire .hd { opacity: 0; }
     @keyframes justIn { from { opacity: 0; transform: scale(.82) rotate(-3deg); } }
     .jball { animation: jball linear both; animation-timeline: view(); animation-range: entry 40% cover 50%; }
     @keyframes jball { 0% { opacity: 0; transform: translate(-1.6em, -.9em) rotate(-240deg) scale(.6); } 60% { opacity: 1; transform: translate(0, -.12em) rotate(-30deg); } }
-    .lit-line { view-timeline-name: --lit; }
-    .lit-line .wd { animation: lit linear both; animation-timeline: --lit; animation-range: cover calc(14% + var(--i) * 2.4%) cover calc(22% + var(--i) * 2.4%); }
-    @keyframes lit { from { opacity: .22; } }
     .fchips li { animation: chipIn linear both; animation-timeline: view(); animation-range: entry calc(30% + var(--i) * 6%) entry calc(70% + var(--i) * 6%); }
     @keyframes chipIn { from { opacity: 0; transform: translateY(10px) scale(.85); } }
     .cta-ball { animation: ctaBall linear both; animation-timeline: view(); animation-range: entry 0% exit 40%; }
@@ -594,12 +571,6 @@ html.js .finale.pre .fin-wire .hd { opacity: 0; }
     .wordmark { animation: wmIn linear both; animation-timeline: view(); animation-range: entry 0% cover 45%; }
     @keyframes wmIn { from { letter-spacing: .08em; opacity: .2; } }
   }
-  .fin-wire .ln { transition: stroke-dashoffset .55s var(--ease-io); }
-  .fin-wire .ln.br { transition: stroke-dashoffset .6s var(--ease-io) .5s; }
-  .fin-wire .hd { transition: opacity .3s ease 1.05s; }
-  .mq-track { animation: mq 42s linear infinite; }
-  .marquee:hover .mq-track, .marquee:focus-within .mq-track { animation-play-state: paused; }
-  @keyframes mq { to { transform: translateX(-50%); } }
   ::view-transition-old(root), ::view-transition-new(root) { animation: none; mix-blend-mode: normal; }
   ::view-transition-group(front) { animation-duration: .7s; animation-timing-function: cubic-bezier(.7,0,.2,1); }
   ::view-transition-old(front), ::view-transition-new(front) { animation-duration: .7s; }
@@ -607,9 +578,6 @@ html.js .finale.pre .fin-wire .hd { opacity: 0; }
 @media (prefers-reduced-motion: reduce) {
   .state .x .strike { transform: scaleX(1); }
   .state .x .t { color: var(--sub); }
-  .mq-track { flex-wrap: wrap; width: auto; }
-  .mq-set[aria-hidden] { display: none; }
-  .mq-set { flex-wrap: wrap; white-space: normal; row-gap: 10px; }
   .sfig, .step h3, .step p, .fc, .t-row, .t-rows .t-row { transition: none !important; }
 }
 
@@ -620,9 +588,9 @@ html.js .finale.pre .fin-wire .hd { opacity: 0; }
   .stagebox { width: min(420px, 100%); }
   .story, .split, .fmt-grid, .bento { grid-template-columns: 1fr; }
   .fin-copy { grid-template-columns: 1fr; }
-  .finale .score-row { grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr) auto minmax(0, 1fr); row-gap: 0; }
-  .pl-go { grid-column: 1 / 4; grid-row: 2; height: auto; display: block; padding: 0; margin-top: 22px; }
-  .places, .places.wide { grid-column: 1 / -1; grid-row: 3; justify-self: stretch; margin: 72px 0 0; display: grid; grid-template-columns: 1fr 1fr; align-items: stretch; gap: 10px 14px; }
+  .finale .score-row { grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr) auto minmax(0, 1.25fr); }
+  .pl-go { padding: 0; justify-self: stretch; }
+  .places { margin: 36px 0 0; grid-template-columns: 1fr 1fr; align-items: stretch; gap: 10px 14px; }
   .places .android { grid-column: 1 / -1; grid-row: 3; margin: 8px 0 0; }
   .place.pl-ios, .place.pl-web { display: contents; }
   .pl-web > * { grid-column: 1; } .pl-ios > * { grid-column: 2; }
@@ -630,7 +598,7 @@ html.js .finale.pre .fin-wire .hd { opacity: 0; }
   .places .btn { grid-row: 2; }
   .places .qr { display: none; } /* a phone cannot scan its own screen */
   .places .btn { width: 100%; min-height: 64px; padding: 0 10px; }
-  .finale .btn.start { width: 100%; font-size: 2.3rem; rotate: -2deg; }
+  .finale .btn.start { width: 100%; min-height: 0; height: 100%; padding: 0 .2em; font-size: 1.9rem; border-radius: 14px; rotate: -3deg; }
   .pl-go .cball { display: none; }
   .stage { display: none; }
   .step, .step:last-child { min-height: 0; padding: 48px 0 8px; margin-bottom: 0; }
@@ -646,7 +614,6 @@ html.js .finale.pre .fin-wire .hd { opacity: 0; }
   .fmt-cta { grid-template-columns: 1fr; box-shadow: 5px 5px 0 var(--on-hl); }
   .fmt-cta-go { justify-items: stretch; }
   .fmt-cta-go small { text-align: center; }
-  .lit-line .l2 { text-align: left; }
   .bento { gap: 36px; }
   .state .x { font-size: clamp(1.4rem, 7.2vw, 2.7rem); white-space: nowrap; }
 }
@@ -977,24 +944,6 @@ html.js .finale.pre .fin-wire .hd { opacity: 0; }
   </div>
 </section>
 
-<!-- 6. THE LOUD BEAT: one line, a marquee, the mid-page line -->
-<section class="sec loud" data-section="numbers">
-  <div class="wrap">
-    <p class="lit-line display" id="lit"><span class="l1">Run by the players.</span> <span class="l2">Organized by Pickleague.</span></p>
-  </div>
-  <div class="marquee" aria-label="What Pickleague runs">
-    <div class="mq-track">
-      <div class="mq-set display"><span>Game-time votes</span><i></i><span>Play days</span><i></i><span>Seasons</span><i></i><span>Standings</span><i></i><span>PLUPR ratings</span><i></i><span>Tournaments</span><i></i><span>Park check-ins</span><i></i><span>Pickles</span><i></i><span>My Place</span><i></i></div>
-      <div class="mq-set display" aria-hidden="true"><span>Game-time votes</span><i></i><span>Play days</span><i></i><span>Seasons</span><i></i><span>Standings</span><i></i><span>PLUPR ratings</span><i></i><span>Tournaments</span><i></i><span>Park check-ins</span><i></i><span>Pickles</span><i></i><span>My Place</span><i></i></div>
-    </div>
-  </div>
-  <div class="wrap">
-    <div class="mid-cta rv">
-      <p class="display">Four friends and a court. That's enough for your first league.</p>
-    </div>
-  </div>
-</section>
-
 <!-- 8. LOOKS: tap one, the page becomes it -->
 <section class="sec tint" id="looks" data-section="looks">
   <div class="wrap split lk-grid">
@@ -1025,7 +974,7 @@ html.js .finale.pre .fin-wire .hd { opacity: 0; }
   </div>
 </section>
 
-<!-- 9. FINALE: the close, the call "0 - 0 - 2, START!", the two places to get Pickleague, then the sign-off -->
+<!-- 9. FINALE: the close, the call "0 - 0 - START!", the two places to get Pickleague in one row, then the sign-off -->
 <section class="wrap close" data-section="install" id="get">
   <div class="panel finale rv" id="finale">
     <div class="fin-copy">
@@ -1039,27 +988,25 @@ html.js .finale.pre .fin-wire .hd { opacity: 0; }
         <span class="sc-dash" aria-hidden="true"></span>
         <div class="sc"><div class="sc-n num" data-to="0"><span>0</span></div><p>cost to start a league or tournament</p></div>
         <span class="sc-dash" aria-hidden="true"></span>
-        <div class="sc two"><div class="sc-n num" data-to="2"><span>2</span></div><p id="sc2">places to get Pickleague: <b>web and mobile</b></p></div>
         <div class="pl-go">
           <a class="btn start display" id="startBtn" href="/register" aria-label="Start! Create a league or tournament">START!</a>
           <span class="cball" id="cball" aria-hidden="true"><svg class="ball"><use href="#ball"/></svg><span class="bshadow"></span></span>
         </div>
-        <div class="places" role="group" aria-label="Two places to get Pickleague">
-          <div class="place pl-web">
-            <span class="pl-k" id="plkWeb">Web</span>
-            <figure class="qr" id="qrWeb" style="--r:-4deg"><img src="landing-v2-assets/img/qr-web.svg" alt="QR code linking to the Pickleague web app" width="128" height="128" loading="lazy"><figcaption><b>Web</b>Scan to open</figcaption></figure>
-            <a class="btn store" href="/home"><small>Open in your</small>Browser</a>
-          </div>
-          <div class="place pl-ios">
-            <span class="pl-k" id="plkIos">iPhone app</span>
-            <figure class="qr" id="qrIos" style="--r:4deg"><img src="landing-v2-assets/img/qr-appstore.svg" alt="QR code linking to Pickleague on the App Store" width="128" height="128" loading="lazy"><figcaption><b>iPhone app</b>Scan to install</figcaption></figure>
-            <a class="btn store" href="https://apps.apple.com/us/app/pickleague-club/id6796130870"><small>Download on the</small>App Store</a>
-          </div>
-          <p class="android">Android: coming soon to Google Play.</p>
+      </div>
+      <div class="places" role="group" aria-label="Two places to get Pickleague">
+        <div class="place pl-web">
+          <span class="pl-k" id="plkWeb">Web</span>
+          <figure class="qr" id="qrWeb" style="--r:-4deg"><img src="landing-v2-assets/img/qr-web.svg" alt="QR code linking to the Pickleague web app" width="128" height="128" loading="lazy"><figcaption><b>Web</b>Scan to open</figcaption></figure>
+          <a class="btn store" href="/home"><small>Open in your</small>Browser</a>
         </div>
+        <div class="place pl-ios">
+          <span class="pl-k" id="plkIos">iPhone app</span>
+          <figure class="qr" id="qrIos" style="--r:4deg"><img src="landing-v2-assets/img/qr-appstore.svg" alt="QR code linking to Pickleague on the App Store" width="128" height="128" loading="lazy"><figcaption><b>iPhone app</b>Scan to install</figcaption></figure>
+          <a class="btn store" href="https://apps.apple.com/us/app/pickleague-club/id6796130870"><small>Download on the</small>App Store</a>
+        </div>
+        <p class="android">Android: coming soon to Google Play.</p>
       </div>
     </div>
-    <svg class="fin-wire" id="finWire" aria-hidden="true"></svg>
   </div>
 </section>
 </main>
@@ -1105,17 +1052,6 @@ html.js .finale.pre .fin-wire .hd { opacity: 0; }
       }, { threshold: 0.2 });
       $('.rv, .state .x').forEach(function (el) { rio.observe(el); });
     }
-  }
-
-  /* ---------- Light-up words: split once */
-  var lit = document.getElementById('lit');
-  if (lit && cssView && !still) {
-    lit.setAttribute('aria-label', lit.textContent.trim().replace(/\s+/g, ' '));
-    var wi = 0;
-    $('span', lit).forEach(function (part) {
-      part.setAttribute('aria-hidden', 'true');
-      part.innerHTML = part.textContent.trim().split(/\s+/).map(function (w) { return '<span class="wd" style="--i:' + (wi++) + '">' + w + '</span>'; }).join(' ');
-    });
   }
 
   /* ---------- Balls: one bounce with squash and stretch, used by every ball on the page */
@@ -1521,7 +1457,7 @@ html.js .finale.pre .fin-wire .hd { opacity: 0; }
     }, { threshold: 0.45 }).observe(tbl);
   })();
 
-  /* ---------- Score call: 0 - 0 - 2 flips in like a scoreboard, then START! */
+  /* ---------- Score call: 0 - 0 flips in like a scoreboard, then START! */
   (function () {
     var score = document.getElementById('score'); if (!score || still || !hasIO) return;
     var tiles = $('.sc-n', score), finEl = document.getElementById('finale') || score;
@@ -1536,65 +1472,11 @@ html.js .finale.pre .fin-wire .hd { opacity: 0; }
           setTimeout(function () { sp.textContent = v; sp.classList.remove('flip'); void sp.offsetWidth; sp.classList.add('flip'); }, 250 + i * 420 + k * 95);
         });
       });
-      setTimeout(function () { finEl.classList.remove('pre'); }, 250 + 2 * 420 + 7 * 95 + 250);
+      setTimeout(function () { finEl.classList.remove('pre'); }, 250 + (tiles.length - 1) * 420 + 7 * 95 + 250);
     }, { threshold: 0.5 });
     io.observe(score);
   })();
 
-  /* ---------- Finale wire: two lines from the "2 places" tile, one to each place (the two QR codes on a
-     laptop; the iPhone app and Web labels on a phone). Measured, so it holds for every look and width. */
-  (function () {
-    var fin = document.getElementById('finale'), svg = document.getElementById('finWire'), src = document.getElementById('sc2');
-    if (!fin || !svg || !src) return;
-    var NS = 'http://www.w3.org/2000/svg', narrow = matchMedia('(max-width: 900px)');
-    var el = function (id) { return document.getElementById(id); };
-    var places = fin.querySelector('.places'), row = fin.querySelector('.score-row'), tile = src.parentNode.querySelector('.sc-n'), go = el('startBtn');
-    var f1 = function (n) { return Math.round(n * 10) / 10; };
-    var draw = function () {
-      var F = fin.getBoundingClientRect(); if (!F.width) return;
-      var k = F.width / fin.offsetWidth || 1;
-      var box = function (e) { var r = e.getBoundingClientRect(); return { x: (r.left + r.width / 2 - F.left) / k, l: (r.left - F.left) / k, r: (r.right - F.left) / k, top: (r.top - F.top) / k, bot: (r.bottom - F.top) / k }; };
-      // laptop: centre the pair under tile 3; if it would run past the row, centre it under the whole row instead
-      if (!narrow.matches) {
-        places.classList.remove('wide');
-        var P = box(places), R = box(row);
-        if (P.l < R.l - 0.5 || P.r > R.r + 0.5) places.classList.add('wide');
-      }
-      var tg = (narrow.matches ? [el('plkWeb'), el('plkIos')] : [el('qrWeb'), el('qrIos')]).map(box);
-      var sx = box(tile).x, sy = box(src).bot + 12;
-      var mx = (tg[0].x + tg[1].x) / 2, half = (tg[1].x - tg[0].x) / 2;
-      var ty = Math.min(tg[0].top, tg[1].top), y2 = ty - 10;
-      var yb = ty - (narrow.matches ? 24 : 30);
-      var r = Math.max(2, Math.min(14, half / 2, (y2 - yb) / 2));
-      var trunk;
-      if (Math.abs(sx - mx) < 2) { sx = mx; trunk = 'M' + f1(mx) + ' ' + f1(sy) + 'V' + f1(yb - r); }
-      else {
-        // drop from tile 3, run across to the pair's midpoint (below START on a phone), then down to the split
-        var dir = mx < sx ? -1 : 1, lo = sy + 14, hi = yb - r - 14;
-        var ya = narrow.matches && go ? Math.max(lo, box(go).bot + 18) : (sy + yb - r) / 2;
-        ya = Math.min(ya, hi);
-        var q = Math.max(2, Math.min(12, Math.abs(mx - sx) / 2, (ya - sy) / 2, (yb - r - ya) / 2));
-        trunk = 'M' + f1(sx) + ' ' + f1(sy) + 'V' + f1(ya - q) + 'Q' + f1(sx) + ' ' + f1(ya) + ' ' + f1(sx + dir * q) + ' ' + f1(ya) +
-          'H' + f1(mx - dir * q) + 'Q' + f1(mx) + ' ' + f1(ya) + ' ' + f1(mx) + ' ' + f1(ya + q) + 'V' + f1(yb - r);
-      }
-      var html = '<path class="ln tr" pathLength="1" d="' + trunk + '"/>';
-      [-1, 1].forEach(function (d) {
-        var x = mx + d * half; // mirror images about the midpoint, so both branches are the same length
-        html += '<path class="ln br" pathLength="1" d="M' + f1(mx) + ' ' + f1(yb - r) + 'Q' + f1(mx) + ' ' + f1(yb) + ' ' + f1(mx + d * r) + ' ' + f1(yb) +
-          'H' + f1(x - d * r) + 'Q' + f1(x) + ' ' + f1(yb) + ' ' + f1(x) + ' ' + f1(yb + r) + 'V' + f1(y2) + '"/>' +
-          '<path class="hd" d="M' + f1(x - 7) + ' ' + f1(y2 - 8) + 'L' + f1(x) + ' ' + f1(y2 + 1) + 'L' + f1(x + 7) + ' ' + f1(y2 - 8) + '"/>';
-      });
-      svg.setAttribute('viewBox', '0 0 ' + (F.width / k).toFixed(1) + ' ' + (F.height / k).toFixed(1));
-      svg.innerHTML = html;
-    };
-    draw();
-    if ('ResizeObserver' in window) new ResizeObserver(draw).observe(fin);
-    else addEventListener('resize', draw);
-    if (narrow.addEventListener) narrow.addEventListener('change', draw);
-    if (document.fonts && document.fonts.ready) document.fonts.ready.then(draw);
-    // a new look swaps the display face, which moves the tiles: measure again once it has settled
-    document.addEventListener('click', function (e) { if (e.target.closest && e.target.closest('[data-look], [data-mode]')) setTimeout(draw, 900); });
-  })();
 
   /* ---------- Formats: the deck deals itself; each card draws its own diagram */
   var deck = document.getElementById('deck'), fsvg = document.getElementById('fsvg'), fcap = document.getElementById('fcap');
