@@ -237,6 +237,10 @@ export type PlayerStanding = {
   isMe: boolean;
   wins: number;
   losses: number;
+  /** Points scored / conceded by the player's side (information only; the
+   *  order never reads them). */
+  pf: number;
+  pa: number;
 };
 
 /**
@@ -263,7 +267,7 @@ export function computePlayerStandings(
 ): PlayerStanding[] {
   const rows = opts.entrants.map((id, i) => ({
     i,
-    row: { key: id, name: opts.nameOf(id), isMe: opts.isMe(id), wins: 0, losses: 0 } as PlayerStanding,
+    row: { key: id, name: opts.nameOf(id), isMe: opts.isMe(id), wins: 0, losses: 0, pf: 0, pa: 0 } as PlayerStanding,
   }));
   const byId = new Map(rows.map(r => [r.row.key, r.row]));
   for (const m of matches) {
@@ -284,8 +288,10 @@ export function computePlayerStandings(
       }
     } else if (m.winner_team === 'team1') g1 = 1;
     else g2 = 1;
-    for (const id of team1) { const r = byId.get(id); if (r) { r.wins += g1; r.losses += g2; } }
-    for (const id of team2) { const r = byId.get(id); if (r) { r.wins += g2; r.losses += g1; } }
+    const s1 = m.team1_score ?? 0;
+    const s2 = m.team2_score ?? 0;
+    for (const id of team1) { const r = byId.get(id); if (r) { r.wins += g1; r.losses += g2; r.pf += s1; r.pa += s2; } }
+    for (const id of team2) { const r = byId.get(id); if (r) { r.wins += g2; r.losses += g1; r.pf += s2; r.pa += s1; } }
   }
   const rating = (id: string) => opts.ratingOf?.(id) ?? 0;
   return rows

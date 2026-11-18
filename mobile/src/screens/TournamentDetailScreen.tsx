@@ -41,9 +41,10 @@ import { picklesLabel } from '../components/PickleAmount';
 import { useTheme } from '../lib/ThemeContext';
 import { useTournamentDetail } from '../components/tournament/useTournamentDetail';
 import { buildFlowStages } from '../components/tournament/flowStages';
-import { buildStandings, myStanding } from '../components/tournament/standingsData';
+import { buildStandings, myPlacement, myStanding } from '../components/tournament/standingsData';
+import { useTournamentLive } from '../lib/tournamentLive';
 import {
-  canRecordMatch, currentSetupStep, doublesPairingDone, doublesPartnerOf, involves, mlpTeamOf, mlpTeamsDone,
+  canRecordMatch, currentSetupStep, doublesPairingDone, doublesPartnerOf, involves, medalStage, mlpTeamOf, mlpTeamsDone,
   nextMatchFor, opponentsOf, partnerOf, setupSteps, youCardKind,
   EMPTY_SCHEDULE_FILTER, type ScheduleFilter, type ScheduleMatch,
 } from '../components/tournament/tournamentModel';
@@ -53,6 +54,8 @@ import TournamentYouCard, { youCardView } from '../components/tournament/Tournam
 import TournamentManageSection, { type ManageGroup, type ManageStep } from '../components/tournament/TournamentManageSection';
 import SectionCard from '../components/tournament/SectionCard';
 import StandingsSection from '../components/tournament/StandingsSection';
+import PlacementSection from '../components/tournament/PlacementSection';
+import PlayoffStageSection from '../components/tournament/PlayoffStageSection';
 import PlayersSection from '../components/tournament/PlayersSection';
 import { PendingRequestsSection, WaitlistSection } from '../components/tournament/RegistrationQueues';
 import PoolAssignmentsPreview from '../components/tournament/PoolAssignmentsPreview';
@@ -260,6 +263,9 @@ export default function TournamentDetailScreen({ navigation, route }: Props) {
     finalRanks: td.finalRanks,
   }) : null, [tournament, td.savedMatches, td.savedRounds, registrations, td.profileNames,
     td.profileRatings, myUserId, td.mlpStandings, td.mlpTeams, td.finalRanks]);
+  // PKL-038: scores, standings and the playoff draw arrive while the screen
+  // is open (realtime plus a light poll), no pull-to-refresh needed.
+  useTournamentLive(tournamentId, tournament?.status === 'active', td.load);
   const nextMatch = useMemo(
     () => nextMatchFor(td.savedMatches as ScheduleMatch[], myUserId),
     [td.savedMatches, myUserId],
@@ -403,6 +409,7 @@ export default function TournamentDetailScreen({ navigation, route }: Props) {
   const upcomingStages = (flowStages ?? []).filter(s => !s.exists);
   const playoffExists = td.savedRounds.some((r: any) => PLAYOFF_ROUND_TYPES.includes(r.round_type));
   const mine = myStanding(standings);
+  const myPlace = myPlacement(standings);
   const inSchedule = (td.savedMatches as ScheduleMatch[]).some(m => involves(m, myUserId));
   const playableMatches = (td.savedMatches as ScheduleMatch[]).filter(m => m.match_type !== 'bye'
     && !(m.is_dreambreaker && m.status === 'cancelled'));
@@ -496,8 +503,9 @@ export default function TournamentDetailScreen({ navigation, route }: Props) {
       league: null,
       rank: myRank,
       of: new Set(td.finalRanks.map(r => r.final_rank)).size || null,
-      wins: mine ? mine.row.wins : null,
-      losses: mine ? mine.row.losses : null,
+      // Every match counts here, playoff included (the placement row's record).
+      wins: myPlace ? myPlace.wins : mine ? mine.row.wins : null,
+      losses: myPlace ? myPlace.losses : mine ? mine.row.losses : null,
       me: shortName(profileOf(myUserId)?.full_name ?? td.playerName(myUserId)),
       podium: cardPodium(
         podiumFromFinalRanks(td.finalRanks).map(p => ({
@@ -781,20 +789,26 @@ export default function TournamentDetailScreen({ navigation, route }: Props) {
     : null;
 
   // ── Status strip (active / completed) ──
+  // PKL-041: the Final and the 3rd place match, one stage.
+  const medal = !isMlp && (status === 'active' || status === 'completed')
+    ? medalStage(td.savedMatches as ScheduleMatch[]) : null;
   const currentStage = flowStages?.find(s => s.exists && s.completed < s.total) ?? null;
   // A tournament can be completed early (admin_complete_tournament leaves the
   // unplayed matches), so "All N" only when every match really was played.
   const allPlayed = playedCount >= playableMatches.length;
   const stripText = status === 'completed' && allPlayed
     ? `All ${playedCount} match${playedCount === 1 ? '' : 'es'} played`
-    : `${status !== 'completed' && currentStage ? `${currentStage.label}, ` : ''}${playedCount} of ${playableMatches.length} played`;
+    : `${status !== 'completed' && currentStage ? `${currentStage.medal && medal?.third ? 'Medal matches' : currentStage.label}, ` : ''}${playedCount} of ${playableMatches.length} played`;
 
   const wagerShown = WAGERS_ENABLED && live && approved.length > 0;
   const mlpPlayoff = isMlp && (tournament.mlp_play_format === 'round_robin_playoff' || tournament.mlp_play_format === 'pool_play_playoff');
   // Round robin / pool play rank the group stage only once a playoff exists
   // (standingsData), so they get MLP's title too. That includes a completed
   // one without settled ranks: its table is still the group stage, not a final.
-  const standingsTitle = standings?.groupStage ? 'Group stage'
+  // PKL-037: with a separate placement table, this one is the round robin's.
+  const standingsTitle = standings?.groupStage
+    ? (tournament.format === 'pool_play' ? 'Pool standings' : 'Round robin standings')
+    : standings?.placement ? 'Standings'
     : status === 'completed' ? 'Final standings'
     : isMlp && mlpPlayoff && playoffExists ? 'Group stage' : 'Standings';
 
@@ -1022,6 +1036,31 @@ export default function TournamentDetailScreen({ navigation, route }: Props) {
             {standings && (
               <View ref={anchorRef('standings')} style={styles.block} onLayout={anchorLayout('standings')}>
                 <StandingsSection data={standings} title={standingsTitle} />
+              </View>
+            )}
+
+            {/* PKL-041: the Final and the 3rd place match, side by side */}
+            {medal && (
+              <View style={styles.block}>
+                <PlayoffStageSection
+                  final={medal.final}
+                  third={medal.third}
+                  myUserId={myUserId}
+                  isPriv={isPriv}
+                  playerName={td.playerName}
+                  onRecord={openRecord}
+                />
+              </View>
+            )}
+
+            {/* PKL-037: final placement, its own table */}
+            {standings?.placement && standings.placement.rows.length > 0 && (
+              <View style={styles.block}>
+                <PlacementSection
+                  data={standings.placement}
+                  entrantLabel={standings.entrantLabel}
+                  title={standings.placement.settled ? 'Final placement' : 'Final placement (so far)'}
+                />
               </View>
             )}
 
