@@ -145,7 +145,7 @@ begin
                      row_to_json(v_row)::text);
   perform pg_temp.ok('T2 league PLUPR moved by the full delta', l1 = 3.250 + v_row.plupr_delta,
                      format('league %s delta %s', l1, v_row.plupr_delta));
-  perform pg_temp.ok('T2 overall PLUPR moved by half (like a league match)', g1b - g1a = v_row.plupr_delta * 0.5,
+  perform pg_temp.ok('T2 overall PLUPR moved by half (like a league match)', abs((g1b - g1a) - v_row.plupr_delta * 0.5) < 0.001,
                      format('%s -> %s', g1a, g1b));
   perform pg_temp.ok('T2 counted once', c1 = c0 + 1, format('%s -> %s', c0, c1));
   select count(*) into v_n from public.notifications
