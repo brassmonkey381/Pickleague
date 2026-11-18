@@ -25,7 +25,7 @@ const AGENTS = {
 const FAKE = '00000000-0000-4000-8000-000000000000';
 export const URLS = [
   '/', '/landing', '/landing.html', '/register', '/login',
-  '/privacy', '/privacy.html', '/delete-account',
+  '/privacy', '/privacy.html', '/delete-account', '/delete-account.html',
   '/guides/plupr', '/guides/plupr.html',
   '/robots.txt', '/sitemap.xml', '/llms.txt', '/nonexistent-xyz', '/terms',
   `/leagues/${FAKE}`, `/players/${FAKE}`, `/invite/ABC123`, '/g/sometoken', '/home',
@@ -82,6 +82,11 @@ if (doAssert) {
   if (home.status !== 200 || home.shell || home.canonical !== 'https://www.pickleague.club/') fails.push('/ is not the landing page with its canonical');
   if (get('/guides/plupr').status !== 200 || get('/guides/plupr').shell) fails.push('/guides/plupr is not the guide');
   if (get('/delete-account').status !== 200) fails.push('/delete-account broke');
+  // one permanent hop from the old file names to the real page (PKL-028 follow-up)
+  for (const [from, to] of [['/guides/plupr.html', '/guides/plupr'], ['/delete-account.html', '/delete-account'], ['/privacy.html', '/privacy']]) {
+    const r = get(from);
+    if (![301, 308].includes(r.status) || !r.location.endsWith(to)) fails.push(`${from} is not one permanent redirect to ${to}`);
+  }
   // 4. noindex on sign-in, invite and person routes.
   for (const p of ['/login', '/register', '/invite/ABC123', '/g/sometoken', `/players/${FAKE}`]) {
     if (!/noindex/.test(get(p).robots)) fails.push(`${p} has no noindex`);
