@@ -244,7 +244,7 @@ describe('buildStandings', () => {
     expect(data?.tables.map(t => t.label)).toEqual(['Pool A', 'Pool B']);
     expect(myStanding(data)).toMatchObject({ position: 1, table: 'Pool A' });
   });
-  it('completed: the settled order from tournament_final_ranks', () => {
+  it('completed: the stored order is the separate placement table; standings stay live (PKL-037)', () => {
     const data = buildStandings({
       tournament: { format: 'round_robin', match_type: 'singles', status: 'completed' },
       savedMatches: [sm('x1', null, ['me'], ['a'], true), sm('x2', null, ['a'], ['b'], true)],
@@ -259,7 +259,9 @@ describe('buildStandings', () => {
       ],
     });
     expect(data?.settled).toBe(true);
-    expect(data?.tables[0].rows.map(r => r.key)).toEqual(['a', 'me', 'b']);
+    expect(data?.tables[0].rows.map(r => r.key)).toEqual(['me', 'a', 'b']);
+    expect(data?.placement?.settled).toBe(true);
+    expect(data?.placement?.rows.map(r => [r.key, r.place])).toEqual([['a', '1'], ['me', '2'], ['b', '3']]);
   });
   it('rotating partners: per-player table', () => {
     const data = buildStandings({
@@ -310,7 +312,7 @@ describe('buildStandings', () => {
     });
     expect(before?.groupStage).toBe(false);
     expect(after?.groupStage).toBe(true);
-    expect(after?.note).toMatch(/^Group stage\./);
+    expect(after?.note).toMatch(/^Round robin matches only\./);
     expect(after?.tables[0].rows.map(r => [r.key, r.wins, r.losses]))
       .toEqual(before?.tables[0].rows.map(r => [r.key, r.wins, r.losses]));
     expect(after?.tables[0].rows[0].key).toBe('a');

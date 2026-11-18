@@ -104,6 +104,19 @@ export function hasBothStages(rounds: { round_type: string }[], format: string):
   return group && playoff;
 }
 
+/**
+ * PKL-041: the medal stage, the Final and the Third Place Match. They are ONE
+ * stage: both are drawn together and either can be played first, so the
+ * screen shows them side by side. Null when there is no Final yet.
+ */
+export function medalStage<M extends ScheduleMatch>(matches: M[]): { final: M; third: M | null } | null {
+  const vis = visibleScheduleMatches(matches);
+  const final = vis.find(m => m.round?.round_type === 'finals');
+  if (!final) return null;
+  const third = vis.find(m => m.round?.round_type === 'third_place_match') ?? null;
+  return { final, third };
+}
+
 /** A match that can be played now: not completed, not a bye, both sides set. */
 export function isPlayable(m: ScheduleMatch): boolean {
   return m.status !== 'completed' && m.status !== 'cancelled' && m.match_type !== 'bye'

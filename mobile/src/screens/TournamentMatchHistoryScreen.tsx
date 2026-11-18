@@ -21,6 +21,7 @@ import AppRefreshControl from '../components/AppRefreshControl';
 import { SkeletonList } from '../components/Skeleton';
 import EmptyState from '../components/EmptyState';
 import { shortName } from '../lib/finishShare';
+import { useTournamentLive } from '../lib/tournamentLive';
 
 type TypeFilter   = 'all' | 'singles' | 'doubles';
 type StatusFilter = 'all' | 'completed' | 'pending';
@@ -101,6 +102,9 @@ export default function TournamentMatchHistoryScreen({ route }: Props) {
   const doublesCategory = (sheet.category ?? 'all') as DoublesCategoryFilter;
 
   const refresh = useRefresh(load);
+  // PKL-038: new scores and playoff matches show up without a pull (only
+  // while this screen is focused and the app is in the foreground).
+  useTournamentLive(tournamentId, true, load);
 
   useEffect(() => {
     // LOCAL session read — getUser() is a network call, so offline the
