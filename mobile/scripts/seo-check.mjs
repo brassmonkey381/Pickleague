@@ -28,7 +28,7 @@ export const URLS = [
   '/privacy', '/privacy.html', '/delete-account', '/delete-account.html',
   '/guides/plupr', '/guides/plupr.html',
   '/robots.txt', '/sitemap.xml', '/llms.txt', '/nonexistent-xyz', '/terms',
-  `/leagues/${FAKE}`, `/players/${FAKE}`, `/invite/ABC123`, '/g/sometoken', '/home',
+  `/leagues/${FAKE}`, `/events/${FAKE}`, `/tournaments/${FAKE}`, `/seasons/${FAKE}/standings`, `/players/${FAKE}`, `/invite/ABC123`, '/g/sometoken', '/home',
 ];
 
 const pick = (re, s) => (s.match(re)?.[1] ?? '').trim();
@@ -87,8 +87,8 @@ if (doAssert) {
     const r = get(from);
     if (![301, 308].includes(r.status) || !r.location.endsWith(to)) fails.push(`${from} is not one permanent redirect to ${to}`);
   }
-  // 4. noindex on sign-in, invite and person routes.
-  for (const p of ['/login', '/register', '/invite/ABC123', '/g/sometoken', `/players/${FAKE}`]) {
+  // 4. noindex on sign-in, invite and person routes, and on league/event/tournament/season pages (signed-in only; an unknown id there is a soft 404).
+  for (const p of ['/login', '/register', '/invite/ABC123', '/g/sometoken', `/players/${FAKE}`, `/leagues/${FAKE}`, `/events/${FAKE}`, `/tournaments/${FAKE}`, `/seasons/${FAKE}/standings`]) {
     if (!/noindex/.test(get(p).robots)) fails.push(`${p} has no noindex`);
   }
   if (fails.length) { console.log('\nFAILED:\n  ' + fails.join('\n  ')); process.exit(1); }
