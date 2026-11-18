@@ -18,7 +18,7 @@
       "headers": [{ "key": "X-Robots-Tag", "value": "noindex" }]
     },
     {
-      "source": "/:seg(g|invite|players|profile)/:rest*",
+      "source": "/:seg(g|invite|players|profile|leagues|events|tournaments|seasons)/:rest*",
       "headers": [{ "key": "X-Robots-Tag", "value": "noindex" }]
     }
   ],
