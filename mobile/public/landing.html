@@ -17,15 +17,22 @@
 <meta name="theme-color" content="#fffdf5">
 <script>
   document.documentElement.classList.add('js');
-  // Same as landing.html (PKL-028): a signed-in browser, a sign-in email link
-  // (#access_token / ?code) or a referral link (?ref=) goes straight to the app.
+  // A signed-in browser or any auth return (sign-in, confirm or reset email link,
+  // its error, or an OAuth/PKCE return: #access_token, #refresh_token, #error,
+  // #type, ?code=<uuid>, ?error, ?token_hash) goes straight to the app with the
+  // URL intact: this static page cannot finish a sign-in. A referral link
+  // (?ref=CODE) opens the invite page. A printed campaign code (?code=flyer_x,
+  // no dashes) and utm_* stay here and ride on the sign-up links (end of page).
   (function () {
     if (location.protocol === 'file:') return;
-    var go = /access_token=|error_code=/.test(location.hash) || /[?&](code|ref)=/.test(location.search);
+    var q = location.search, h = location.hash;
+    var go = /(^#|&)(access_token|refresh_token|error|error_code|type)=/.test(h) || /[?&](error|error_code|token_hash)=/.test(q) || /[?&]code=[^&]*-/.test(q);
     try {
       for (var i = 0; !go && i < localStorage.length; i++) go = /^sb-.+-auth-token$/.test(localStorage.key(i) || '');
     } catch (e) { /* storage blocked: stay on the landing page */ }
-    if (go) location.replace('/home' + location.search + location.hash);
+    var ref = /[?&]ref=([^&#]+)/.exec(q);
+    if (go) location.replace('/home' + q + h);
+    else if (ref) location.replace('/invite/' + ref[1] + q + h);
   })();
 </script>
 <link rel="icon" type="image/png" href="landing-v2-assets/img/logo.png">
@@ -1802,6 +1809,20 @@ html.js .finale.pre .fin-wire .hd { opacity: 0; }
     else { var hi2 = document.querySelector('[data-looks] img[data-look="rally"]'); hi2.src = src('rally'); $('#fan .ph').forEach(function (ph) { ph.querySelector('img').src = src(ph.dataset.look); }); $('.modes button').forEach(function (b) { b.setAttribute('aria-pressed', String(b.dataset.mode === mode)); }); }
   });
 })();
+</script>
+<script>
+  // Campaign attribution (src/lib/analytics.ts CAMPAIGN_PARAMS): the app reads code and utm_*
+  // from the URL it opens on, so the sign-up and open-the-app links carry them from here.
+  (function () {
+    try {
+      var q = new URLSearchParams(location.search), keep = new URLSearchParams();
+      ['code', 'utm_source', 'utm_medium', 'utm_campaign'].forEach(function (k) { var v = q.get(k); if (v && v.length <= 64) keep.set(k, v); });
+      var s = keep.toString(); if (!s) return;
+      document.querySelectorAll('a[href^="/register"], a[href^="/home"]').forEach(function (a) {
+        var href = a.getAttribute('href'); a.setAttribute('href', href + (href.indexOf('?') < 0 ? '?' : '&') + s);
+      });
+    } catch (e) { /* old browser: links stay plain */ }
+  })();
 </script>
 </body>
 </html>
