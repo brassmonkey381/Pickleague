@@ -2,6 +2,14 @@ import { Tournament, TournamentRegistration } from '../../types';
 import { FlowOverviewStage } from '../TournamentFlowOverview';
 import { predictFlow } from '../../lib/tournamentFlow';
 
+/** PKL-041: the Final and the Third Place Match are one stage. */
+function isMedalRound(roundType: string | null | undefined): boolean {
+  return roundType === 'finals' || roundType === 'third_place_match';
+}
+function isMedalPrediction(key: string, label: string): boolean {
+  return key === 'po_third' || (key.startsWith('po_') && label === 'Finals');
+}
+
 // ── Predicted tournament flow ────────────────────────────────
 // The full expected stage structure (pools → QF → SF → F, elim rounds, …)
 // known at lock-in time. Stages whose DB rounds exist use live data;
@@ -47,11 +55,13 @@ export function buildFlowStages({ tournament, savedRounds, savedMatches, doubles
         total: ms.length,
         completed: ms.filter((m: any) => m.status === 'completed').length,
         byes: ms.filter((m: any) => m.match_type === 'bye').length,
+        medal: isMedalRound(r.round_type),
       });
     } else {
       out.push({
         key: p.key, label: p.label, kind: p.kind,
         exists: false, total: p.matchCount, completed: 0, byes: p.byes,
+        medal: isMedalPrediction(p.key, p.label),
       });
     }
   }

@@ -34,6 +34,9 @@ export type FlowOverviewStage = {
   total: number;      // schedule rows (matches + bye slots)
   completed: number;  // completed rows (byes auto-complete)
   byes: number;
+  /** PKL-041: part of the medal stage (Final + Third Place Match). Medal
+   *  stages share one column: they are played together, in any order. */
+  medal?: boolean;
 };
 
 type Props = {
@@ -50,8 +53,17 @@ export default function TournamentFlowOverview({ stages, onPressStage, selectedK
 
   const groups   = stages.filter(s => s.kind === 'group');
   const playoffs = stages.filter(s => s.kind === 'playoff');
+  // Playoff columns: each stage alone, except the medal stage, where the
+  // Final and the Third Place Match stack in ONE column (no arrow between).
+  const columns: FlowOverviewStage[][] = [];
+  for (const s of playoffs) {
+    const prev = columns[columns.length - 1];
+    if (s.medal && prev && prev[0].medal) prev.push(s);
+    else columns.push([s]);
+  }
+  const lastColumn = columns[columns.length - 1] ?? [];
   const isFinalStage = (s: FlowOverviewStage) =>
-    playoffs.length > 0 && s.key === playoffs[playoffs.length - 1].key && /final/i.test(s.label);
+    lastColumn.includes(s) && /final/i.test(s.label) && !/third/i.test(s.label);
 
   function card(s: FlowOverviewStage) {
     const done = s.exists && s.total > 0 && s.completed >= s.total;
@@ -116,10 +128,10 @@ export default function TournamentFlowOverview({ stages, onPressStage, selectedK
       {groups.length > 0 && (
         <View style={S.groupColumn}>{groups.map(card)}</View>
       )}
-      {playoffs.map((s, i) => (
-        <React.Fragment key={s.key}>
+      {columns.map((col, i) => (
+        <React.Fragment key={col[0].key}>
           {(groups.length > 0 || i > 0) && <Icon name="arrow-right" size={16} color={c.textMuted} style={S.arrow} />}
-          <View style={S.playoffColumn}>{card(s)}</View>
+          <View style={[S.playoffColumn, col.length > 1 && S.groupColumn]}>{col.map(card)}</View>
         </React.Fragment>
       ))}
     </ScrollView>
