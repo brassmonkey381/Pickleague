@@ -9,11 +9,21 @@ import { track } from '../lib/analytics';
 import { authLinkNotice, parseAuthLink, setAuthLinkNotice } from '../lib/authLink';
 import { isRecoveryLink, setRecoveryPending } from '../lib/passwordRecovery';
 
+// The web address the page opened on, read when this module loads: supabase-js
+// (detectSessionInUrl) strips the auth hash during its async start-up, before
+// the effect below runs, so reading location then missed a password reset
+// link and the new-password dialog never opened (TRI-007).
+const LAUNCH_URL = Platform.OS === 'web' && typeof window !== 'undefined' ? window.location.href : null;
+
 async function handle(url: string | null): Promise<void> {
   const r = parseAuthLink(url);
   if (!r) return;
   if (r.kind === 'error') {
     track('auth.link_failed', { code: r.code ?? 'unknown' });
+    // The error is handled here: drop it from the address bar.
+    if (Platform.OS === 'web' && typeof window !== 'undefined' && window.location.hash) {
+      try { window.history.replaceState(window.history.state, '', window.location.pathname + window.location.search); } catch { /* ignore */ }
+    }
     // Already signed in (e.g. typed the code first): nothing to say.
     const { data } = await supabase.auth.getSession();
     if (data.session) return;
@@ -42,7 +52,7 @@ async function handle(url: string | null): Promise<void> {
 export default function AuthLinkHandler() {
   useEffect(() => {
     if (Platform.OS === 'web') {
-      if (typeof window !== 'undefined') void handle(window.location.href);
+      void handle(LAUNCH_URL);
       return;
     }
     void Linking.getInitialURL().then(handle).catch(() => {});
