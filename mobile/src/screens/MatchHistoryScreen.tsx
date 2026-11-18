@@ -54,6 +54,12 @@ import { cardPlayer, shortName } from '../lib/finishShare';
 import { useBlockedIds } from '../lib/moderation';
 import RatingHistoryChart from '../components/RatingHistoryChart';
 import { ratingSeries } from '../lib/ratingHistory';
+import {
+  fromTournamentHistoryRow,
+  mergeHistory,
+  tournamentRatingChange,
+  type TournamentHistoryRow,
+} from '../lib/tournamentHistory';
 
 type Props = {
   navigation: NativeStackNavigationProp<RootStackParamList, 'MatchHistory'>;
@@ -68,6 +74,10 @@ type HistoryMatch = Match & {
   tournament_id?: string | null;
   league?: { id: string; name: string } | null;
   tournament?: { id: string; name: string } | null;
+  // A tournament match (lib/tournamentHistory, PKL-035): no confirm, wager or
+  // share actions, and the PLUPR change is per player (partners too).
+  source?: 'tournament';
+  plupr_ratings?: Record<string, { before?: number | string | null; after?: number | string | null }> | null;
 };
 
 // ── Filters ─────────────────────────────────────────────────────────────
@@ -289,7 +299,22 @@ export default function MatchHistoryScreen({ navigation, route }: Props) {
         return query;
       });
 
-      let results = (data ?? []) as HistoryMatch[];
+      // Completed tournament matches (tournament_matches), shaped like match
+      // rows by get_tournament_match_history. Best effort: if the RPC is
+      // missing or fails, the league history still shows.
+      let tournamentRows: HistoryMatch[] = [];
+      try {
+        const rows = await sbCall(() => supabase.rpc('get_tournament_match_history', {
+          p_user_id: userId ?? null,
+          p_league_id: leagueId ?? null,
+          p_limit: 300,
+        }));
+        tournamentRows = ((rows ?? []) as TournamentHistoryRow[]).map(fromTournamentHistoryRow);
+      } catch {
+        tournamentRows = [];
+      }
+
+      let results = mergeHistory((data ?? []) as HistoryMatch[], tournamentRows);
 
       // Filter to only matches involving the target player (including as a doubles partner)
       if (userId) {
@@ -346,7 +371,9 @@ export default function MatchHistoryScreen({ navigation, route }: Props) {
     return isOnTeam1(match, uid) ? match.winner_team === 'team1' : match.winner_team === 'team2';
   }
 
-  function ratingChange(match: Match, uid: string): number | null {
+  function ratingChange(match: HistoryMatch, uid: string): number | null {
+    // Tournament rows know every player's own move, partners included.
+    if (match.source === 'tournament') return tournamentRatingChange(match, uid);
     const onTeam1 = isOnTeam1(match, uid);
     const before = onTeam1 ? match.player1_rating_before : match.player2_rating_before;
     const after  = onTeam1 ? match.player1_rating_after  : match.player2_rating_after;
@@ -622,7 +649,7 @@ export default function MatchHistoryScreen({ navigation, route }: Props) {
                 </Text>
               )}
             </View>
-            {canShareImage && viewAs === currentUserId && item.status === 'completed' ? (
+            {canShareImage && viewAs === currentUserId && item.status === 'completed' && item.source !== 'tournament' ? (
               <Pressable
                 style={({ pressed }) => [S.menuBox, pressed && S.pressed]}
                 accessibilityRole="button"
