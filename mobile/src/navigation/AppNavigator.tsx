@@ -124,6 +124,8 @@ import { WEB_COLUMN_MAX_WIDTH } from '../lib/webColumn';
 import InviteLandingScreen from '../screens/InviteLandingScreen';
 import ReferralHost from '../components/referrals/ReferralHost';
 import { linking } from './linking';
+import { takeReturnPath } from '../lib/returnPath';
+import { getStateFromPath } from '@react-navigation/native';
 import GuestJoinScreen from '../screens/GuestJoinScreen';
 import BookmarksScreen from '../screens/BookmarksScreen';
 import QrWalletScreen from '../screens/QrWalletScreen';
@@ -340,6 +342,13 @@ export default function AppNavigator() {
     if (!session) return;
     // Flush a pending guest-join destination once the logged-in stack mounts.
     flushPendingNavigation();
+    // A deep link opened signed out (web) opens once the signed-in screens mount.
+    const back = takeReturnPath();
+    if (back) {
+      const toState = linking.getStateFromPath ?? getStateFromPath;
+      const state = toState(back, linking.config);
+      if (state) setTimeout(() => { if (navigationRef.isReady()) navigationRef.resetRoot(state as never); }, 0);
+    }
     // A guest vote link opened signed out: join its league and open the vote.
     void deliverGuestVote(!!session.user.is_anonymous);
     (async () => {

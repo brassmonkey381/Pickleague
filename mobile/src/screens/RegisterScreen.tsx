@@ -239,7 +239,13 @@ export default function RegisterScreen({ navigation }: Props) {
           style={S.button}
         />
 
-        <TouchableOpacity onPress={() => navigation.goBack()} style={S.linkBox} accessibilityRole="button">
+        {/* Opened straight from the landing page (/register on the web) there is no
+            Sign In under it to go back to, so it opens Sign In in its place. */}
+        <TouchableOpacity
+          onPress={() => (navigation.canGoBack() ? navigation.goBack() : navigation.replace('Login'))}
+          style={S.linkBox}
+          accessibilityRole="button"
+        >
           <Text style={S.link}>Already have an account? Sign in</Text>
         </TouchableOpacity>
       </ScrollView>
