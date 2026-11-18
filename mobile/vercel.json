@@ -20,10 +20,6 @@
     {
       "source": "/:seg(g|invite|players|profile)/:rest*",
       "headers": [{ "key": "X-Robots-Tag", "value": "noindex" }]
-    },
-    {
-      "source": "/guides/plupr.html",
-      "headers": [{ "key": "X-Robots-Tag", "value": "noindex" }]
     }
   ],
   "redirects": [
@@ -31,7 +27,9 @@
     { "source": "/landing.html", "destination": "/", "permanent": true },
     { "source": "/index.html", "destination": "/", "permanent": true },
     { "source": "/privacy.html", "destination": "/privacy", "permanent": true },
-    { "source": "/guides/plupr/", "destination": "/guides/plupr", "permanent": true }
+    { "source": "/delete-account.html", "destination": "/delete-account", "permanent": true },
+    { "source": "/guides/plupr/", "destination": "/guides/plupr", "permanent": true },
+    { "source": "/guides/plupr.html", "destination": "/guides/plupr", "permanent": true }
   ],
   "rewrites": [
     { "source": "/privacy", "destination": "/privacy.html" },
