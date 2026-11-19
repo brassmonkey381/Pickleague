@@ -21,6 +21,7 @@ const BODY = path.join(here, 'courts_byes_personas.sql');
 const MARKER = '-- @@MIGRATION@@';
 const FILES = [
   'migration_tournament_courts_byes.sql',
+  'migration_tournament_bye_runs.sql',
 ];
 
 /** The SQL with comments, string literals and dollar-quoted bodies blanked out. */
