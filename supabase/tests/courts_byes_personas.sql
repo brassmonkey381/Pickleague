@@ -138,6 +138,7 @@ on conflict do nothing;
 -- ════ T1 PKL-039/049: two courts, the whole tournament through the queue ═
 do $$
 declare v_t uuid; v_n int; v_m record; v_err text; v_bad text := ''; v_steps int := 0; v_note record; v_x text;
+        v_stale int[] := '{}';
 begin
   v_t := pg_temp.rp10('T1', array['1', '2'], true);
   update public.tournaments set status = 'active' where id = v_t;
@@ -184,6 +185,14 @@ begin
      where tournament_id = v_t and called_at is not null and status not in ('completed', 'cancelled')
      order by match_order limit 1;
     exit when v_m.id is null or v_steps > 20;
+    -- the queue can finish a later round first: if this score ends its round
+    -- and the next round is already over, that round's bye alert is stale
+    if not exists (select 1 from public.tournament_matches x where x.tournament_id = v_t and x.play_round = v_m.play_round
+                     and x.id <> v_m.id and x.status not in ('completed', 'cancelled'))
+       and not exists (select 1 from public.tournament_matches x where x.tournament_id = v_t and x.play_round = v_m.play_round + 1
+                     and x.status not in ('completed', 'cancelled')) then
+      v_stale := v_stale || (v_m.play_round + 1);
+    end if;
     v_err := pg_temp.score_as(v_m.team1_player1, v_m.id, 11, 7);
     if v_err is not null then v_bad := v_bad || ' #' || v_m.match_order || ': ' || v_err; end if;
     v_x := pg_temp.queue_ok(v_t);
@@ -213,15 +222,16 @@ begin
      and body like '%Up next (round 3, after your bye in round 2): %';
   perform pg_temp.ok('T1.13 "Up next (round 3, after your bye in round 2)" for CB3', v_n >= 1, v_n || ' alerts');
 
-  -- Bye this round: rounds 2..5, the two who sit out, once each
+  -- Bye this round: rounds 2..5, the two who sit out, once each, unless the
+  -- queue played that round before the round ahead of it finished (stale)
   select string_agg(x, ' ') into v_bad from (
     select 'CB' || s.seed || ':' || count(n.id) as x
       from _p s
       left join public.notifications n on n.entity_id = v_t and n.user_id = s.id and n.push_data->>'kind' = 'tm_bye'
        and n.body like 'You sit out round ' || ((s.seed + 1) / 2) || '. %'
-     group by s.seed having count(n.id) <> case when s.seed >= 3 then 1 else 0 end) z;
-  perform pg_temp.ok('T1.14 "Bye this round" once to each player who sits out rounds 2-5 (none for round 1)',
-    v_bad is null, v_bad);
+     group by s.seed having count(n.id) <> case when s.seed >= 3 and not ((s.seed + 1) / 2 = any(v_stale)) then 1 else 0 end) z;
+  perform pg_temp.ok('T1.14 "Bye this round" once to each player who sits out rounds 2-5 (none for round 1, none for a round already over)',
+    v_bad is null, coalesce(v_bad, 'stale rounds: ' || coalesce(nullif(array_to_string(v_stale, ','), ''), 'none')));
   select * into v_note from pg_temp.notes(v_t, pg_temp.p('CB5'), 'tm_bye') limit 1;
   perform pg_temp.ok('T1.15 bye alert text names the next match', v_note.title = '🪑 Bye this round in [SIM] CB T1'
     and v_note.body like 'You sit out round 3. Up next (round 4, after your bye in round 3): % (your match _ of 4).%',
@@ -350,6 +360,49 @@ begin
     v_bad is null, v_bad);
   select count(*) into v_n from pg_temp.notes(v_t, pg_temp.p('CB9'), 'tm_bye') where body like 'You sit out rounds 2 and 3. %';
   perform pg_temp.ok('T5.3 CB9''s alert names both rounds: "You sit out rounds 2 and 3."', v_n = 1, v_n || ' alerts');
+end $$;
+
+
+-- ════ T6 PKL-043: no bye alert for a round already over (live run 75390a) ═
+-- Same 4 rounds as T5, but scored out of order the way the court queue can:
+-- round 1, then round 3, then round 2, then round 4. When round 2 finishes,
+-- round 3 is already over, so CB4 (bye in round 3 only) gets no alert.
+-- CB9/CB10 (told after round 1) and CB5/CB6 (told after round 3) still get one.
+do $$
+declare v_t uuid; v_r uuid; outs int[] := array[1, 2, 9, 10, 9, 4, 5, 6]; r int; kk int; o int := 0;
+        pl int[]; v_m record; v_bad text;
+begin
+  insert into public.tournaments (league_id, name, created_by, format, match_type, playoff_format, registration_mode)
+  values (pg_temp.i('L'), '[SIM] CB T6', pg_temp.p('CB1'), 'rotating_partners', 'doubles', 'none', 'invite_only')
+  returning id into v_t;
+  insert into public.tournament_registrations (tournament_id, user_id, status, seed, role)
+  select v_t, id, 'approved', seed, case when k = 'CB1' then 'admin' else 'member' end from _p;
+  insert into public.tournament_rounds (tournament_id, round_number, label, round_type)
+  values (v_t, 1, 'Rotating Partners Schedule', 'winners') returning id into v_r;
+  for r in 1..4 loop
+    select array_agg(g order by g) into pl from generate_series(1, 10) g
+     where g not in (outs[2 * r - 1], outs[2 * r]);
+    for kk in 0..1 loop
+      insert into public.tournament_matches (tournament_id, round_id, match_order, match_type, play_round,
+             team1_player1, team1_player2, team2_player1, team2_player2)
+      values (v_t, v_r, o, 'doubles', r,
+              pg_temp.pn(pl[kk * 4 + 1]), pg_temp.pn(pl[kk * 4 + 2]), pg_temp.pn(pl[kk * 4 + 3]), pg_temp.pn(pl[kk * 4 + 4]));
+      o := o + 1;
+    end loop;
+  end loop;
+  update public.tournaments set status = 'active' where id = v_t;
+  for v_m in select * from public.tournament_matches where tournament_id = v_t
+              order by case play_round when 1 then 1 when 3 then 2 when 2 then 3 else 4 end, match_order loop
+    perform pg_temp.score_as(pg_temp.p('CB1'), v_m.id, 11, 5);
+  end loop;
+
+  select string_agg(x, ' ') into v_bad from (
+    select 'CB' || s.seed || ':' || count(n.id) as x
+      from _p s
+      left join public.notifications n on n.entity_id = v_t and n.user_id = s.id and n.push_data->>'kind' = 'tm_bye'
+     group by s.seed having count(n.id) <> case when s.seed in (9, 10, 5, 6) then 1 else 0 end) z;
+  perform pg_temp.ok('T6.1 round 3 played before round 2: no stale alert for CB4; CB9, CB10, CB5, CB6 once each',
+    v_bad is null, v_bad);
 end $$;
 
 
