@@ -32,7 +32,7 @@ export default function GeneratePlayoffSection({
   const groupPlayPending = groupPlayPendingCount(savedRounds, savedMatches);
   const ready = groupPlayPending === 0;
   const sizeLabel =
-    tournament.playoff_format === 'top_2' ? 'Top 2 (final + 3rd place)' :
+    tournament.playoff_format === 'top_2' ? (tournament.playoff_third_place ? 'Top 2 (final + 3rd place)' : 'Top 2 (final)') :
     tournament.playoff_format === 'top_4' ? 'Top 4 (semis + final)' :
     tournament.playoff_format === 'top_8' ? 'Top 8 (quarters + semis + final)' :
     tournament.playoff_format === 'top_1_per_pool' ? 'Top 1 per pool' :

@@ -218,6 +218,13 @@ describe('"How to earn pickleballs" lists what the SQL pays', () => {
       expect(seed, out).not.toContain(out);
     }
 
+    // PKL-047: tournament match pay (the same match curve) joins at 0.5; placement pay stays out.
+    const tfile = 'migration_court_pass_xp_tournament_match.sql';
+    const tseed = statement(sql(tfile), /insert into public\.reward_track_xp_sources\b/i, tfile);
+    const trows = [...tseed.matchAll(/\(\s*'([a-z_]+)'\s*,\s*([0-9.]+)/g)].map((m) => [m[1], Number(m[2])]);
+    expect(trows).toEqual([['_grant_tournament_match_bonus', 0.5]]);
+    expect(tseed).not.toContain('_grant_tournament_placement_pay');
+
     // No daily cap (Brian, 2026-11-03): every seeded cycle's daily_xp_cap is
     // null, and a null cap adds every earn in full.
     const seeded: Record<string, string[]> = {

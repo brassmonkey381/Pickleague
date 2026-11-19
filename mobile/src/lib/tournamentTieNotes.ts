@@ -4,14 +4,14 @@
  *   - fixed teams (singles, fixed doubles pairs): wins, then head-to-head
  *     only for an exact 2-way tie, then point diff, then seed
  *     (lib/tournamentTiebreakers.ts);
- *   - rotating partners (per player): wins, then fewer losses, then PLUPR
- *     (computePlayerStandings). Partners change every match, so there is no
- *     team head-to-head: the note shows the player's record against the other
- *     tied player when they were on opposite sides, and their point diff, as
- *     information only.
+ *   - rotating partners (per player): wins, then fewer losses, then
+ *     head-to-head among the players level on both (matches against them as
+ *     opponents, net), then point diff, then PLUPR (computePlayerStandings,
+ *     PKL-044). The note lists the record against each tied player.
  * Pure: no React, no Supabase.
  */
 import { headToHead, teamKey, type TiebreakerMatch } from './tournamentTiebreakers';
+import { tiedOpponentRecord, type PlayerStandingsMatch } from './tournamentStandings';
 
 export type TieMatch = TiebreakerMatch & {
   team1_score?: number | null;
@@ -122,14 +122,28 @@ export function explainPlayerTies(
     groups.get(r.wins)!.push(r);
   }
   const rating = (id: string) => ratingOf?.(id) ?? 0;
+  const diffOf = (r: { pf?: number; pa?: number }) => (r.pf ?? 0) - (r.pa ?? 0);
   for (const [wins, g] of groups) {
     if (g.length < 2) continue;
     const losses = g.map(r => r.losses);
     for (const r of g) {
       const others = g.filter(o => o.key !== r.key);
-      const sameLosses = g.filter(o => o.losses === r.losses);
+      // The chain of computePlayerStandings: fewer losses, then (among those
+      // level on both) head-to-head, point diff, PLUPR.
+      const level = g.filter(o => o.losses === r.losses);
+      const levelIds = level.map(o => o.key);
+      const net = (id: string) => {
+        const rec = tiedOpponentRecord(matches as PlayerStandingsMatch[], id, levelIds);
+        return rec.won - rec.lost;
+      };
+      const nets = level.map(o => net(o.key));
+      const myNet = net(r.key);
+      const sameNet = level.filter((_, i) => nets[i] === myNet);
+      const sameDiff = sameNet.filter(o => diffOf(o) === diffOf(r));
       const decidedBy: TieDecider = uniqueIn(r.losses, losses) ? 'losses'
-        : uniqueIn(rating(r.key), sameLosses.map(o => rating(o.key))) ? 'rating' : 'none';
+        : uniqueIn(myNet, nets) ? 'h2h'
+        : uniqueIn(diffOf(r), sameNet.map(diffOf)) ? 'diff'
+        : uniqueIn(rating(r.key), sameDiff.map(o => rating(o.key))) ? 'rating' : 'none';
       out[r.key] = {
         wins, tiedWith: others.map(o => o.key), decidedBy,
         diff: (r.pf ?? 0) - (r.pa ?? 0),

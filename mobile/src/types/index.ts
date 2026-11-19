@@ -325,7 +325,7 @@ export type Tournament = {
   mlp_pool_count: number;
   mlp_playoff_teams: number;
   // For non-MLP formats (round_robin, pool_play): which playoff bracket runs after group play.
-  // MLP keeps mlp_playoff_teams for its own playoff. 'top_2' = Final + 3PM.
+  // MLP keeps mlp_playoff_teams for its own playoff. 'top_2' = Final (+ 3PM when playoff_third_place).
   // 'top_1_per_pool' / 'top_2_per_pool' (pool_play only) take N from each pool
   // with crossover seeding; bracket size = pool_count * N.
   playoff_format: 'none' | 'top_2' | 'top_4' | 'top_8' | 'top_1_per_pool' | 'top_2_per_pool';

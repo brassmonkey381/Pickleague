@@ -357,7 +357,7 @@ export function playoffLabel(t: Pick<Tournament,
   }
   const pf = t.playoff_format ?? 'none';
   const third = t.playoff_third_place ? ' + 3rd' : '';
-  if (pf === 'top_2') return 'Playoff: top 2 + 3rd';
+  if (pf === 'top_2') return `Playoff: top 2${third}`;
   if (pf === 'top_4') return `Playoff: top 4${third}`;
   if (pf === 'top_8') return `Playoff: top 8${third}`;
   if (pf === 'top_1_per_pool') return 'Playoff: top 1 per pool';

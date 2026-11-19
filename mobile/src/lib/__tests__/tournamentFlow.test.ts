@@ -32,14 +32,19 @@ describe('predictFlow — pool play', () => {
 });
 
 describe('predictFlow — round robin playoffs', () => {
-  it('top_2 creates Finals AND the up-front Third Place Match (≥4 entrants)', () => {
-    const stages = predictFlow({ format: 'round_robin', playoffFormat: 'top_2', entrants: 6 })!;
+  it('top_2 + third place creates Finals AND the up-front Third Place Match (≥4 entrants)', () => {
+    const stages = predictFlow({ format: 'round_robin', playoffFormat: 'top_2', playoffThirdPlace: true, entrants: 6 })!;
     expect(labels(stages)).toEqual(['Round Robin Schedule', 'Finals', 'Third Place Match']);
     expect(counts(stages)).toEqual([15, 1, 1]);
   });
 
+  it('top_2 with the 3rd-place setting off is the Final only (PKL-045)', () => {
+    const stages = predictFlow({ format: 'round_robin', playoffFormat: 'top_2', entrants: 6 })!;
+    expect(labels(stages)).toEqual(['Round Robin Schedule', 'Finals']);
+  });
+
   it('top_2 with only 3 entrants has no Third Place Match', () => {
-    const stages = predictFlow({ format: 'round_robin', playoffFormat: 'top_2', entrants: 3 })!;
+    const stages = predictFlow({ format: 'round_robin', playoffFormat: 'top_2', playoffThirdPlace: true, entrants: 3 })!;
     expect(labels(stages)).toEqual(['Round Robin Schedule', 'Finals']);
   });
 

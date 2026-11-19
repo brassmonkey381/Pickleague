@@ -238,69 +238,181 @@ export function generateSingleElim(seededPlayers: string[]): MatchPairing[] {
 }
 
 // ── Rotating partners ─────────────────────────────────────────
-// Whist-style "social mixer" schedule for 2v2 where partnerships rotate every
-// round (not just opponents). Each round we run the standard round-robin
-// "circle" over all players (padded to even with a single BYE that represents
-// a forced sit-out so the rester rotates too):
+// Social mixer for 2v2: partners change every round, and everyone plays the
+// same number of matches (PKL-044, Brian 2026-11-18: byes rotate, so nobody
+// gets extra chances to win).
 //
-//   Fix position 0; rotate the rest of the circle by `r` each round.
-//   Pair mirrored positions: (cyc[0], cyc[n-1]), (cyc[1], cyc[n-2]), …
-//   These pairs are the partnerships — and because the whole circle rotates,
-//   each player draws a *new* partner every round (no partnership repeats over
-//   the first n-1 rounds).
+// How many rounds: rotatingPartnersRounds(n). Each round fields floor(n/4)
+// courts, so 4 x courts players play and the rest sit out. The round count is
+// the multiple of n / gcd(n, 4 x courts) nearest to the old default
+// ceil(n/4) x 3, which makes every player's match count equal
+// (10 players: 10 rounds, 8 matches each, 2 sit-outs each).
 //
-//   Pairs containing the BYE placeholder are dropped (those players sit out
-//   this round). From the surviving real pairs we form exactly floor(N/4)
-//   matches by grouping them two-at-a-time: pair[0] vs pair[1], pair[2] vs
-//   pair[3], … This guarantees floor(N/4) matches *every* round and rotates
-//   who sits out fairly, instead of dropping whole matches when a BYE lands
-//   inside a fixed group-of-4.
+// The schedule:
+//   - n % 4 is 0 or 1: the round-robin "circle" (fix position 0, rotate the
+//     rest by r, pair mirrored positions). With n % 4 = 1 a lone BYE pads the
+//     circle and its partner sits out, so everyone sits once in n rounds.
+//     No partnership repeats within the circle's rounds.
+//   - n % 4 is 2 or 3 (some pairs must sit each round): a seeded search. Each
+//     round the players with the fewest matches so far play (ties drawn by the
+//     seed), they pair with partners they have never had, and the pairs face
+//     each other so repeat opponents are as rare as it finds. The seed is
+//     fixed per field size, so a field always gets the same schedule. If no
+//     repeat-free schedule turns up (one always has for 4-24 players),
+//     partners may repeat; match counts stay equal either way.
 //
 // Returns [] for fewer than 4 players (can't field a single 2v2 court).
-export function generateRotatingPartners(
-  seededPlayers: string[],
-  numRounds: number
-): MatchPairing[] {
+
+function gcd(a: number, b: number): number {
+  while (b) [a, b] = [b, a % b];
+  return a;
+}
+
+/** Rounds for a rotating-partners field of n players: equal matches for everyone. */
+export function rotatingPartnersRounds(n: number): number {
+  if (n < 4) return 0;
+  const courts = Math.floor(n / 4);
+  const target = Math.ceil(n / 4) * 3;
+  const step = n / gcd(n, 4 * courts);
+  return Math.max(1, Math.round(target / step)) * step;
+}
+
+/** Small seeded PRNG (mulberry32): the same seed gives the same schedule. */
+function seededRandom(seed: number): () => number {
+  let a = seed >>> 0;
+  return () => {
+    a = (a + 0x6d2b79f5) >>> 0;
+    let t = a;
+    t = Math.imul(t ^ (t >>> 15), t | 1);
+    t ^= t + Math.imul(t ^ (t >>> 7), t | 61);
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+  };
+}
+
+function seededShuffle<T>(arr: T[], rand: () => number): T[] {
+  const a = [...arr];
+  for (let i = a.length - 1; i > 0; i--) {
+    const j = Math.floor(rand() * (i + 1));
+    [a[i], a[j]] = [a[j], a[i]];
+  }
+  return a;
+}
+
+function circleRotatingPartners(seededPlayers: string[], numRounds: number): MatchPairing[] {
   const N = seededPlayers.length;
-  if (N < 4) return [];
-
   const numCourts = Math.floor(N / 4);
-
-  // Pad to even so the circle is well-defined. A lone BYE marks the rester
-  // (only present when N is odd); pairs touching it are skipped below.
   const base = [...seededPlayers];
   if (base.length % 2 !== 0) base.push('BYE');
-  const size = base.length;            // even
+  const size = base.length;
   const fixed = base[0];
   const rest = base.slice(1);
-  const restLen = rest.length;         // size - 1
-
+  const restLen = rest.length;
   const matches: MatchPairing[] = [];
-
   for (let r = 0; r < numRounds; r++) {
-    // Circle rotation: keep `fixed` at position 0, rotate the rest by r.
     const rotated = rest.map((_, i) => rest[((i - r) % restLen + restLen) % restLen]);
     const cyc = [fixed, ...rotated];
-
-    // Mirrored pairings are the partnerships for this round.
     const pairs: [string, string][] = [];
     for (let i = 0; i < size / 2; i++) pairs.push([cyc[i], cyc[size - 1 - i]]);
-
-    // Drop pairs that include the BYE rester, preserving order.
     const realPairs = pairs.filter(p => p[0] !== 'BYE' && p[1] !== 'BYE');
-
-    // Group surviving pairs into 2v2 matches, capped at floor(N/4) courts.
     let order = 0;
     for (let j = 0; order < numCourts && j + 1 < realPairs.length; j += 2) {
-      matches.push({
-        round: r + 1,
-        matchOrder: order++,
-        team1: realPairs[j],
-        team2: realPairs[j + 1],
-      });
+      matches.push({ round: r + 1, matchOrder: order++, team1: realPairs[j], team2: realPairs[j + 1] });
     }
   }
   return matches;
+}
+
+type IndexMatch = { round: number; team1: [number, number]; team2: [number, number] };
+
+/** One attempt of the seeded search; null when a round can't avoid a repeat partner. */
+function searchRotatingPartners(
+  N: number, numRounds: number, rand: () => number, allowRepeats: boolean,
+): IndexMatch[] | null {
+  const courts = Math.floor(N / 4);
+  const played: number[] = new Array(N).fill(0);
+  const partnered = new Map<string, number>();
+  const faced = new Map<string, number>();
+  const key = (a: number, b: number) => (a < b ? `${a},${b}` : `${b},${a}`);
+  const out: IndexMatch[] = [];
+
+  for (let r = 0; r < numRounds; r++) {
+    const playing = seededShuffle([...Array(N).keys()], rand)
+      .sort((a, b) => played[a] - played[b])
+      .slice(0, 4 * courts);
+
+    // Partners: a perfect matching of `playing` with no earlier partnership
+    // (or, when allowed, the fewest repeats in the order tried).
+    const pairs: [number, number][] = [];
+    let steps = 0;
+    const match = (left: number[]): boolean => {
+      if (left.length === 0) return true;
+      if (++steps > 20000) return false;
+      const a = left[0];
+      let cands = seededShuffle(left.slice(1), rand);
+      if (allowRepeats) {
+        cands = cands.sort((x, y) => (partnered.get(key(a, x)) ?? 0) - (partnered.get(key(a, y)) ?? 0));
+      }
+      for (const b of cands) {
+        if (!allowRepeats && partnered.has(key(a, b))) continue;
+        pairs.push([a, b]);
+        if (match(left.filter(x => x !== a && x !== b))) return true;
+        pairs.pop();
+      }
+      return false;
+    };
+    if (!match(playing)) return null;
+
+    // Opponents: the grouping of pairs with the fewest repeat meetings.
+    let best: [number, number][][] = [];
+    let bestCost = Infinity;
+    for (let t = 0; t < 40 && bestCost > 0; t++) {
+      const ps = seededShuffle(pairs, rand);
+      const groups: [number, number][][] = [];
+      let cost = 0;
+      for (let i = 0; i + 1 < ps.length; i += 2) {
+        for (const p of ps[i]) for (const q of ps[i + 1]) cost += faced.get(key(p, q)) ?? 0;
+        groups.push([ps[i], ps[i + 1]]);
+      }
+      if (cost < bestCost) { bestCost = cost; best = groups; }
+    }
+    for (const [t1, t2] of best) {
+      partnered.set(key(t1[0], t1[1]), (partnered.get(key(t1[0], t1[1])) ?? 0) + 1);
+      partnered.set(key(t2[0], t2[1]), (partnered.get(key(t2[0], t2[1])) ?? 0) + 1);
+      for (const p of t1) for (const q of t2) faced.set(key(p, q), (faced.get(key(p, q)) ?? 0) + 1);
+      for (const p of [...t1, ...t2]) played[p]++;
+      out.push({ round: r + 1, team1: t1, team2: t2 });
+    }
+  }
+  return out;
+}
+
+export function generateRotatingPartners(
+  seededPlayers: string[],
+  numRounds: number = rotatingPartnersRounds(seededPlayers.length),
+): MatchPairing[] {
+  const N = seededPlayers.length;
+  if (N < 4) return [];
+  if (N % 4 === 0 || N % 4 === 1) {
+    // The circle never repeats a partner within its rounds (N-1 when N is
+    // even, N when odd); past that it starts over.
+    return circleRotatingPartners(seededPlayers, numRounds);
+  }
+  let found: IndexMatch[] | null = null;
+  for (let attempt = 0; attempt < 200 && !found; attempt++) {
+    found = searchRotatingPartners(N, numRounds, seededRandom(N * 7919 + attempt), false);
+  }
+  if (!found) found = searchRotatingPartners(N, numRounds, seededRandom(N * 7919), true);
+  const orderInRound = new Map<number, number>();
+  return (found ?? []).map(m => {
+    const order = orderInRound.get(m.round) ?? 0;
+    orderInRound.set(m.round, order + 1);
+    return {
+      round: m.round,
+      matchOrder: order,
+      team1: [seededPlayers[m.team1[0]], seededPlayers[m.team1[1]]] as [string, string],
+      team2: [seededPlayers[m.team2[0]], seededPlayers[m.team2[1]]] as [string, string],
+    };
+  });
 }
 
 // ── MLP (Fixed-team round robin) ──────────────────────────────
