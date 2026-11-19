@@ -397,7 +397,8 @@ begin
   ),
   champion_row as (
     -- MLP only. rotating_partners has no playoff, so its places are the
-    -- standings order exactly (wins, fewer losses, rating), as the client's
+    -- standings order exactly (wins, fewer losses, then head-to-head, point
+    -- diff and rating among players level on both), as the client's
     -- computePlayerStandings shows them; a champion badge (written by a payout
     -- AFTER ranks exist) must not reorder them on a later recompute.
     select user_id from tournament_champion_badges

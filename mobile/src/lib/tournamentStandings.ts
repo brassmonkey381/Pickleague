@@ -255,8 +255,9 @@ export type PlayerStanding = {
  *   - order: wins desc, losses asc, then among players level on both:
  *     head-to-head (tiedOpponentRecord, net matches won), point diff desc,
  *     rating desc (PKL-044, Brian 2026-11-18). Full ties keep entrant order.
- * The SQL then pins the champion badge holder first; that only exists once the
- * tournament completes, when callers show the settled ranks instead.
+ * The stored ranks are this order exactly for rotating partners (the SQL pins
+ * a champion badge holder first for MLP only). Once the tournament completes,
+ * callers show the stored ranks.
  */
 export function computePlayerStandings(
   matches: PlayerStandingsMatch[],
