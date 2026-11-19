@@ -53,7 +53,7 @@ import { matchCardModel, type ShareCardModel } from '../lib/shareCards';
 import { cardPlayer, shortName } from '../lib/finishShare';
 import { useBlockedIds } from '../lib/moderation';
 import RatingHistoryChart from '../components/RatingHistoryChart';
-import { ratingSeries } from '../lib/ratingHistory';
+import { ratingSeries, unratedCount } from '../lib/ratingHistory';
 import {
   fromTournamentHistoryRow,
   mergeHistory,
@@ -621,7 +621,11 @@ export default function MatchHistoryScreen({ navigation, route }: Props) {
     // Opponents (both for doubles) on the title; your partner on the meta line.
     const oppPlayer  = onTeam1 ? item.player2  : item.player1;
     const oppPartner = onTeam1 ? item.partner2 : item.partner1;
-    const myPartner = onTeam1 ? item.partner1 : item.partner2;
+    // My teammate is whichever of the two on my side isn't me (PKL-051: as
+    // partner1/partner2 this used to name the viewer as their own partner).
+    const myPartner = onTeam1
+      ? (item.player1_id === viewAs ? item.partner1 : item.player1)
+      : (item.player2_id === viewAs ? item.partner2 : item.player2);
 
     return (
       <ListCard
@@ -813,6 +817,17 @@ export default function MatchHistoryScreen({ navigation, route }: Props) {
     () => ratingSeries(filtered, userId ?? currentUserId),
     [filtered, userId, currentUserId],
   );
+  const ratingUnrated = useMemo(
+    () => unratedCount(filtered, userId ?? currentUserId),
+    [filtered, userId, currentUserId],
+  );
+  // "Last 7 days" draws 7 days, not just the days with matches (PKL-051).
+  const chartRange = useMemo(() => {
+    const days = filters.recency ? Number(filters.recency) : null;
+    if (!days) return null;
+    const end = Date.now();
+    return { start: end - days * 86400000, end };
+  }, [filters.recency, filtered]);
 
   // Keep a live handle on the latest filtered list for deferred scrolls.
   filteredRef.current = filtered;
@@ -968,7 +983,7 @@ export default function MatchHistoryScreen({ navigation, route }: Props) {
                 <EmptyState compact iconName="search" title="No matches fit these filters" actionLabel="Clear filters" onAction={clearAllFilters} />
               )}
               {showHistoryHeader && ratingPoints.length >= 2 && (
-                <RatingHistoryChart points={ratingPoints} />
+                <RatingHistoryChart points={ratingPoints} range={chartRange} unrated={ratingUnrated} />
               )}
               {showHistoryHeader && (
                 // The old full-width Calendar Analytics button is this header's

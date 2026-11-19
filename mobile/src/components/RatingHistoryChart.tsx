@@ -17,7 +17,13 @@ function shortDate(iso: string): string {
   return new Date(iso).toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
 }
 
-export default function RatingHistoryChart({ points }: { points: readonly RatingPoint[] }) {
+export default function RatingHistoryChart({ points, range, unrated = 0 }: {
+  points: readonly RatingPoint[];
+  /** The filter's time range ("Last 7 days"): the axis spans it. Null: first to last match. */
+  range?: { start: number; end: number } | null;
+  /** Matches in the list with no stored PLUPR for this player (league doubles as a partner). */
+  unrated?: number;
+}) {
   const { colors: c } = useTheme();
   const t = textStyles(c);
   const S = makeStyles(c);
@@ -26,7 +32,7 @@ export default function RatingHistoryChart({ points }: { points: readonly Rating
 
   const plotW = Math.max(0, width - INSET * 2);
   const plotH = HEIGHT - INSET * 2;
-  const scale = useMemo(() => chartScale(points, plotW, plotH), [points, plotW, plotH]);
+  const scale = useMemo(() => chartScale(points, plotW, plotH, range), [points, plotW, plotH, range]);
 
   const first = points[0];
   const last = points[points.length - 1];
@@ -88,9 +94,16 @@ export default function RatingHistoryChart({ points }: { points: readonly Rating
       </View>
 
       <View style={S.foot}>
-        <Text style={t.hint}>{shortDate(first.at)}</Text>
-        <Text style={t.hint}>{shortDate(last.at)}</Text>
+        <Text style={t.hint}>{shortDate(range ? new Date(range.start).toISOString() : first.at)}</Text>
+        <Text style={t.hint}>{shortDate(range ? new Date(range.end).toISOString() : last.at)}</Text>
       </View>
+      {unrated > 0 && (
+        <Text style={[t.hint, S.note]}>
+          {unrated === 1
+            ? '1 doubles match isn\'t on the line: league doubles store PLUPR only for the first player on each side.'
+            : `${unrated} doubles matches aren't on the line: league doubles store PLUPR only for the first player on each side.`}
+        </Text>
+      )}
     </View>
   );
 }
@@ -103,5 +116,6 @@ function makeStyles(c: ReturnType<typeof useTheme>['colors']) {
     value: { ...t.h2, marginTop: SPACE.xxs, marginBottom: SPACE.sm },
     plot:  { height: HEIGHT },
     foot:  { flexDirection: 'row', justifyContent: 'space-between', marginTop: SPACE.xs },
+    note:  { marginTop: SPACE.xs },
   });
 }
