@@ -6,7 +6,7 @@
  *
  * The shapes mirror the server exactly:
  *  - generate_playoff_bracket: top_2/4/8 seed Finals/Semifinals/Quarterfinals
- *    (top_2 with ≥4 entrants ALSO creates the Third Place Match round up
+ *    (top_2 with ≥4 entrants and playoff_third_place ALSO creates the Third Place Match round up
  *    front); top_N_per_pool pads 6-entrant brackets to 8 with 2 byes.
  *  - _advance_non_mlp_playoff_bracket: creates the next stage as the prior
  *    completes; Third Place Match (playoff_third_place) sorts last.
@@ -86,7 +86,7 @@ function playoffStages(cfg: FlowConfig): FlowStage[] | null {
     const stages: FlowStage[] = [
       { key: 'po_finals', label: 'Finals', kind: 'playoff', matchCount: 1, byes: 0 },
     ];
-    if (cfg.entrants >= 4) {
+    if (cfg.playoffThirdPlace && cfg.entrants >= 4) {
       stages.push({ key: 'po_third', label: 'Third Place Match', kind: 'playoff', matchCount: 1, byes: 0 });
     }
     return stages;

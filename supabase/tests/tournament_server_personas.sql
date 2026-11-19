@@ -97,8 +97,8 @@ select p.id, p.rating, p.singles_rating, p.doubles_rating, p.total_matches_playe
 do $$
 declare v_t uuid; v_r uuid; i int; j int; o int := 0; v_n int;
 begin
-  insert into public.tournaments (league_id, name, created_by, format, match_type, playoff_format, registration_mode)
-  values (pg_temp.i('L'), '[SIM] TS round robin', pg_temp.p('TP1'), 'round_robin', 'singles', 'top_2', 'invite_only')
+  insert into public.tournaments (league_id, name, created_by, format, match_type, playoff_format, playoff_third_place, registration_mode)
+  values (pg_temp.i('L'), '[SIM] TS round robin', pg_temp.p('TP1'), 'round_robin', 'singles', 'top_2', true, 'invite_only')
   returning id into v_t;
   insert into _ids values ('T', v_t);
   insert into public.tournament_registrations (tournament_id, user_id, status, seed, role)
