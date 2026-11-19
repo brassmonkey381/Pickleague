@@ -178,7 +178,7 @@ export const PICKLEBALL_WAYS: PickleballWay[] = [
     title: 'Play a match',
     amount: '20 to 2',
     detail:
-      'Your first 3 matches a day earn 20 each, then 17, 15, 12, 10, 7, 5 and 2. The same players earn for up to 3 matches in 12 hours.',
+      'Your first 3 matches a day earn 20 each, then 17, 15, 12, 10, 7, 5 and 2. The same players earn for up to 3 matches in 12 hours. League and tournament matches both count.',
   },
   { title: 'Play someone new', amount: '25', detail: 'Each player you play for the first time, up to 3 a week.' },
   { title: 'Check in, then play', amount: '12', detail: 'Once a day, when you play a match within 4 hours of checking in at a court.' },

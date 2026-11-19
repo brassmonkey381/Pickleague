@@ -956,12 +956,12 @@ begin
       where t.tgrelid = 'public.pickle_ledger'::regclass and not t.tgisinternal
         and f.proname = '_pl_track_on_pickle_ledger') = 1
     and exists (select 1 from pg_trigger where tgrelid = 'public.pickle_ledger'::regclass and tgname = 'trg_pickle_ledger_track_xp'));
-  perform pg_temp.ok('T8 the allowlist holds exactly the 4 play sources, each at 0.5',
-    (select count(*) from public.reward_track_xp_sources) = 4
+  perform pg_temp.ok('T8 the allowlist holds exactly the 5 play sources, each at 0.5',
+    (select count(*) from public.reward_track_xp_sources) = 5
     and (select count(*) from public.reward_track_xp_sources
           where xp_ratio = 0.5
             and source in ('_grant_match_game_bonus', '_grant_new_opponent_bonus', '_grant_checkin_match_bonus',
-                           '_grant_tournament_participation_bonus')) = 4,
+                           '_grant_tournament_participation_bonus', '_grant_tournament_match_bonus')) = 5,
     (select string_agg(source || '=' || xp_ratio, ', ' order by source) from public.reward_track_xp_sources));
   perform pg_temp.ok('T8 the seed''s tiers, rewards and items are as they were (still inactive, track_only, off sale)',
     (select (s.tiers, s.rewards, s.shop, s.home) is not distinct from (
@@ -1130,7 +1130,7 @@ begin
     and pg_temp.err_of('R', $q$select public._pl_track_settle(auth.uid())$q$) is not null);
   perform pg_temp.ok('T10 R still has no XP and no grants after the attempts',
     pg_temp.xp('R') is null and pg_temp.grants('R') = 0
-    and (select count(*) from public.reward_track_xp_sources) = 4);
+    and (select count(*) from public.reward_track_xp_sources) = 5);
 exception when others then
   perform pg_temp.as_admin();
   perform pg_temp.ok('T10 block crashed', false, sqlerrm);
