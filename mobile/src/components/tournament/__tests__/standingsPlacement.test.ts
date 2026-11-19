@@ -123,18 +123,19 @@ describe('rotating partners: per-player standings and placement', () => {
   it('tie notes per player: record as opponents, diff, and the decider', () => {
     const data = build(played);
     expect(data?.kind).toBe('player');
-    // me, a and b are all 2-1: a 3-way tie on wins and losses, PLUPR decides.
-    expect(data?.tables[0].rows.map(r => r.key)).toEqual(['me', 'b', 'a', 'c']);
+    // me, a and b are all 2-1: a 3-way tie on wins and losses. Head-to-head
+    // among them is 2-1 each (PKL-044), so point diff decides: a +9, me +3, b +1.
+    expect(data?.tables[0].rows.map(r => r.key)).toEqual(['a', 'me', 'b', 'c']);
     const tie = data?.tables[0].ties?.me ?? '';
-    expect(tie).toBe('Tied on 2 wins with Bo, Ann. As opponents: won 11-5, lost 6-11 vs Bo; '
-      + 'won 11-9, lost 6-11 vs Ann. Diff +3. Decided by PLUPR.');
+    expect(tie).toBe('Tied on 2 wins with Ann, Bo. As opponents: won 11-9, lost 6-11 vs Ann; '
+      + 'won 11-5, lost 6-11 vs Bo. Diff +3. Decided by point diff.');
     expect(data?.tables[0].ties?.c).toBeUndefined();
   });
 
   it('a placement table once every match is in, then the stored ranks', () => {
     expect(build([...played, m('x4', ['a', 'b'], ['c', 'me'], null)])?.placement).toBeNull();
     const live = build(played);
-    expect(live?.placement?.rows.map(r => [r.key, r.place])).toEqual([['me', '1'], ['b', '2'], ['a', '3'], ['c', '4']]);
+    expect(live?.placement?.rows.map(r => [r.key, r.place])).toEqual([['a', '1'], ['me', '2'], ['b', '3'], ['c', '4']]);
     const done = build(played, 'completed', [
       { user_id: 'b', final_rank: 1, wins: 2, losses: 1 },
       { user_id: 'me', final_rank: 2, wins: 2, losses: 1 },
@@ -144,6 +145,6 @@ describe('rotating partners: per-player standings and placement', () => {
     expect(done?.placement?.settled).toBe(true);
     expect(done?.placement?.rows.map(r => r.key)).toEqual(['b', 'me', 'a', 'c']);
     // The standings table itself is not reordered by the stored ranks.
-    expect(done?.tables[0].rows.map(r => r.key)).toEqual(['me', 'b', 'a', 'c']);
+    expect(done?.tables[0].rows.map(r => r.key)).toEqual(['a', 'me', 'b', 'c']);
   });
 });

@@ -17,6 +17,7 @@
  */
 import {
   generateRotatingPartners,
+  rotatingPartnersRounds,
   type MatchPairing,
 } from '../mobile/src/lib/tournament';
 
@@ -200,13 +201,28 @@ for (const n of NS) {
   }
 }
 
-// Mirror the production call: TournamentDetailScreen passes ceil(N/4)*3 rounds.
-header('Production-parity check · numRounds = ceil(N/4)*3');
-for (const n of [4, 5, 6, 7, 8, 9, 12, 16]) {
-  const rounds = Math.ceil(n / 4) * 3;
+// Mirror the production call: lock-in passes rotatingPartnersRounds(N) (PKL-044).
+header('Production-parity check · numRounds = rotatingPartnersRounds(N)');
+for (let n = 4; n <= 24; n++) {
+  const rounds = rotatingPartnersRounds(n);
   const ms = generateRotatingPartners(players(n), rounds);
   const perRound = Math.floor(n / 4);
   assertEq(`N=${n} → ${rounds} rounds → total matches`, ms.length, perRound * rounds);
+  const plays = new Map<string, number>();
+  const partners = new Set<string>();
+  let repeats = 0;
+  for (const m of ms) {
+    for (const p of [...m.team1, ...m.team2] as string[]) plays.set(p, (plays.get(p) ?? 0) + 1);
+    for (const t of [m.team1, m.team2]) {
+      const k = [...t].sort().join('|');
+      if (partners.has(k)) repeats++;
+      partners.add(k);
+    }
+  }
+  const counts = [...plays.values()];
+  assertTrue(`N=${n}: every player plays the same number of matches (${counts[0]})`,
+    plays.size === n && counts.every(c => c === counts[0]), counts.join(','));
+  assertEq(`N=${n}: no partnership repeats`, repeats, 0);
 }
 
 // ── Summary (identical to brackets.ts) ───────────────────────────

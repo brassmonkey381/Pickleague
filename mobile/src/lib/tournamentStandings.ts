@@ -237,8 +237,8 @@ export type PlayerStanding = {
   isMe: boolean;
   wins: number;
   losses: number;
-  /** Points scored / conceded by the player's side (information only; the
-   *  order never reads them). */
+  /** Points scored / conceded by the player's side (point diff breaks ties
+   *  after head-to-head). */
   pf: number;
   pa: number;
 };
@@ -252,7 +252,9 @@ export type PlayerStanding = {
  *   - only completed matches with a winner count;
  *   - a match with a non-empty game_scores array counts GAMES won and lost
  *     (best-of-N), otherwise the match itself is one win or one loss;
- *   - order: wins desc, losses asc, rating desc. Full ties keep entrant order.
+ *   - order: wins desc, losses asc, then among players level on both:
+ *     head-to-head (tiedOpponentRecord, net matches won), point diff desc,
+ *     rating desc (PKL-044, Brian 2026-11-18). Full ties keep entrant order.
  * The SQL then pins the champion badge holder first; that only exists once the
  * tournament completes, when callers show the settled ranks instead.
  */
@@ -294,16 +296,69 @@ export function computePlayerStandings(
     for (const id of team2) { const r = byId.get(id); if (r) { r.wins += g2; r.losses += g1; r.pf += s2; r.pa += s1; } }
   }
   const rating = (id: string) => opts.ratingOf?.(id) ?? 0;
+  // Head-to-head inside each group tied on wins and losses (PKL-044).
+  const groups = new Map<string, string[]>();
+  for (const { row } of rows) {
+    const k = `${row.wins}|${row.losses}`;
+    if (!groups.has(k)) groups.set(k, []);
+    groups.get(k)!.push(row.key);
+  }
+  const h2h = new Map<string, number>();
+  for (const ids of groups.values()) {
+    if (ids.length < 2) continue;
+    for (const id of ids) {
+      const rec = tiedOpponentRecord(matches, id, ids);
+      h2h.set(id, rec.won - rec.lost);
+    }
+  }
   return rows
     .sort((a, b) => {
       if (a.row.wins !== b.row.wins) return b.row.wins - a.row.wins;
       if (a.row.losses !== b.row.losses) return a.row.losses - b.row.losses;
+      const ha = h2h.get(a.row.key) ?? 0;
+      const hb = h2h.get(b.row.key) ?? 0;
+      if (ha !== hb) return hb - ha;
+      const da = a.row.pf - a.row.pa;
+      const db = b.row.pf - b.row.pa;
+      if (da !== db) return db - da;
       const ra = rating(a.row.key);
       const rb = rating(b.row.key);
       if (ra !== rb) return rb - ra;
       return a.i - b.i;
     })
     .map(r => r.row);
+}
+
+/**
+ * Head-to-head for one player in a per-player tie (rotating partners, PKL-044):
+ * completed matches this player played where at least one OTHER player of the
+ * tied group was on the opposing side, counted as whole matches won and lost
+ * (one match counts once, even with two tied opponents on it). With two tied
+ * players this is plain head-to-head; with three or more it is a mini-table
+ * among them. It is applied once to the whole tied group, not again to
+ * players still level after it. Mirrored by compute_tournament_final_ranks
+ * (migration_rotating_partners_tiebreak.sql).
+ */
+export function tiedOpponentRecord(
+  matches: PlayerStandingsMatch[],
+  playerId: string,
+  tiedIds: string[],
+): { won: number; lost: number } {
+  const others = new Set(tiedIds.filter(id => id !== playerId));
+  let won = 0;
+  let lost = 0;
+  for (const m of matches) {
+    if ((m.status ?? 'completed') !== 'completed') continue;
+    if (m.winner_team !== 'team1' && m.winner_team !== 'team2') continue;
+    const team1 = [m.team1_player1, m.team1_player2].filter(Boolean) as string[];
+    const team2 = [m.team2_player1, m.team2_player2].filter(Boolean) as string[];
+    let mine: 'team1' | 'team2' | null = null;
+    if (team1.includes(playerId) && team2.some(id => others.has(id))) mine = 'team1';
+    else if (team2.includes(playerId) && team1.some(id => others.has(id))) mine = 'team2';
+    if (!mine) continue;
+    if (m.winner_team === mine) won++; else lost++;
+  }
+  return { won, lost };
 }
 
 // ── Display helpers (no ordering of their own) ──────────────────────────────

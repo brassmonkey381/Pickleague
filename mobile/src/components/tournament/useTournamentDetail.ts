@@ -7,7 +7,7 @@ import { getTournamentRole, TournamentRole } from '../../lib/tournamentRole';
 import {
   FORMAT_META, seedPlayers, seedTeams,
   generateRoundRobin, generatePoolPlay, generateSingleElim, generateDoubleElim,
-  generateRotatingPartners, generateMLPSchedule,
+  generateRotatingPartners, rotatingPartnersRounds, generateMLPSchedule,
   generateDoublesRoundRobin, generateDoublesSingleElim, generateDoublesDoubleElim, generateDoublesPoolPlay,
   MatchPairing, validateDoublesTeams, validateMlpTeams, validatePools, MlpTeamShape,
 } from '../../lib/tournament';
@@ -776,7 +776,7 @@ export function useTournamentDetail({ navigation, tournamentId }: {
           return commit(m);
         }
         case 'rotating_partners':
-          return commit(generateRotatingPartners(seeded, Math.ceil(seeded.length / 4) * 3));
+          return commit(generateRotatingPartners(seeded, rotatingPartnersRounds(seeded.length)));
       }
     } catch (e) { bailFromError('bracket', e); }
     return null;

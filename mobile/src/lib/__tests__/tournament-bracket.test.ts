@@ -10,6 +10,7 @@ import {
   generatePoolPlay,
   generateSingleElim,
   generateRotatingPartners,
+  rotatingPartnersRounds,
   generateMLPSchedule,
   generateDoubleElim,
   generateDoublesRoundRobin,
@@ -381,6 +382,60 @@ describe('generateRotatingPartners', () => {
     // With rotation, the fixed player (s1) should pair with at least 3 different
     // partners over 7 rounds (the rotation visits multiple positions).
     expect(partnerOf['s1'].size).toBeGreaterThanOrEqual(3);
+  });
+
+  // PKL-044: byes rotate so everyone plays the same number of matches.
+  it('rotatingPartnersRounds gives equal match counts (10 players: 10 rounds)', () => {
+    expect(rotatingPartnersRounds(3)).toBe(0);
+    expect(rotatingPartnersRounds(8)).toBe(6);
+    expect(rotatingPartnersRounds(9)).toBe(9);
+    expect(rotatingPartnersRounds(10)).toBe(10);
+    expect(rotatingPartnersRounds(12)).toBe(9);
+    for (let n = 4; n <= 24; n++) {
+      const slots = rotatingPartnersRounds(n) * 4 * Math.floor(n / 4);
+      expect(slots % n, `n=${n}`).toBe(0);
+    }
+  });
+
+  it('every field of 4 to 24 players: equal matches, no repeat partner, at most one match a round', () => {
+    for (let n = 4; n <= 24; n++) {
+      const rounds = rotatingPartnersRounds(n);
+      const ms = generateRotatingPartners(players(n), rounds);
+      expect(ms, `n=${n}`).toHaveLength(rounds * Math.floor(n / 4));
+      const count = new Map<string, number>();
+      const partners = new Set<string>();
+      const byRound = new Map<number, Set<string>>();
+      for (const m of ms) {
+        const four = [...m.team1, ...m.team2] as string[];
+        expect(new Set(four).size, `n=${n}`).toBe(4);
+        const seen = byRound.get(m.round) ?? new Set<string>();
+        for (const p of four) {
+          expect(seen.has(p), `n=${n} round ${m.round} ${p} twice`).toBe(false);
+          seen.add(p);
+          count.set(p, (count.get(p) ?? 0) + 1);
+        }
+        byRound.set(m.round, seen);
+        for (const t of [m.team1, m.team2]) {
+          const k = [...t].sort().join('|');
+          expect(partners.has(k), `n=${n} repeat partners ${k}`).toBe(false);
+          partners.add(k);
+        }
+      }
+      const each = (rounds * 4 * Math.floor(n / 4)) / n;
+      expect(count.size, `n=${n}`).toBe(n);
+      for (const [p, c] of count) expect(c, `n=${n} ${p}`).toBe(each);
+    }
+  });
+
+  it('10 players: 20 matches, 8 each, seed 1 sits out twice like everyone else', () => {
+    const ms = generateRotatingPartners(players(10));
+    expect(ms).toHaveLength(20);
+    expect(ms.filter(m => [...m.team1, ...m.team2].includes('s1'))).toHaveLength(8);
+    expect(new Set(ms.map(m => m.round)).size).toBe(10);
+  });
+
+  it('is deterministic for the same field', () => {
+    expect(generateRotatingPartners(players(10))).toEqual(generateRotatingPartners(players(10)));
   });
 });
 

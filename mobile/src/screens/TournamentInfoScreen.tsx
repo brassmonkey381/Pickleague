@@ -95,13 +95,13 @@ const FORMAT_EXPLAINERS: Record<Tournament['format'], { headline: string; flow: 
   rotating_partners: {
     headline: 'Doubles where partners rotate every round.',
     flow: [
-      'Players are arrayed and rotated each round so every player gets a fresh partner.',
-      'Within each group of four, the pairing variant cycles: (a,b) vs (c,d), then (a,c) vs (b,d), then (a,d) vs (b,c).',
+      'Every round you get a new partner; nobody partners the same player twice.',
+      'When the courts cannot fit everyone, sit-outs rotate so every player plays the same number of matches.',
       'Designed for social/league-night play rather than a single champion.',
     ],
     advancement: [
       'No bracket — every match is independent.',
-      'Standings are per player: wins (games, in best-of matches), then fewer losses, then PLUPR.',
+      'Standings are per player: wins (games, in best-of matches), then fewer losses, then head-to-head among the tied players, then point difference, then PLUPR.',
     ],
   },
 };
@@ -121,7 +121,9 @@ function playoffLines(t: Tournament): string[] {
   if (t.format !== 'round_robin' && t.format !== 'pool_play') return [];
   const third = t.playoff_third_place ? ', plus a third-place match' : '';
   switch (t.playoff_format ?? 'none') {
-    case 'top_2': return ['The top 2 play the final; 3rd and 4th play for third place.'];
+    case 'top_2': return [t.playoff_third_place
+      ? 'The top 2 play the final; 3rd and 4th play for third place.'
+      : 'The top 2 play the final. Places 3 and below follow the standings.'];
     case 'top_4': return [`The top 4 play semifinals, then the final${third}.`];
     case 'top_8': return [`The top 8 play quarterfinals, semifinals and the final${third}.`];
     case 'top_1_per_pool': return ['Each pool winner advances to the playoff, seeded across pools.'];
@@ -211,7 +213,6 @@ export default function TournamentInfoScreen({ navigation, route }: Props) {
         <Row S={S} label="Match type"        value={t.match_type === 'doubles' ? 'Doubles' : 'Singles'} />
         <Row S={S} label="Seeding"           value={t.seeding === 'elo' ? 'PLUPR-seeded' : 'Random draw'} iconName={t.seeding === 'elo' ? 'chart' : 'dice'} />
         {t.format === 'pool_play' && <Row S={S} label="Pools" value={`${t.pool_count} pool${t.pool_count === 1 ? '' : 's'}`} />}
-        {t.partner_rotation && <Row S={S} label="Partner rotation" value={t.partner_rotation.replace('_', ' ')} />}
         <Row S={S} label="Registration"      value={t.registration_mode === 'invite_only' ? 'Invite only' : 'Request to join'} iconName={t.registration_mode === 'invite_only' ? 'lock' : 'edit'} />
         {/* The identity row dropped the old "Registration closes" and "~Nh
             expected" header lines (P5b), so they live here. Shown only when

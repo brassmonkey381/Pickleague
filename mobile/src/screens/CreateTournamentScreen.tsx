@@ -46,7 +46,7 @@ type PlayoffFormat =
 
 const PLAYOFF_FORMAT_HINTS: Record<PlayoffFormat, string> = {
   none:            'No playoff — final standings come straight from group play.',
-  top_2:           'Grand Final (#1 vs #2) plus a Third Place Match (#3 vs #4).',
+  top_2:           'Final (#1 vs #2). With the Third Place Match on, #3 and #4 play for 3rd.',
   top_4:           'Semifinals + Finals.',
   top_8:           'Quarterfinals + Semifinals + Finals.',
   top_1_per_pool:  'Pool winners advance to a single-elim bracket. Crossover seeding (A1 vs B-last, etc.).',
@@ -134,7 +134,7 @@ export default function CreateTournamentScreen({ navigation, route }: Props) {
   const [teamCreation, setTeamCreation] = useState<TeamCreation>('fixed');
   const [seeding, setSeeding]         = useState<'random' | 'elo'>('random');
   const [poolCount, setPoolCount]     = useState(2);
-  const [partnerRotation, setPartnerRotation] = useState<'every_match' | 'every_round'>('every_match');
+
   const [playoffFormat, setPlayoffFormat] = useState<PlayoffFormat>('none');
   // Whether Top 4 / Top 8 brackets get a Third Place Match between losing semifinalists.
   // (Top 2 always pairs standings #3 vs #4 — that's not toggleable.)
@@ -339,7 +339,7 @@ export default function CreateTournamentScreen({ navigation, route }: Props) {
         match_type:        dbMatchType,
         seeding,
         pool_count:        dbFormat === 'pool_play' ? poolCount : 1,
-        partner_rotation:  dbFormat === 'rotating_partners' ? partnerRotation : null,
+        partner_rotation:  null,
         // Captures Fixed vs Random for both Doubles and MLP. Singles ignores it.
         team_creation:     (matchType === 'doubles' || matchType === 'mlp') ? teamCreation : 'fixed',
         registration_mode: inviteOnly ? 'invite_only' : 'request',
@@ -374,9 +374,9 @@ export default function CreateTournamentScreen({ navigation, route }: Props) {
         insertPayload.mlp_playoff_teams = mlpPlayoffTeams;
       } else if (format === 'round_robin' || format === 'pool_play') {
         insertPayload.playoff_format = playoffFormat;
-        // 3PM toggle only meaningful for top_4 / top_8; safe to send false otherwise.
+        // 3PM toggle for top_2 / top_4 / top_8 (PKL-045: top_2 follows it too); false otherwise.
         insertPayload.playoff_third_place =
-          (playoffFormat === 'top_4' || playoffFormat === 'top_8') && playoffThirdPlace;
+          (playoffFormat === 'top_2' || playoffFormat === 'top_4' || playoffFormat === 'top_8') && playoffThirdPlace;
       }
 
       // Not retried: nothing dedupes tournaments, so a retry after a lost reply
@@ -572,14 +572,18 @@ export default function CreateTournamentScreen({ navigation, route }: Props) {
               )}
             </View>
             <Text style={S.hint}>{PLAYOFF_FORMAT_HINTS[playoffFormat]}</Text>
-            {(playoffFormat === 'top_4' || playoffFormat === 'top_8') && (
+            {(playoffFormat === 'top_2' || playoffFormat === 'top_4' || playoffFormat === 'top_8') && (
               <View style={S.toggleRow}>
                 <View style={{ flex: 1 }}>
                   <Text style={S.label}>Third Place Match</Text>
                   <Text style={S.hint}>
-                    {playoffThirdPlace
-                      ? 'Losing semifinalists play for 3rd place after both Semifinals complete.'
-                      : 'No 3rd place match — losing semifinalists tie for 3rd.'}
+                    {playoffFormat === 'top_2'
+                      ? (playoffThirdPlace
+                        ? '#3 and #4 from group play meet for 3rd place alongside the Final.'
+                        : 'No 3rd place match. Places 3 and below follow the group standings.')
+                      : playoffThirdPlace
+                        ? 'Losing semifinalists play for 3rd place after both Semifinals complete.'
+                        : 'No 3rd place match. The losing semifinalists take 3rd and 4th by group standings.'}
                   </Text>
                 </View>
                 <ThemedSwitch value={playoffThirdPlace} onValueChange={setPlayoffThirdPlace} />
@@ -588,17 +592,9 @@ export default function CreateTournamentScreen({ navigation, route }: Props) {
           </>
         )}
 
-        {/* ── Partner rotation (rotating_partners only) ── */}
-        {format === 'rotating_partners' && (
-          <>
-            <SectionHeader title="Partner Rotation" S={S} />
-            <View style={S.pillRow}>
-              <Pill label="Every match"  active={partnerRotation === 'every_match'}  onPress={() => setPartnerRotation('every_match')}  S={S} />
-              <Pill label="Every round"  active={partnerRotation === 'every_round'}  onPress={() => setPartnerRotation('every_round')}  S={S} />
-            </View>
-            <Text style={S.hint}>Partners rotate so every player pairs with different teammates over the course of the tournament.</Text>
-          </>
-        )}
+        {/* Rotating partners has no partner setting (PKL-044, Brian: remove the
+            Every match / Every round pills): each player plays one match per
+            round with a new partner, and byes rotate so match counts are equal. */}
 
         {/* ── Team Creation Type (Doubles + MLP — placed just above Registration) ── */}
         {(matchType === 'doubles' || matchType === 'mlp') && (
