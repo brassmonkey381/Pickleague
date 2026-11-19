@@ -12,6 +12,7 @@ import { ErrorState, LoadingState, SectionHeader } from '@just-messin-around/exp
 import { Icon, type IconName } from '@just-messin-around/expo-foundation/icons';
 import { HAIRLINE, RADIUS, SPACE } from '@just-messin-around/expo-foundation/styles';
 import { FONT } from '@just-messin-around/expo-foundation/typography';
+import { courtLabel, hasCourts } from '../lib/tournamentCourts';
 
 type Props = {
   navigation: NativeStackNavigationProp<RootStackParamList, 'TournamentInfo'>;
@@ -214,6 +215,8 @@ export default function TournamentInfoScreen({ navigation, route }: Props) {
         <Row S={S} label="Seeding"           value={t.seeding === 'elo' ? 'PLUPR-seeded' : 'Random draw'} iconName={t.seeding === 'elo' ? 'chart' : 'dice'} />
         {t.format === 'pool_play' && <Row S={S} label="Pools" value={`${t.pool_count} pool${t.pool_count === 1 ? '' : 's'}`} />}
         <Row S={S} label="Registration"      value={t.registration_mode === 'invite_only' ? 'Invite only' : 'Request to join'} iconName={t.registration_mode === 'invite_only' ? 'lock' : 'edit'} />
+        {/* PKL-039 */}
+        <Row S={S} label="Courts" value={hasCourts(t.courts) ? (t.courts ?? []).map(courtLabel).join(', ') : 'No courts reserved'} />
         {/* The identity row dropped the old "Registration closes" and "~Nh
             expected" header lines (P5b), so they live here. Shown only when
             set: never a TBD. */}
@@ -235,7 +238,15 @@ export default function TournamentInfoScreen({ navigation, route }: Props) {
 
       {/* ── Flow of play ──────────────────────────────────── */}
       <Section S={S} title="Flow of play">
-        {expl.flow.map((line, i) => (
+        {[...expl.flow,
+          // PKL-039 / PKL-049
+          hasCourts(t.courts)
+            ? 'Courts: each free court gets the next match whose players are all free, and its players get a push. Only called matches can be scored; the host can score any match early.'
+            : 'No courts reserved: find an open court and play your next match.',
+          ...(t.format === 'rotating_partners' || t.format === 'round_robin' || t.format === 'pool_play'
+            ? ['Byes: when you sit out a round you get an alert, and your next match says which round it is.']
+            : []),
+        ].map((line, i) => (
           <BulletLine key={i} S={S} index={i + 1} text={line} />
         ))}
       </Section>

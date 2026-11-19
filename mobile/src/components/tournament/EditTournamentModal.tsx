@@ -17,7 +17,8 @@ type Props = Pick<TournamentDetailState,
   | 'editMinPlayers' | 'setEditMinPlayers' | 'editMaxPlayers' | 'setEditMaxPlayers'
   | 'editStartTime' | 'setEditStartTime' | 'editLengthHours' | 'setEditLengthHours'
   | 'editAnte' | 'setEditAnte' | 'editPayout' | 'setEditPayout'
-  | 'editSeeding' | 'setEditSeeding' | 'showStartPicker' | 'setShowStartPicker'>;
+  | 'editSeeding' | 'setEditSeeding' | 'showStartPicker' | 'setShowStartPicker'
+  | 'editCourts' | 'setEditCourts'>;
 
 /**
  * Edit Tournament page sheet (admin). Form state lives in
@@ -33,6 +34,7 @@ export default function EditTournamentModal({
   editStartTime, setEditStartTime, editLengthHours, setEditLengthHours,
   editAnte, setEditAnte, editPayout, setEditPayout,
   editSeeding, setEditSeeding, showStartPicker, setShowStartPicker,
+  editCourts, setEditCourts,
 }: Props) {
   const save = useAsyncPress(saveTournamentEdits);
   const { S, c } = useTournamentDetailStyles();
@@ -179,6 +181,22 @@ export default function EditTournamentModal({
             <Text style={{ color: editSeeding === 'elo' ? c.primary : c.textSub, fontWeight: FONT.weight.bold }}>PLUPR-based</Text>
           </TouchableOpacity>
         </View>
+
+        <Text style={S.editFieldLabel}>Courts (names, comma separated)</Text>
+        <TextInput
+          style={[S.editInput, webInputFontFloor(S.editInput)]}
+          value={editCourts}
+          onChangeText={setEditCourts}
+          placeholder="Empty = no courts reserved"
+          placeholderTextColor={c.textMuted}
+          maxLength={200}
+          accessibilityLabel="Court names, comma separated. Leave empty for no courts reserved."
+        />
+        <Text style={[S.note, { marginTop: SPACE.xxs }]}>
+          {editCourts.trim()
+            ? 'Matches are called to these courts in order; players get a push when theirs is called.'
+            : 'No courts reserved: players find an open court and play their next match.'}
+        </Text>
 
         {editError && (
           <Text style={S.editErrorText}>{editError}</Text>

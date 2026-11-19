@@ -18,6 +18,7 @@ import { sbCall, currentUserId, friendlySbMessage } from '@just-messin-around/ex
 import { useRefresh } from '../../lib/useRefresh';
 import { fetchFinalRanks, type FinalRankRow } from '../../lib/tournamentStandings';
 import type { MlpTeamSlots } from './tournamentModel';
+import { ROUND_FORMATS, courtsText, parseCourts } from '../../lib/tournamentCourts';
 
 export type TournamentDetailNavigation = NativeStackNavigationProp<RootStackParamList, 'TournamentDetail'>;
 
@@ -140,6 +141,7 @@ export function useTournamentDetail({ navigation, tournamentId }: {
   const [editAnte, setEditAnte]               = useState('');
   const [editPayout, setEditPayout]           = useState('');
   const [editSeeding, setEditSeeding]         = useState<'random' | 'elo'>('random');
+  const [editCourts, setEditCourts]           = useState('');
   const [showStartPicker, setShowStartPicker] = useState(false);
   const [savingEdit, setSavingEdit]           = useState(false);
 
@@ -551,6 +553,7 @@ export function useTournamentDetail({ navigation, tournamentId }: {
     setEditAnte(tournament.pickle_ante != null ? String(tournament.pickle_ante) : '0');
     setEditPayout(Array.isArray(tournament.payout_structure) ? tournament.payout_structure.join(',') : '60,25,15');
     setEditSeeding((tournament.seeding === 'elo' ? 'elo' : 'random'));
+    setEditCourts(courtsText(tournament.courts));
     setEditError(null);
     setShowEditModal(true);
   }
@@ -607,6 +610,9 @@ export function useTournamentDetail({ navigation, tournamentId }: {
       pickle_ante:           anteN,
       payout_structure:      payoutParts,
       seeding:               editSeeding,
+      // PKL-039: empty = no courts reserved. A change while it is active
+      // calls matches to any new court right away (server trigger).
+      courts:                parseCourts(editCourts).length ? parseCourts(editCourts) : null,
     };
     // The prize pool is server-owned (migration_pickle_economy_guards.sql):
     // it only grows from antes and contributions.
@@ -945,6 +951,8 @@ export function useTournamentDetail({ navigation, tournamentId }: {
           round_id:      roundId,
           match_order:   i,
           match_type:    isRotating ? 'doubles' : tournament.match_type,
+          // PKL-049: the schedule round, so the server and the You card can name byes.
+          play_round:    ROUND_FORMATS.has(tournament.format) ? (m.round ?? null) : null,
           team1_player1: m.team1[0] !== 'BYE' ? m.team1[0] : null,
           team1_player2: m.team1[1] && m.team1[1] !== 'BYE' ? m.team1[1] : null,
           team2_player1: m.team2[0] !== 'BYE' ? m.team2[0] : null,
@@ -1206,6 +1214,7 @@ export function useTournamentDetail({ navigation, tournamentId }: {
     editStartTime, setEditStartTime, editLengthHours, setEditLengthHours,
     editAnte, setEditAnte, editPayout, setEditPayout,
     editSeeding, setEditSeeding, showStartPicker, setShowStartPicker,
+    editCourts, setEditCourts,
     // Wagers
     wagerSubject, setWagerSubject, wagerOpen, setWagerOpen,
     wagerMatchPick, setWagerMatchPick, actionSheetOpen, setActionSheetOpen,

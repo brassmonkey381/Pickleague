@@ -84,6 +84,12 @@ export type YouCardFacts = {
   partner: string | null;
   roundLabel: string | null;
   recordLine: string | null;
+  /** PKL-049: "Bye: round 5, then round 6" when a bye comes before the next match (or after the last). */
+  byeLine?: string | null;
+  /** PKL-039: where the next match stands on the courts ("On Court 2 now..."); null = no courts reserved. */
+  courtLine?: string | null;
+  /** PKL-039: false while courts are reserved and the match isn't called (hosts can always score). */
+  canScoreNow?: boolean;
   onRecord: () => void;
   onOpenSchedule: (() => void) | null;
   // Completed
@@ -158,14 +164,14 @@ export function youCardView(kind: YouCardKind, f: YouCardFacts): YouCardView | n
         eyebrow: 'Next match',
         title: `vs ${f.opponents}`,
         lines: [
-          [f.roundLabel, f.partner ? `with ${f.partner}` : null].filter(Boolean).join(', '),
-          f.recordLine ?? '',
+          f.byeLine ?? [f.roundLabel, f.partner ? `with ${f.partner}` : null].filter(Boolean).join(', '),
+          f.courtLine ?? f.recordLine ?? '',
         ].filter(Boolean),
-        primary: { title: 'Record score', onPress: f.onRecord },
+        primary: f.canScoreNow === false ? undefined : { title: 'Record score', onPress: f.onRecord },
       };
     case 'playing':
       return {
-        title: 'No match to play right now',
+        title: f.byeLine ? f.byeLine : 'No match to play right now',
         lines: f.recordLine ? [f.recordLine] : ['Your next match shows here once it is drawn.'],
         link: f.onOpenSchedule ? { label: 'Schedule', onPress: f.onOpenSchedule } : undefined,
       };

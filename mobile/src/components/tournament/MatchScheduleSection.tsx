@@ -15,6 +15,7 @@ import {
 } from './tournamentModel';
 import type { TournamentDetailNavigation, TournamentDetailState } from './useTournamentDetail';
 import { shortName } from '../../lib/finishShare';
+import { byeSlots, courtAllowsScoring, courtLabel, hasCourts, playRounds, type CourtMatch } from '../../lib/tournamentCourts';
 
 /** Matches listed before "Show N more" while no filter is on. */
 const UNFILTERED_LIMIT = 12;
@@ -67,6 +68,17 @@ export default function MatchScheduleSection({
   );
   const selectedRound = filter.roundId ? rounds.find((r: any) => r.id === filter.roundId) : null;
 
+  // PKL-039 / PKL-049: schedule rounds, the viewer's byes, and the courts.
+  const courtsOn = hasCourts(tournament.courts);
+  const schedRounds = useMemo(
+    () => playRounds(savedMatches as CourtMatch[], tournament.format, tournament.match_type),
+    [savedMatches, tournament.format, tournament.match_type],
+  );
+  const myByes = useMemo(
+    () => (filter.play === 'done' || filter.stage === 'playoff' ? [] : byeSlots(savedMatches as CourtMatch[], schedRounds, myUserId)),
+    [savedMatches, schedRounds, myUserId, filter.play, filter.stage],
+  );
+
   // ── Chips ──
   const options: FilterChipOption<ChipKey>[] = [];
   if (myCount > 0) options.push({ value: 'mine', label: 'Mine', count: myCount });
@@ -108,12 +120,26 @@ export default function MatchScheduleSection({
   const hiddenCount = Math.max(0, displayed.length - limit);
 
   let globalIdx = 0;
+  const byesLeft = [...myByes];
+  const byeRow = (round: number) => (
+    <View key={`bye-${round}`} style={[S.matchRow, S.matchRowHighlight]} accessibilityLabel={`Bye: round ${round}. You sit out.`}>
+      <Text style={S.matchNum}> </Text>
+      <Text style={[S.matchup, S.matchupHighlight]}>Bye: round {round}</Text>
+      <Text style={[S.note, { flexShrink: 0 }]}>you sit out</Text>
+    </View>
+  );
   const groupViews = groups.map((group, gi) => {
     const rows: React.ReactNode[] = [];
     for (const m of group.matches) {
       if (globalIdx >= limit) break;
+      const r = schedRounds.get(m.id);
+      while (r != null && byesLeft.length && byesLeft[0].round <= r) rows.push(byeRow(byesLeft.shift()!.round));
       const i = globalIdx++;
       rows.push(renderMatch(m, i));
+    }
+    // A bye after the viewer's last match (only once the whole list shows).
+    if (globalIdx >= displayed.length && group.matches.some(m => schedRounds.has(m.id))) {
+      while (byesLeft.length) rows.push(byeRow(byesLeft.shift()!.round));
     }
     if (rows.length === 0) return null;
     return (
@@ -149,7 +175,10 @@ export default function MatchScheduleSection({
         </View>
       );
     }
-    const tappable = canRecordMatch(m, { isPriv, myUserId });
+    // PKL-039: with courts reserved, only a called match (the host can score any).
+    const tappable = canRecordMatch(m, { isPriv, myUserId }) && courtAllowsScoring(m as CourtMatch, tournament.courts, isPriv);
+    const open = m.status !== 'completed' && m.status !== 'cancelled';
+    const onCourt = courtsOn && open && !!m.called_at && !!m.court;
     const handlePress = () => navigation.navigate('MatchEntry', {
       leagueId:           tournament?.league_id ?? '',
       tournamentId:       tournament?.id,
@@ -191,6 +220,12 @@ export default function MatchScheduleSection({
           ]}>{t1Lines}</Text>
           {completed ? (
             <Text style={S.matchScore}>{m.team1_score}–{m.team2_score}</Text>
+          ) : onCourt ? (
+            <Text style={[S.vs, { color: c.primary, textAlign: 'center' }]} accessibilityLabel={`On ${courtLabel(m.court)} now`}>
+              {`vs${'\n'}${courtLabel(m.court)}`}
+            </Text>
+          ) : courtsOn && open ? (
+            <Text style={[S.vs, { textAlign: 'center' }]} accessibilityLabel="Waiting for a court">{`vs${'\n'}waiting`}</Text>
           ) : (
             <Text style={S.vs}>vs</Text>
           )}

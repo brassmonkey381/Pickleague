@@ -22,6 +22,7 @@ import { Button, KeyboardTextInput } from '@just-messin-around/expo-foundation/f
 import { shadowColor } from '@just-messin-around/expo-foundation/theme';
 import { HAIRLINE, RADIUS, SPACE } from '@just-messin-around/expo-foundation/styles';
 import { FONT, textStyles } from '@just-messin-around/expo-foundation/typography';
+import { parseCourts } from '../lib/tournamentCourts';
 
 type Props = {
   navigation: NativeStackNavigationProp<RootStackParamList, 'CreateTournament'>;
@@ -139,6 +140,10 @@ export default function CreateTournamentScreen({ navigation, route }: Props) {
   // Whether Top 4 / Top 8 brackets get a Third Place Match between losing semifinalists.
   // (Top 2 always pairs standings #3 vs #4 — that's not toggleable.)
   const [playoffThirdPlace, setPlayoffThirdPlace] = useState(false);
+
+  // PKL-039: courts. Off = no courts reserved (players find an open court).
+  const [reserveCourts, setReserveCourts] = useState(false);
+  const [courtNames, setCourtNames]       = useState('');
 
   // Registration
   const [inviteOnly, setInviteOnly]   = useState(false);
@@ -268,6 +273,9 @@ export default function CreateTournamentScreen({ navigation, route }: Props) {
     if (inFlight.current || success) return;
     setError('');
     if (!name.trim()) { setError('Please enter a tournament name.'); return; }
+    if (reserveCourts && parseCourts(courtNames).length === 0) {
+      setError('Type at least one court name, or pick "No courts reserved".'); return;
+    }
     const anteNum = parseInt(ante, 10);
     if (!Number.isFinite(anteNum) || anteNum < 0) { setError('Ante must be 0 or a positive number.'); return; }
     const durationNum = parseFloat(durationHours);
@@ -378,6 +386,8 @@ export default function CreateTournamentScreen({ navigation, route }: Props) {
         insertPayload.playoff_third_place =
           (playoffFormat === 'top_2' || playoffFormat === 'top_4' || playoffFormat === 'top_8') && playoffThirdPlace;
       }
+      // PKL-039: null = no courts reserved.
+      insertPayload.courts = reserveCourts ? parseCourts(courtNames) : null;
 
       // Not retried: nothing dedupes tournaments, so a retry after a lost reply
       // would leave two and immediately trip the one-active limit.
@@ -595,6 +605,29 @@ export default function CreateTournamentScreen({ navigation, route }: Props) {
         {/* Rotating partners has no partner setting (PKL-044, Brian: remove the
             Every match / Every round pills): each player plays one match per
             round with a new partner, and byes rotate so match counts are equal. */}
+
+        {/* ── Courts (PKL-039) ── */}
+        <SectionHeader title="Courts" S={S} />
+        <View style={S.pillRow}>
+          <Pill label="No courts reserved" active={!reserveCourts} onPress={() => setReserveCourts(false)} S={S} />
+          <Pill label="Name the courts"    active={reserveCourts}  onPress={() => setReserveCourts(true)}  S={S} />
+        </View>
+        {reserveCourts && (
+          <TextInput
+            style={S.input}
+            placeholder="Court names, e.g. 1, 2, 3"
+            placeholderTextColor={colors.textMuted}
+            value={courtNames}
+            onChangeText={setCourtNames}
+            maxLength={200}
+            accessibilityLabel="Court names, comma separated"
+          />
+        )}
+        <Text style={S.hint}>
+          {reserveCourts
+            ? 'Each free court gets the next match whose players are all free, and they get a push. Only called matches can be scored; you can score any match early.'
+            : 'Players find an open court and play their next match, as usual.'}
+        </Text>
 
         {/* ── Team Creation Type (Doubles + MLP — placed just above Registration) ── */}
         {(matchType === 'doubles' || matchType === 'mlp') && (
