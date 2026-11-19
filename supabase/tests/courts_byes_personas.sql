@@ -309,6 +309,50 @@ begin
 end $$;
 
 
+-- ════ T5 PKL-049: back-to-back byes get one alert (rehearsal 1c45e9) ═════
+-- 4 rounds of 2 doubles matches, no courts. Sitting out: round 1 CB1+CB2,
+-- round 2 CB9+CB10, round 3 CB9+CB4, round 4 CB5+CB6. CB9 sits out 2 and 3.
+do $$
+declare v_t uuid; v_r uuid; outs int[] := array[1, 2, 9, 10, 9, 4, 5, 6]; r int; kk int; o int := 0;
+        pl int[]; v_m record; v_bad text; v_n int;
+begin
+  insert into public.tournaments (league_id, name, created_by, format, match_type, playoff_format, registration_mode)
+  values (pg_temp.i('L'), '[SIM] CB T5', pg_temp.p('CB1'), 'rotating_partners', 'doubles', 'none', 'invite_only')
+  returning id into v_t;
+  insert into public.tournament_registrations (tournament_id, user_id, status, seed, role)
+  select v_t, id, 'approved', seed, case when k = 'CB1' then 'admin' else 'member' end from _p;
+  insert into public.tournament_rounds (tournament_id, round_number, label, round_type)
+  values (v_t, 1, 'Rotating Partners Schedule', 'winners') returning id into v_r;
+  for r in 1..4 loop
+    select array_agg(g order by g) into pl from generate_series(1, 10) g
+     where g not in (outs[2 * r - 1], outs[2 * r]);
+    for kk in 0..1 loop
+      insert into public.tournament_matches (tournament_id, round_id, match_order, match_type, play_round,
+             team1_player1, team1_player2, team2_player1, team2_player2)
+      values (v_t, v_r, o, 'doubles', r,
+              pg_temp.pn(pl[kk * 4 + 1]), pg_temp.pn(pl[kk * 4 + 2]), pg_temp.pn(pl[kk * 4 + 3]), pg_temp.pn(pl[kk * 4 + 4]));
+      o := o + 1;
+    end loop;
+  end loop;
+  perform pg_temp.ok('T5.1 CB9 sits out rounds 2 and 3', public._pl_tm_byes(v_t, pg_temp.p('CB9')) = array[2, 3],
+    public._pl_tm_byes(v_t, pg_temp.p('CB9'))::text);
+  update public.tournaments set status = 'active' where id = v_t;
+  for v_m in select * from public.tournament_matches where tournament_id = v_t order by match_order loop
+    perform pg_temp.score_as(pg_temp.p('CB1'), v_m.id, 11, 5);   -- the host scores each, in order
+  end loop;
+
+  select string_agg(x, ' ') into v_bad from (
+    select 'CB' || s.seed || ':' || count(n.id) as x
+      from _p s
+      left join public.notifications n on n.entity_id = v_t and n.user_id = s.id and n.push_data->>'kind' = 'tm_bye'
+     group by s.seed having count(n.id) <> case when s.seed in (9, 10, 4, 5, 6) then 1 else 0 end) z;
+  perform pg_temp.ok('T5.2 one "Bye this round" per run of byes: CB9 once for rounds 2-3; CB10, CB4, CB5, CB6 once; none for round 1',
+    v_bad is null, v_bad);
+  select count(*) into v_n from pg_temp.notes(v_t, pg_temp.p('CB9'), 'tm_bye') where body like 'You sit out rounds 2 and 3. %';
+  perform pg_temp.ok('T5.3 CB9''s alert names both rounds: "You sit out rounds 2 and 3."', v_n = 1, v_n || ' alerts');
+end $$;
+
+
 -- ════ Results ════════════════════════════════════════════════════════════
 select test, ok, detail
   from (
