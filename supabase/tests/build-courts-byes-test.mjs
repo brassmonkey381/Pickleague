@@ -22,6 +22,7 @@ const MARKER = '-- @@MIGRATION@@';
 const FILES = [
   'migration_tournament_courts_byes.sql',
   'migration_tournament_bye_runs.sql',
+  'migration_tournament_bye_stale.sql',
 ];
 
 /** The SQL with comments, string literals and dollar-quoted bodies blanked out. */
