@@ -10,7 +10,7 @@ import {
   type FinalRankRow,
   type TeamStandingsOptions,
 } from '../tournamentStandings';
-import { buildStandingsComparator, teamKey } from '../tournamentTiebreakers';
+import { buildStandingsComparator, entrantKey, levelGroups, teamKey } from '../tournamentTiebreakers';
 
 // ── Fixture helpers ─────────────────────────────────────────────────────────
 
@@ -39,13 +39,11 @@ const keys = (rows: { key: string }[]) => rows.map(r => r.key);
 
 /**
  * Independent emulation of compute_tournament_final_ranks' fixed-team path
- * (migration_unify_tournament_rankings.sql / migration_fix_champion_rank_collision.sql)
- * for round robin and pool play, where there is no finals round and so no
- * champion / grand-final-loser pin. Written from the SQL, not from
+ * under PKL-052, for round robin and pool play (no finals round, so no
+ * champion / grand-final-loser pin). Written from the rule, not from
  * tournamentTiebreakers.ts, so agreement between the two is a real check:
- *   pre:    row_number() over (wins desc, point_diff desc, seed asc)
- *   ties_2: wins buckets of exactly 2 → head-to-head over all completed matches
- *   rank:   row_number() over (wins desc, h2h_score desc, point_diff desc, seed asc)
+ *   rank: row_number() over (wins desc, losses asc, point_diff desc,
+ *                            tie_rank asc nulls last, seed asc)
  * Both partners carry the team's rank; approved entrants with no completed
  * match trail by seed.
  */
@@ -53,8 +51,9 @@ function sqlTeamPathRanks(
   matches: StandingsMatch[],
   seeds: Record<string, number>,
   approved: string[] = [],
+  tieRanks: Record<string, number> = {},
 ): FinalRankRow[] {
-  type Agg = { lo: string; hi: string; wins: number; losses: number; pd: number; seed: number };
+  type Agg = { lo: string; hi: string; wins: number; losses: number; pd: number; seed: number; tr: number };
   const lohi = (p1: string, p2: string | null): [string, string] => {
     const b = p2 ?? p1;
     return p1 < b ? [p1, b] : [b, p1];
@@ -64,8 +63,12 @@ function sqlTeamPathRanks(
   const add = (p1: string | null, p2: string | null, pf: number, pa: number, w: number, l: number) => {
     if (!p1) return;
     const [lo, hi] = lohi(p1, p2);
-    const k = `${lo}|${hi}`;
-    const a = agg.get(k) ?? { lo, hi, wins: 0, losses: 0, pd: 0, seed: Math.min(seeds[lo] ?? 999, seeds[hi] ?? 999) };
+    const k = `${lo}:${hi}`;
+    const a = agg.get(k) ?? {
+      lo, hi, wins: 0, losses: 0, pd: 0,
+      seed: Math.min(seeds[lo] ?? 999, seeds[hi] ?? 999),
+      tr: tieRanks[k] ?? Number.POSITIVE_INFINITY,
+    };
     a.wins += w; a.losses += l; a.pd += pf - pa;
     agg.set(k, a);
   };
@@ -74,31 +77,11 @@ function sqlTeamPathRanks(
     add(x.team1_player1, x.team1_player2, x.team1_score ?? 0, x.team2_score ?? 0, t1won, 1 - t1won);
     add(x.team2_player1, x.team2_player2, x.team2_score ?? 0, x.team1_score ?? 0, 1 - t1won, t1won);
   }
-  const teams = [...agg.values()];
-  const pre = [...teams].sort((a, b) => b.wins - a.wins || b.pd - a.pd || a.seed - b.seed);
-  const h2hScore = new Map<Agg, number>();
-  const byWins = new Map<number, Agg[]>();
-  for (const t of pre) byWins.set(t.wins, [...(byWins.get(t.wins) ?? []), t]);
-  for (const group of byWins.values()) {
-    if (group.length !== 2) continue;
-    const [e1, e2] = group;
-    let w1 = 0; let w2 = 0;
-    for (const x of done) {
-      const a = lohi(x.team1_player1!, x.team1_player2);
-      const b = lohi(x.team2_player1!, x.team2_player2);
-      const is = (s: [string, string], t: Agg) => s[0] === t.lo && s[1] === t.hi;
-      if ((is(a, e1) && is(b, e2) && x.winner_team === 'team1') || (is(b, e1) && is(a, e2) && x.winner_team === 'team2')) w1++;
-      if ((is(a, e2) && is(b, e1) && x.winner_team === 'team1') || (is(b, e2) && is(a, e1) && x.winner_team === 'team2')) w2++;
-    }
-    if (w1 !== w2) {
-      h2hScore.set(e1, w1 > w2 ? 1 : -1);
-      h2hScore.set(e2, w2 > w1 ? 1 : -1);
-    }
-  }
-  const ranked = [...pre].sort((a, b) =>
+  const ranked = [...agg.values()].sort((a, b) =>
     b.wins - a.wins
-    || (h2hScore.get(b) ?? 0) - (h2hScore.get(a) ?? 0)
+    || a.losses - b.losses
     || b.pd - a.pd
+    || (a.tr === b.tr ? 0 : a.tr < b.tr ? -1 : 1)
     || a.seed - b.seed);
   const rows: FinalRankRow[] = [];
   ranked.forEach((t, i) => {
@@ -145,10 +128,11 @@ const FIXTURES: Fixture[] = [
     expected: ['a', 'b', 'c', 'd'],
   },
   {
-    // 5-player round robin with two exact 2-way ties on wins: b and c on 2,
-    // d and e on 1. In each pair the head-to-head winner has the WORSE point
-    // diff (c +15 vs b -15, d -8 vs e -16), so H2H has to come first.
-    name: 'exact 2-way ties go to head-to-head before point diff',
+    // 5-player round robin with two 2-way ties: b and c on 2-2, d and e on
+    // 1-3. In each pair the head-to-head winner has the WORSE point diff
+    // (b beat c but c is +15 vs b -15; e beat d but d is -8 vs e -16).
+    // PKL-052: point diff decides, head-to-head counts for nothing.
+    name: '2-way ties go to point diff, never head-to-head',
     matches: [
       m(['a'], ['b'], 'team1', 11, 5), m(['a'], ['c'], 'team1', 11, 5),
       m(['a'], ['d'], 'team1', 11, 5), m(['a'], ['e'], 'team1', 11, 5),
@@ -157,12 +141,11 @@ const FIXTURES: Fixture[] = [
       m(['d'], ['e'], 'team2', 9, 11),
     ],
     seeds: { a: 1, b: 2, c: 3, d: 4, e: 5 },
-    expected: ['a', 'b', 'c', 'e', 'd'],
+    expected: ['a', 'c', 'b', 'd', 'e'],
   },
   {
-    // a, b and c all 2-1: head-to-head is skipped for a 3-way tie and point
-    // diff decides (c +21, b +1, a -7).
-    name: '3-way tie on wins skips head-to-head',
+    // a, b and c all 2-1: point diff decides (c +21, b +1, a -7).
+    name: '3-way tie on W-L falls to point diff',
     matches: [
       m(['a'], ['b'], 'team1', 11, 9), m(['c'], ['a'], 'team1', 11, 0), m(['a'], ['d'], 'team1', 11, 9),
       m(['b'], ['c'], 'team1', 11, 10), m(['b'], ['d'], 'team1', 11, 9), m(['c'], ['d'], 'team1', 11, 0),
@@ -180,7 +163,8 @@ const FIXTURES: Fixture[] = [
     expected: ['b', 'c', 'a'],
   },
   {
-    name: 'everything tied falls to registration seed',
+    // Level on W-L and point diff with no admin order: waiting, by seed.
+    name: 'everything level falls to registration seed',
     matches: [
       m(['a'], ['b'], 'team1', 11, 9), m(['b'], ['c'], 'team1', 11, 9), m(['c'], ['a'], 'team1', 11, 9),
     ],
@@ -201,7 +185,7 @@ const FIXTURES: Fixture[] = [
   },
   {
     // Doubles with a 3-way tie on wins: partners listed in either order still
-    // merge into one entrant, and point diff (not H2H) separates the three.
+    // merge into one entrant, and point diff separates the three.
     name: 'doubles 3-way tie on wins falls to point diff',
     matches: [
       m(['a1', 'a2'], ['b1', 'b2'], 'team1', 11, 10),
@@ -234,7 +218,7 @@ describe('computeTeamStandings order', () => {
       const table = computeTeamStandings(f.matches, withSeeds(f.seeds));
       // Re-sort the helper's own entries with the comparator directly: the
       // helper must not reorder anything beyond what the comparator does.
-      const viaComparator = [...table].sort(buildStandingsComparator(table, f.matches));
+      const viaComparator = [...table].sort(buildStandingsComparator());
       expect(keys(table)).toEqual(keys(viaComparator));
     });
 
@@ -255,74 +239,39 @@ describe('computeTeamStandings order', () => {
     }
   });
 
-  it('matches the pre-extraction inline TournamentDetail tally row for row', () => {
-    // The Live Standings block as it was inlined in TournamentDetailScreen
-    // before P5a, copied verbatim (minus JSX). The pool table was the same
-    // code over one pool's matches.
-    function legacyStandings(savedMatches: any[], myUserId: string | null, profileNames: Record<string, string>) {
-      type Stat = {
-        key: string; name: string; isMe: boolean;
-        wins: number; losses: number; pf: number; pa: number;
-      };
-      const teamKeyL = (p1: string, p2: string | null) =>
-        p2 ? [p1, p2].sort().join('|') : p1;
-      const teamName = (p1: string | null, p2: string | null): string => {
-        if (!p1) return '?';
-        const n1 = profileNames[p1] ?? '?';
-        const n2 = p2 ? (profileNames[p2] ?? '?') : null;
-        return n2 ? `${n1} & ${n2}` : n1;
-      };
-      const stats = new Map<string, Stat>();
-      const ensure = (p1: string | null, p2: string | null): Stat | null => {
-        if (!p1) return null;
-        const key = teamKeyL(p1, p2);
-        if (!stats.has(key)) {
-          stats.set(key, {
-            key, name: teamName(p1, p2),
-            isMe: p1 === myUserId || (!!p2 && p2 === myUserId),
-            wins: 0, losses: 0, pf: 0, pa: 0,
-          });
-        }
-        return stats.get(key)!;
-      };
-      for (const m of savedMatches) {
-        const t1 = ensure(m.team1_player1, m.team1_player2);
-        const t2 = ensure(m.team2_player1, m.team2_player2);
-        if (!t1 || !t2) continue;
-        if (m.status === 'completed' && m.winner_team) {
-          t1.pf += m.team1_score ?? 0; t1.pa += m.team2_score ?? 0;
-          t2.pf += m.team2_score ?? 0; t2.pa += m.team1_score ?? 0;
-          if (m.winner_team === 'team1') { t1.wins++; t2.losses++; }
-          else                            { t2.wins++; t1.losses++; }
-        }
-      }
-      const entries = Array.from(stats.values());
-      const tbMatches = savedMatches.map((m: any) => ({
-        team1_player1: m.team1_player1,
-        team1_player2: m.team1_player2,
-        team2_player1: m.team2_player1,
-        team2_player2: m.team2_player2,
-        winner_team: m.winner_team,
-        status: m.status,
-      }));
-      return entries.sort(buildStandingsComparator(entries, tbMatches));
-    }
+  it('3-way tie W-L and point diff cannot break: all three waiting, ordered by seed', () => {
+    // a, b, c each 1-1 at +0 (a cycle of 11-9 wins); d lost twice.
+    const matches = [
+      m(['a'], ['b'], 'team1', 11, 9), m(['b'], ['c'], 'team1', 11, 9), m(['c'], ['a'], 'team1', 11, 9),
+      m(['a'], ['d'], 'team1', 11, 9), m(['b'], ['d'], 'team1', 11, 9), m(['c'], ['d'], 'team1', 11, 9),
+    ];
+    // That makes a, b, c 2-1 at +2 each.
+    const table = computeTeamStandings(matches, withSeeds({ a: 3, b: 1, c: 2, d: 4 }));
+    expect(keys(table)).toEqual(['b', 'c', 'a', 'd']);
+    const groups = levelGroups(table);
+    expect(groups).toHaveLength(1);
+    expect(groups[0].waiting).toBe(true);
+    expect(keys(groups[0].members)).toEqual(['b', 'c', 'a']);
+    expect(keys(table)).toEqual(sqlOrder(sqlTeamPathRanks(matches, { a: 3, b: 1, c: 2, d: 4 })));
+  });
 
-    for (const f of FIXTURES) {
-      const ids = new Set(f.matches.flatMap(x => [x.team1_player1, x.team1_player2, x.team2_player1, x.team2_player2]));
-      const profileNames: Record<string, string> = {};
-      for (const id of ids) if (id) profileNames[id] = id.toUpperCase();
-      const me = f.matches[0].team2_player1;
-      const fromLib = computeTeamStandings(f.matches, {
-        nameOf: (p1, p2) => {
-          const n1 = profileNames[p1] ?? '?';
-          const n2 = p2 ? (profileNames[p2] ?? '?') : null;
-          return n2 ? `${n1} & ${n2}` : n1;
-        },
-        isMe: (p1, p2) => p1 === me || (!!p2 && p2 === me),
-      });
-      expect(fromLib).toEqual(legacyStandings(f.matches, me, profileNames));
-    }
+  it('the same tie with admin tie orders: ordered by them, not waiting', () => {
+    const matches = [
+      m(['a'], ['b'], 'team1', 11, 9), m(['b'], ['c'], 'team1', 11, 9), m(['c'], ['a'], 'team1', 11, 9),
+      m(['a'], ['d'], 'team1', 11, 9), m(['b'], ['d'], 'team1', 11, 9), m(['c'], ['d'], 'team1', 11, 9),
+    ];
+    const seeds = { a: 3, b: 1, c: 2, d: 4 };
+    const tieRanks = { [entrantKey('a')]: 1, [entrantKey('c')]: 2, [entrantKey('b')]: 3 };
+    const table = computeTeamStandings(matches, { ...withSeeds(seeds), tieRanks });
+    expect(keys(table)).toEqual(['a', 'c', 'b', 'd']);
+    expect(table[0]).toMatchObject({ tieKey: 'a:a', tieRank: 1 });
+    expect(levelGroups(table)[0].waiting).toBe(false);
+    expect(keys(table)).toEqual(sqlOrder(sqlTeamPathRanks(matches, seeds, [], tieRanks)));
+  });
+
+  it('doubles tie keys are the server lo:hi pair key', () => {
+    const table = computeTeamStandings([m(['z', 'y'], ['b', 'a'], 'team1', 11, 3)], live);
+    expect(table.map(t => t.tieKey)).toEqual(['y:z', 'a:b']);
   });
 
   it('keeps first-appearance order for full ties when no seed is given (screen parity)', () => {
@@ -474,11 +423,10 @@ describe('computePlayerStandings (mirror of the SQL per-user path)', () => {
     team1_player1: t1[0], team1_player2: t1[1], team2_player1: t2[0], team2_player2: t2[1],
     winner_team: winner, status: 'completed', game_scores: games ?? null,
   });
-  const opts = (ratings: Record<string, number> = {}) => ({
+  const opts = () => ({
     entrants: ['a', 'b', 'c', 'd', 'e'],
     nameOf: (id: string) => id.toUpperCase(),
     isMe: (id: string) => id === 'c',
-    ratingOf: (id: string) => ratings[id],
   });
 
   it('a match is one win or one loss for each player on its side', () => {
@@ -493,22 +441,43 @@ describe('computePlayerStandings (mirror of the SQL per-user path)', () => {
     const by = Object.fromEntries(rows.map(r => [r.key, r]));
     expect([by.a.wins, by.a.losses, by.d.wins, by.d.losses]).toEqual([2, 1, 1, 2]);
   });
-  it('order: wins desc, losses asc, rating desc, then entrant order', () => {
+  it('order: wins desc, losses asc, then entrant order', () => {
     const rows = computePlayerStandings([
       pm(['a', 'b'], ['c', 'd'], 'team1'),
       pm(['a', 'c'], ['b', 'e'], 'team2'),
-    ], opts({ b: 3.1, a: 4.0, e: 3.9 }));
-    // b 2-0; e 1-0 beats a 1-1 on fewer losses (a's 4.0 rating never gets
-    // a say); d 0-1 beats c 0-2.
+    ], opts());
+    // b 2-0; e 1-0 beats a 1-1 on fewer losses; d 0-1 beats c 0-2.
     expect(rows.map(r => r.key)).toEqual(['b', 'e', 'a', 'd', 'c']);
   });
   it('pending matches do not count', () => {
     const rows = computePlayerStandings([{ ...pm(['a', 'b'], ['c', 'd'], 'team1'), status: 'pending' }], opts());
     expect(rows.every(r => r.wins === 0 && r.losses === 0)).toBe(true);
     expect(rows.map(r => r.key)).toEqual(['a', 'b', 'c', 'd', 'e']);
-    // Equal records: PLUPR decides.
-    const rated = computePlayerStandings([], opts({ d: 5.0, b: 4.2 }));
-    expect(rated.map(r => r.key)).toEqual(['d', 'b', 'a', 'c', 'e']);
+  });
+  it('points for and against per player, for the ± column', () => {
+    const rows = computePlayerStandings([{ ...pm(['a', 'b'], ['c', 'd'], 'team1'), team1_score: 11, team2_score: 6 }], opts());
+    const by = Object.fromEntries(rows.map(r => [r.key, r]));
+    expect([by.a.pf, by.a.pa, by.d.pf, by.d.pa]).toEqual([11, 6, 6, 11]);
+    expect(by.a.tieKey).toBe('a:a');
+  });
+  it('players level on W-L: PLUPR never decides; point diff, then the admin, then seed', () => {
+    // a and b both 1-1. Any rating the caller has is not an input at all
+    // (a stray ratingOf is ignored): b's higher PLUPR does not lift b.
+    const ms = [
+      { ...pm(['a', 'c'], ['b', 'd'], 'team1'), team1_score: 11, team2_score: 9 },
+      { ...pm(['b', 'c'], ['a', 'd'], 'team1'), team1_score: 11, team2_score: 9 },
+    ];
+    const ratings: Record<string, number> = { a: 2.5, b: 5.0 };
+    const base = { ...opts(), ratingOf: (id: string) => ratings[id], seedOf: (id: string) => ({ a: 1, b: 2 } as any)[id] } as any;
+    const level = computePlayerStandings(ms, base);
+    expect(level.slice(0, 2).map(r => r.key)).toEqual(['c', 'a']);
+    const ab = level.filter(r => r.key === 'a' || r.key === 'b');
+    expect(ab.map(r => r.key)).toEqual(['a', 'b']);
+    expect(levelGroups(level).some(g => g.waiting && g.members.some(m => m.key === 'b'))).toBe(true);
+    // The admin puts b first.
+    const ordered = computePlayerStandings(ms, { ...base, tieRanks: { 'b:b': 1, 'a:a': 2, 'd:d': 3 } });
+    const ab2 = ordered.filter(r => r.key === 'a' || r.key === 'b');
+    expect(ab2.map(r => r.key)).toEqual(['b', 'a']);
   });
 });
 

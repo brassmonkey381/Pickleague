@@ -16,7 +16,7 @@ import type { WagerSubject } from '../../lib/wager';
 import { useStatusMessage } from '../../lib/useStatusMessage';
 import { sbCall, currentUserId, friendlySbMessage } from '@just-messin-around/expo-foundation/supabase';
 import { useRefresh } from '../../lib/useRefresh';
-import { fetchFinalRanks, type FinalRankRow } from '../../lib/tournamentStandings';
+import { fetchFinalRanks, type FinalRankRow, type TieRanks } from '../../lib/tournamentStandings';
 import type { MlpTeamSlots } from './tournamentModel';
 import { ROUND_FORMATS, courtsText, parseCourts } from '../../lib/tournamentCourts';
 
@@ -91,6 +91,9 @@ export function useTournamentDetail({ navigation, tournamentId }: {
   // Settled finishing order (completed tournaments only; [] until it exists).
   // The You card's finish + podium and the final standings read it (P5b).
   const [finalRanks, setFinalRanks]       = useState<FinalRankRow[]>([]);
+  // PKL-052: the admin's order for entrants still level on W-L and point
+  // diff (tournament_tie_orders), keyed by the server entrant key.
+  const [tieRanks, setTieRanks]           = useState<TieRanks>({});
   // MLP teams' slots (MLP formats only): the Teams summary, the setup
   // checklist's "Pair teams" step and the viewer's row in the MLP table.
   const [mlpTeams, setMlpTeams]           = useState<(MlpTeamSlots & { name: string })[]>([]);
@@ -265,6 +268,21 @@ export function useTournamentDetail({ navigation, tournamentId }: {
     // Settled ranks: everyone can read tournament_final_ranks (RLS). A read
     // error comes back as [] and the screen falls back to live standings.
     setFinalRanks(t?.status === 'completed' ? await fetchFinalRanks(supabase, tournamentId) : []);
+
+    // Admin tie orders (PKL-052). A failed read keeps the last ones.
+    if (t?.status === 'active' || t?.status === 'completed') {
+      const { data: tieRows, error: tieErr } = await supabase
+        .from('tournament_tie_orders')
+        .select('entrant_key, tie_rank')
+        .eq('tournament_id', tournamentId);
+      if (!tieErr) {
+        const ranks: TieRanks = {};
+        for (const r of (tieRows ?? []) as { entrant_key: string; tie_rank: number }[]) ranks[r.entrant_key] = r.tie_rank;
+        setTieRanks(ranks);
+      }
+    } else {
+      setTieRanks({});
+    }
 
     // MLP teams (readable by everyone). Only the slots: MlpTeamSection
     // loads its own full rows and profiles for the team builder.
@@ -1155,6 +1173,25 @@ export function useTournamentDetail({ navigation, tournamentId }: {
     openMatchActionSheet(m);
   }
 
+  // ── Tie order (admin, PKL-052) ──────────────────────────────
+  // Stores tie_rank 1..n for these entrant keys in this order; the server
+  // recomputes final ranks when the tournament is completed. Throws a
+  // readable message so the sheet can show it.
+  async function saveTieOrder(entrantKeys: string[]) {
+    try {
+      await sbCall(() => supabase.rpc('set_tournament_tie_order', {
+        p_tournament_id: tournamentId,
+        p_entrant_keys: entrantKeys,
+      }), { retries: 0 });
+    } catch (e) {
+      const msg = friendlySbMessage(e, 'Could not save the tie order.');
+      throw new Error(/PL_TIE_NOT_ADMIN/.test(String((e as any)?.message ?? msg))
+        ? 'Only the tournament admin can set the tie order.' : msg);
+    }
+    await load();
+    status.success('Tie order saved.');
+  }
+
   // ── Generate playoff (admin) ────────────────────────────────
   // Moved verbatim from the render-time closure in the Playoff Bracket
   // section; `ready` is the value that closure captured (every group-play
@@ -1187,7 +1224,7 @@ export function useTournamentDetail({ navigation, tournamentId }: {
     // Data
     tournament, registrations, myRole, myUserId, godmode,
     doublesPairs, savedMatches, savedRounds, mlpStandings,
-    profileNames, profileRatings, wagerMarketSorted, finalRanks, mlpTeams,
+    profileNames, profileRatings, wagerMarketSorted, finalRanks, mlpTeams, tieRanks,
     // Schedule filter
     myMatchesOnly, setMyMatchesOnly,
     // Registration
@@ -1199,6 +1236,8 @@ export function useTournamentDetail({ navigation, tournamentId }: {
     showLockInConfirm, setShowLockInConfirm, lockInError,
     // Playoff
     generatingPlayoff, generatePlayoff,
+    // Tie order (PKL-052)
+    saveTieOrder,
     // Lifecycle (complete / cancel / delete / payout)
     showCompleteConfirm, setShowCompleteConfirm, completing, completeError, confirmCompleteTournament,
     showCancelConfirm, setShowCancelConfirm, cancelling, cancelError, setCancelError, confirmCancelTournament,

@@ -13,7 +13,7 @@ import { shortTeam } from '../../lib/finishShare';
 type Props = {
   tournament: Tournament;
   myUserId: string | null;
-} & Pick<TournamentDetailState, 'savedRounds' | 'savedMatches' | 'profileNames' | 'openMatchActionSheetById'>;
+} & Pick<TournamentDetailState, 'savedRounds' | 'savedMatches' | 'profileNames' | 'openMatchActionSheetById' | 'registrations' | 'tieRanks'>;
 
 /**
  * Pool-play playoff tree for the classic 2-pool, top-2-per-pool shape: the
@@ -24,6 +24,7 @@ type Props = {
  */
 export default function PoolPlayBracketSection({
   tournament, myUserId, savedRounds, savedMatches, profileNames, openMatchActionSheetById,
+  registrations, tieRanks,
 }: Props) {
   const { S, c } = useTournamentDetailStyles();
   const poolRounds = savedRounds.filter((r: any) => r.round_type === 'pool');
@@ -36,8 +37,16 @@ export default function PoolPlayBracketSection({
     return n2 ? `${n1} & ${n2}` : n1;
   }
 
-  // Pool-scoped tiebreakers: only this pool's matches are tallied and fed to
-  // head-to-head, as before the extraction.
+  // Pool-scoped: only this pool's matches are tallied. Same chain and inputs
+  // as the Standings section (seed, the admin's tie order).
+  const seedByUser = new Map(registrations.map(r => [r.user_id, r.seed]));
+  const seedOf = (p1: string, p2: string | null) => {
+    const a = seedByUser.get(p1) ?? null;
+    const b = p2 ? (seedByUser.get(p2) ?? null) : null;
+    if (a == null) return b;
+    if (b == null) return a;
+    return Math.min(a, b);
+  };
   function computeStandings(round: any): TeamStanding[] {
     return computeTeamStandings(
       savedMatches.filter((m: any) => m.round?.id === round.id),
@@ -46,6 +55,8 @@ export default function PoolPlayBracketSection({
         // The live table's guard: a null partner never matches a signed-out
         // viewer (the pre-P5b pool table read every singles entrant as "me").
         isMe: (p1, p2) => !!myUserId && (p1 === myUserId || p2 === myUserId),
+        seedOf,
+        tieRanks,
       },
     );
   }
@@ -110,8 +121,9 @@ export default function PoolPlayBracketSection({
           The <Text style={S.bold}>top 2 teams</Text> from each pool advance to the semifinals, ranked by:
         </Text>
         <Text style={S.advancementPoint}>1.  Wins</Text>
-        <Text style={S.advancementPoint}>2.  Head-to-head (when exactly 2 are tied)</Text>
+        <Text style={S.advancementPoint}>2.  Fewer losses</Text>
         <Text style={S.advancementPoint}>3.  Point differential</Text>
+        <Text style={S.advancementPoint}>A tie after that is ordered by the tournament admin.</Text>
         {poolMatchesPlayed && a1 && b2 && (
           <View style={[local.resultRow, { borderTopColor: c.border }]}>
             <Icon name="check-mark" size={12} color={c.primary} style={local.resultGlyph} />

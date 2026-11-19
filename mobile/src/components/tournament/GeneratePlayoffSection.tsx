@@ -6,7 +6,11 @@ import { Tournament } from '../../types';
 import { useTournamentDetailStyles } from './styles';
 import type { TournamentDetailState } from './useTournamentDetail';
 
-type Props = { tournament: Tournament }
+type Props = {
+  tournament: Tournament;
+  /** PKL-052: why a tie blocks the draw ("Pool A has a tie at 2nd: ..."), or null. */
+  tieBlock?: string | null;
+}
   & Pick<TournamentDetailState, 'savedRounds' | 'savedMatches' | 'generatingPlayoff' | 'generatePlayoff'>;
 
 /** Group-play matches still to finish before the playoff can be drawn. */
@@ -26,11 +30,11 @@ export function groupPlayPendingCount(savedRounds: any[], savedMatches: any[]): 
  * itself is useTournamentDetail.generatePlayoff.
  */
 export default function GeneratePlayoffSection({
-  tournament, savedRounds, savedMatches, generatingPlayoff, generatePlayoff,
+  tournament, savedRounds, savedMatches, generatingPlayoff, generatePlayoff, tieBlock = null,
 }: Props) {
   const { S } = useTournamentDetailStyles();
   const groupPlayPending = groupPlayPendingCount(savedRounds, savedMatches);
-  const ready = groupPlayPending === 0;
+  const ready = groupPlayPending === 0 && !tieBlock;
   const sizeLabel =
     tournament.playoff_format === 'top_2' ? (tournament.playoff_third_place ? 'Top 2 (final + 3rd place)' : 'Top 2 (final)') :
     tournament.playoff_format === 'top_4' ? 'Top 4 (semis + final)' :
@@ -43,10 +47,11 @@ export default function GeneratePlayoffSection({
     <View style={{ gap: SPACE.xs }}>
       <Text style={S.note}>
         {sizeLabel}.
-        {ready
+        {groupPlayPending === 0
           ? ' All group-play matches are complete.'
           : ` Waiting on ${groupPlayPending} group-play match${groupPlayPending === 1 ? '' : 'es'}.`}
       </Text>
+      {tieBlock ? <Text style={S.note}>{tieBlock}</Text> : null}
       <Button
         size="sm"
         title="Generate playoff bracket"
