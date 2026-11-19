@@ -225,7 +225,7 @@ describe('buildStandings', () => {
       savedMatches: [sm('x1', null, ['me'], ['a'], true), sm('x2', null, ['a'], ['b'], true)],
       savedRounds: [],
       registrations: [reg('me'), reg('a'), reg('b')],
-      profileNames: names, profileRatings: {}, myUserId: 'me',
+      profileNames: names, myUserId: 'me',
       mlpStandings: null, myMlpTeamId: null, finalRanks: [],
     });
     expect(data?.kind).toBe('team');
@@ -238,7 +238,7 @@ describe('buildStandings', () => {
       savedMatches: schedule,
       savedRounds: [R.poolA, R.poolB, R.semis],
       registrations: [reg('me'), reg('a'), reg('b'), reg('c'), reg('d')],
-      profileNames: names, profileRatings: {}, myUserId: 'me',
+      profileNames: names, myUserId: 'me',
       mlpStandings: null, myMlpTeamId: null, finalRanks: [],
     });
     expect(data?.tables.map(t => t.label)).toEqual(['Pool A', 'Pool B']);
@@ -250,7 +250,7 @@ describe('buildStandings', () => {
       savedMatches: [sm('x1', null, ['me'], ['a'], true), sm('x2', null, ['a'], ['b'], true)],
       savedRounds: [],
       registrations: [reg('me'), reg('a'), reg('b')],
-      profileNames: names, profileRatings: {}, myUserId: 'me',
+      profileNames: names, myUserId: 'me',
       mlpStandings: null, myMlpTeamId: null,
       finalRanks: [
         { user_id: 'a', final_rank: 1, wins: 1, losses: 1 },
@@ -269,7 +269,7 @@ describe('buildStandings', () => {
       savedMatches: [sm('r1', null, ['me', 'a'], ['b', 'c'], true)],
       savedRounds: [],
       registrations: [reg('me'), reg('a'), reg('b'), reg('c')],
-      profileNames: names, profileRatings: {}, myUserId: 'me',
+      profileNames: names, myUserId: 'me',
       mlpStandings: null, myMlpTeamId: null, finalRanks: [],
     });
     expect(data?.kind).toBe('player');
@@ -279,7 +279,7 @@ describe('buildStandings', () => {
     const data = buildStandings({
       tournament: { format: 'mlp', match_type: 'doubles', status: 'active' },
       savedMatches: [], savedRounds: [], registrations: [],
-      profileNames: {}, profileRatings: {}, myUserId: 'me',
+      profileNames: {}, myUserId: 'me',
       mlpStandings: [
         { team_id: 't1', team_name: 'Dinks', seed: 1, pool_letter: null, sub_matches_won: 2, sub_matches_lost: 6 },
         { team_id: 't2', team_name: 'Lobs', seed: 2, pool_letter: null, sub_matches_won: 6, sub_matches_lost: 2 },
@@ -300,7 +300,7 @@ describe('buildStandings', () => {
     const input = {
       tournament: { format: 'round_robin', match_type: 'singles', status: 'active' } as const,
       registrations: [reg('me'), reg('a'), reg('b')],
-      profileNames: names, profileRatings: {}, myUserId: 'me',
+      profileNames: names, myUserId: 'me',
       mlpStandings: null, myMlpTeamId: null, finalRanks: [],
     };
     const before = buildStandings({ ...input, savedMatches: groupMatches, savedRounds: [group] });
@@ -326,7 +326,7 @@ describe('buildStandings', () => {
       savedMatches: [sm('q1', qf, ['me'], ['a'], true), sm('s1', sf, ['me'], ['b'], true)],
       savedRounds: [qf, sf],
       registrations: [reg('me'), reg('a'), reg('b')],
-      profileNames: names, profileRatings: {}, myUserId: 'me',
+      profileNames: names, myUserId: 'me',
       mlpStandings: null, myMlpTeamId: null, finalRanks: [],
     });
     expect(data?.groupStage).toBe(false);
@@ -335,7 +335,7 @@ describe('buildStandings', () => {
   it('nothing to rank: null (the section is not rendered)', () => {
     expect(buildStandings({
       tournament: { format: 'round_robin', match_type: 'singles', status: 'active' },
-      savedMatches: [], savedRounds: [], registrations: [], profileNames: {}, profileRatings: {},
+      savedMatches: [], savedRounds: [], registrations: [], profileNames: {},
       myUserId: null, mlpStandings: null, myMlpTeamId: null, finalRanks: [],
     })).toBeNull();
   });

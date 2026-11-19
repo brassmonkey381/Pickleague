@@ -1,192 +1,87 @@
 /**
- * Why tied entrants sit where they do (PKL-040). Adds NO ranking rule: it
- * explains the order the standings already have, using the same chains:
- *   - fixed teams (singles, fixed doubles pairs): wins, then head-to-head
- *     only for an exact 2-way tie, then point diff, then seed
- *     (lib/tournamentTiebreakers.ts);
- *   - rotating partners (per player): wins, then fewer losses, then
- *     head-to-head among the players level on both (matches against them as
- *     opponents, net), then point diff, then PLUPR (computePlayerStandings,
- *     PKL-044). The note lists the record against each tied player.
+ * Why tied entrants sit where they do (PKL-040, rule from PKL-052). Adds NO
+ * ranking rule: it explains the order the standings already have, which for
+ * every format is wins, fewer losses, point diff, then the admin's tie order
+ * (lib/tournamentTiebreakers.ts). Head-to-head and rating play no part.
  * Pure: no React, no Supabase.
  */
-import { headToHead, teamKey, type TiebreakerMatch } from './tournamentTiebreakers';
-import { tiedOpponentRecord, type PlayerStandingsMatch } from './tournamentStandings';
+import { diffOf } from './tournamentTiebreakers';
 
-export type TieMatch = TiebreakerMatch & {
-  team1_score?: number | null;
-  team2_score?: number | null;
-};
-
-export type TieDecider = 'h2h' | 'diff' | 'seed' | 'losses' | 'rating' | 'none';
-
-/** One opponent's meetings, from this entrant's side. */
-export type HeadToHeadLine = { vs: string; won: number; lost: number; scores: string[] };
+/** What placed a row among the entrants level with it on W-L. */
+export type TieDecider = 'diff' | 'admin' | 'waiting';
 
 export type TieNote = {
   wins: number;
-  /** The other entrants on the same wins, in table order. */
+  losses: number;
+  /** The other entrants on the same W-L, in table order. */
   tiedWith: string[];
+  /** Their point diffs, in the same order. */
+  otherDiffs: number[];
+  /** Those also level on point diff (the admin orders these). */
+  levelWith: string[];
   decidedBy: TieDecider;
-  h2h: HeadToHeadLine[];
-  /** Point diff (points for minus against). */
+  /** This entrant's point diff (points for minus against). */
   diff: number;
-  /** Per-player tables only: losses and rating, for the note. */
-  losses?: number;
-  rating?: number | null;
 };
 
-type Mode = 'team' | 'player';
+type TieRow = { key: string; wins: number; losses: number; pf?: number; pa?: number; tieRank?: number | null };
 
-function sideKeys(m: TieMatch, side: 1 | 2): string[] {
-  const p1 = side === 1 ? m.team1_player1 : m.team2_player1;
-  const p2 = side === 1 ? m.team1_player2 : m.team2_player2;
-  return p1 ? [p1, p2].filter(Boolean) as string[] : [];
-}
-
-/** True when `key` plays on this side: the whole team (team mode) or one of its players. */
-function onSide(m: TieMatch, side: 1 | 2, key: string, mode: Mode): boolean {
-  const ids = sideKeys(m, side);
-  if (ids.length === 0) return false;
-  return mode === 'team' ? teamKey(ids[0], ids[1] ?? null) === key : ids.includes(key);
-}
-
-/** Completed meetings of `a` against `b` (opposite sides), from a's view. */
-export function meetingsOf(matches: TieMatch[], a: string, b: string, mode: Mode): HeadToHeadLine {
-  const line: HeadToHeadLine = { vs: b, won: 0, lost: 0, scores: [] };
-  for (const m of matches) {
-    if (m.status !== 'completed' || (m.winner_team !== 'team1' && m.winner_team !== 'team2')) continue;
-    let aSide: 1 | 2 | null = null;
-    if (onSide(m, 1, a, mode) && onSide(m, 2, b, mode)) aSide = 1;
-    else if (onSide(m, 2, a, mode) && onSide(m, 1, b, mode)) aSide = 2;
-    if (!aSide) continue;
-    const won = (m.winner_team === 'team1') === (aSide === 1);
-    if (won) line.won++; else line.lost++;
-    const mine = aSide === 1 ? m.team1_score : m.team2_score;
-    const theirs = aSide === 1 ? m.team2_score : m.team1_score;
-    line.scores.push(`${won ? 'won' : 'lost'}${mine != null && theirs != null ? ` ${mine}-${theirs}` : ''}`);
-  }
-  return line;
-}
-
-const uniqueIn = <T>(v: T, all: T[]) => all.filter(x => x === v).length === 1;
-
-/** Tie notes for a fixed-team table (already in canonical order). */
-export function explainTeamTies(
-  rows: { key: string; wins: number; pf: number; pa: number; seed?: number }[],
-  matches: TieMatch[],
-): Record<string, TieNote> {
+/**
+ * Tie notes for an ordered table, one per row that shares its W-L with
+ * another row. `scope` keeps apart rows that are ranked separately (MLP pools
+ * shown in one table).
+ */
+export function explainTies<T extends TieRow>(rows: T[], scope?: (r: T) => string): Record<string, TieNote> {
   const out: Record<string, TieNote> = {};
-  const groups = new Map<number, typeof rows>();
+  const groups = new Map<string, T[]>();
   for (const r of rows) {
-    if (!groups.has(r.wins)) groups.set(r.wins, []);
-    groups.get(r.wins)!.push(r);
+    const k = `${scope ? scope(r) : ''}|${r.wins}|${r.losses}`;
+    if (!groups.has(k)) groups.set(k, []);
+    groups.get(k)!.push(r);
   }
-  for (const [wins, g] of groups) {
+  for (const g of groups.values()) {
     if (g.length < 2) continue;
-    const diffs = g.map(r => r.pf - r.pa);
     for (const r of g) {
       const others = g.filter(o => o.key !== r.key);
-      const diff = r.pf - r.pa;
-      let decidedBy: TieDecider;
-      if (g.length === 2) {
-        const o = others[0];
-        const oDiff = o.pf - o.pa;
-        decidedBy = headToHead(matches, r.key, o.key) !== 0 ? 'h2h'
-          : diff !== oDiff ? 'diff'
-          : (r.seed ?? 999) !== (o.seed ?? 999) ? 'seed' : 'none';
-      } else {
-        const sameDiff = g.filter(o => o.pf - o.pa === diff);
-        decidedBy = uniqueIn(diff, diffs) ? 'diff'
-          : uniqueIn(r.seed ?? 999, sameDiff.map(o => o.seed ?? 999)) ? 'seed' : 'none';
+      const diff = diffOf(r);
+      const level = others.filter(o => diffOf(o) === diff);
+      let decidedBy: TieDecider = 'diff';
+      if (level.length > 0) {
+        const ranks = [r, ...level].map(o => o.tieRank);
+        decidedBy = ranks.some(x => x == null) || new Set(ranks).size !== ranks.length ? 'waiting' : 'admin';
       }
       out[r.key] = {
-        wins, tiedWith: others.map(o => o.key), decidedBy, diff,
-        h2h: others.map(o => meetingsOf(matches, r.key, o.key, 'team')),
+        wins: r.wins, losses: r.losses,
+        tiedWith: others.map(o => o.key),
+        otherDiffs: others.map(diffOf),
+        levelWith: level.map(o => o.key),
+        decidedBy, diff,
       };
     }
   }
   return out;
 }
 
-/** Tie notes for a per-player table (rotating partners). */
-export function explainPlayerTies(
-  rows: { key: string; wins: number; losses: number; pf?: number; pa?: number }[],
-  matches: TieMatch[],
-  ratingOf?: (id: string) => number | null | undefined,
-): Record<string, TieNote> {
-  const out: Record<string, TieNote> = {};
-  const groups = new Map<number, typeof rows>();
-  for (const r of rows) {
-    if (!groups.has(r.wins)) groups.set(r.wins, []);
-    groups.get(r.wins)!.push(r);
-  }
-  const rating = (id: string) => ratingOf?.(id) ?? 0;
-  const diffOf = (r: { pf?: number; pa?: number }) => (r.pf ?? 0) - (r.pa ?? 0);
-  for (const [wins, g] of groups) {
-    if (g.length < 2) continue;
-    const losses = g.map(r => r.losses);
-    for (const r of g) {
-      const others = g.filter(o => o.key !== r.key);
-      // The chain of computePlayerStandings: fewer losses, then (among those
-      // level on both) head-to-head, point diff, PLUPR.
-      const level = g.filter(o => o.losses === r.losses);
-      const levelIds = level.map(o => o.key);
-      const net = (id: string) => {
-        const rec = tiedOpponentRecord(matches as PlayerStandingsMatch[], id, levelIds);
-        return rec.won - rec.lost;
-      };
-      const nets = level.map(o => net(o.key));
-      const myNet = net(r.key);
-      const sameNet = level.filter((_, i) => nets[i] === myNet);
-      const sameDiff = sameNet.filter(o => diffOf(o) === diffOf(r));
-      const decidedBy: TieDecider = uniqueIn(r.losses, losses) ? 'losses'
-        : uniqueIn(myNet, nets) ? 'h2h'
-        : uniqueIn(diffOf(r), sameNet.map(diffOf)) ? 'diff'
-        : uniqueIn(rating(r.key), sameDiff.map(o => rating(o.key))) ? 'rating' : 'none';
-      out[r.key] = {
-        wins, tiedWith: others.map(o => o.key), decidedBy,
-        diff: (r.pf ?? 0) - (r.pa ?? 0),
-        losses: r.losses,
-        rating: ratingOf?.(r.key) ?? null,
-        h2h: others.map(o => meetingsOf(matches, r.key, o.key, 'player')),
-      };
-    }
-  }
-  return out;
-}
-
-const signed = (n: number) => (n > 0 ? `+${n}` : String(n));
-
-const DECIDER_TEXT: Record<TieDecider, string> = {
-  h2h: 'Decided by head-to-head.',
-  diff: 'Decided by point diff.',
-  seed: 'Decided by seed.',
-  losses: 'Decided by fewer losses.',
-  rating: 'Decided by PLUPR.',
-  none: 'Still level.',
-};
+export const signed = (n: number) => (n > 0 ? `+${n}` : String(n));
 
 /**
  * One short line for a tied row, e.g.
- *   "Tied on 4 wins with Bo. H2H: won 11-8. Diff +12. Decided by head-to-head."
- * Per-player notes say "Vs Bo" (records as opponents) instead of "H2H".
+ *   "Tied on 4-2 with Bo; ahead on point diff (+12 vs +9)."
+ *   "Tied on 4-2 and +9 with Bo; order set by the admin."
+ *   "Tied on 4-2 and +9 with Bo: waiting for the admin to set the order."
  */
-export function tieLine(note: TieNote, nameOf: (key: string) => string, mode: Mode = 'team'): string {
-  const w = `${note.wins} win${note.wins === 1 ? '' : 's'}`;
-  const parts: string[] = [`Tied on ${w} with ${note.tiedWith.map(nameOf).join(', ')}.`];
-  const multi = note.h2h.length > 1;
-  const h2h = note.h2h.map(l => {
-    const res = l.scores.length > 0 ? l.scores.join(', ') : 'not played';
-    return multi || mode === 'player' ? `${res} vs ${nameOf(l.vs)}` : res;
-  }).join('; ');
-  if (mode === 'team') {
-    parts.push(`H2H: ${h2h}${multi ? ' (not used in a 3+ way tie)' : ''}.`);
-  } else {
-    parts.push(`As opponents: ${h2h}.`);
+export function tieLine(note: TieNote, nameOf: (key: string) => string): string {
+  const record = `${note.wins}-${note.losses}`;
+  if (note.decidedBy === 'diff') {
+    const names = note.tiedWith.map(nameOf).join(', ');
+    const others = note.otherDiffs.map(signed).join(', ');
+    const where = note.otherDiffs.every(d => d < note.diff) ? 'ahead on'
+      : note.otherDiffs.every(d => d > note.diff) ? 'behind on' : 'placed by';
+    return `Tied on ${record} with ${names}; ${where} point diff (${signed(note.diff)} vs ${others}).`;
   }
-  parts.push(`Diff ${signed(note.diff)}.`);
-  if (mode === 'player' && note.decidedBy === 'losses') parts.push(`${note.losses} lost.`);
-  parts.push(DECIDER_TEXT[note.decidedBy]);
-  return parts.join(' ');
+  const names = note.levelWith.map(nameOf).join(', ');
+  const head = `Tied on ${record} and ${signed(note.diff)} with ${names}`;
+  return note.decidedBy === 'admin'
+    ? `${head}; order set by the admin.`
+    : `${head}: waiting for the admin to set the order.`;
 }

@@ -2,7 +2,7 @@
 // medal stage, and rotating partners (per-player).
 import { describe, it, expect } from 'vitest';
 import { medalStage, type ScheduleMatch } from '../tournamentModel';
-import { buildStandings, myPlacement, myStanding } from '../standingsData';
+import { buildStandings, myPlacement, myStanding, playoffTieBlock } from '../standingsData';
 
 const reg = (user_id: string, seed: number | null = null) => ({
   id: `reg-${user_id}`, tournament_id: 't', user_id, status: 'approved', seed,
@@ -31,11 +31,11 @@ describe('doubles round robin with a medal stage', () => {
     for (let j = i + 1; j < teams.length; j++) rr.push(m(`g${i}${j}`, G, teams[i], teams[j], 'team1'));
   }
   const regs = Object.keys(nm).map(id => reg(id));
-  const build = (matches: ScheduleMatch[], status = 'active', finalRanks: any[] = []) => buildStandings({
+  const build = (matches: ScheduleMatch[], status = 'active', finalRanks: any[] = [], tieRanks: Record<string, number> = {}) => buildStandings({
     tournament: { format: 'round_robin', match_type: 'doubles', status } as any,
     savedMatches: matches, savedRounds: [G, F, T], registrations: regs,
-    profileNames: nm, profileRatings: {}, myUserId: 'me',
-    mlpStandings: null, myMlpTeamId: null, finalRanks,
+    profileNames: nm, myUserId: 'me',
+    mlpStandings: null, myMlpTeamId: null, finalRanks, tieRanks,
   });
 
   it('before the medal matches: finalists share 1-2, the 3rd place pair 3-4, 5th from the round robin', () => {
@@ -82,18 +82,41 @@ describe('doubles round robin with a medal stage', () => {
     expect(medalStage(rr)).toBeNull();
   });
 
-  it('tie notes for tied doubles teams name both partners', () => {
-    // Bo & Bea beat Me & Pat and lose to Ed & Eve: both pairs end on 3 wins,
-    // a 2-way tie broken by H2H (and Di & Dan / Ed & Eve tie on 1 win).
+  it('tie notes for tied doubles teams: point diff, then waiting for the admin (PKL-052)', () => {
+    // Bo & Bea beat Me & Pat and lose to Ed & Eve: both pairs end 3-1. Bo &
+    // Bea won the meeting, but Me & Pat are +9 to their +7, so Me & Pat lead.
+    // Di & Dan and Ed & Eve end 1-3 at -8 each: waiting for the admin.
     const flipped = rr.map(x => (x.id === 'g01' ? m('g01', G, teams[0], teams[1], 'team2', 8, 11)
       : x.id === 'g14' ? m('g14', G, teams[1], teams[4], 'team2', 7, 11) : x));
     const data = build(flipped);
-    const ties = data?.tables[0].ties ?? {};
-    expect(data?.tables[0].rows.slice(0, 2).map(r => r.name)).toEqual(['Bo & Bea', 'Me & Pat']);
-    expect(ties['b1|b2']).toBe('Tied on 3 wins with Me & Pat. H2H: won 11-8. Diff +7. Decided by head-to-head.');
-    expect(ties['me|p1']).toMatch(/^Tied on 3 wins with Bo & Bea\. H2H: lost 8-11\./);
+    const tbl = data!.tables[0];
+    const ties = tbl.ties ?? {};
+    expect(tbl.rows.map(r => r.name)).toEqual(['Me & Pat', 'Bo & Bea', 'Cy & Cat', 'Di & Dan', 'Ed & Eve']);
+    expect(ties['me|p1']).toBe('Tied on 3-1 with Bo & Bea; ahead on point diff (+9 vs +7).');
+    expect(ties['b1|b2']).toBe('Tied on 3-1 with Me & Pat; behind on point diff (+7 vs +9).');
+    expect(ties['d1|d2']).toBe('Tied on 1-3 and -8 with Ed & Eve: waiting for the admin to set the order.');
     expect(ties['c1|c2']).toBeUndefined();
-    expect(Object.keys(ties).sort()).toEqual(['b1|b2', 'd1|d2', 'e1|e2', 'me|p1']);
+    expect(tbl.rows.filter(r => r.waiting).map(r => r.key)).toEqual(['d1|d2', 'e1|e2']);
+    expect(data!.waitingCount).toBe(1);
+    expect(tbl.groups?.find(g => g.waiting)).toMatchObject({
+      position: 4, record: '1-3 and -8',
+      entrants: [{ key: 'd1|d2', tieKeys: ['d1:d2'] }, { key: 'e1|e2', tieKeys: ['e1:e2'] }],
+    });
+    // Only a playoff that reaches 4th is blocked by it.
+    expect(playoffTieBlock(data, 'top_2')).toBeNull();
+    expect(playoffTieBlock(data, 'top_4')).toBe('The standings have a tie at 4th: set the tie order first.');
+
+    // The admin orders Ed & Eve ahead.
+    const ordered = build(flipped, 'active', [], { 'e1:e2': 1, 'd1:d2': 2 });
+    expect(ordered!.tables[0].rows.slice(3).map(r => r.name)).toEqual(['Ed & Eve', 'Di & Dan']);
+    expect(ordered!.tables[0].ties?.['d1|d2']).toBe('Tied on 1-3 and -8 with Ed & Eve; order set by the admin.');
+    expect(ordered!.waitingCount).toBe(0);
+    expect(ordered!.tables[0].rows.some(r => r.waiting)).toBe(false);
+    expect(playoffTieBlock(ordered, 'top_4')).toBeNull();
+  });
+
+  it('every format shows W-L and point diff: the rule line', () => {
+    expect(build(rr)?.note).toMatch(/Wins, then fewer losses, then point differential. A tie after that is ordered by the tournament admin.$/);
   });
 });
 
@@ -110,7 +133,7 @@ describe('rotating partners: per-player standings and placement', () => {
   const build = (matches: ScheduleMatch[], status = 'active', finalRanks: any[] = []) => buildStandings({
     tournament: { format: 'rotating_partners', match_type: 'doubles', status } as any,
     savedMatches: matches, savedRounds: [R1], registrations: ids.map(id => reg(id)),
-    profileNames: nm, profileRatings: { me: 4, a: 3, b: 3.5, c: 3 }, myUserId: 'me',
+    profileNames: nm, myUserId: 'me',
     mlpStandings: null, myMlpTeamId: null, finalRanks,
   });
   // me+a beat b+c, me+b beat a+c, then a+b beat me+c.
@@ -120,15 +143,13 @@ describe('rotating partners: per-player standings and placement', () => {
     m('x3', ['me', 'c'], ['a', 'b'], 'team2', 6, 11),
   ];
 
-  it('tie notes per player: record as opponents, diff, and the decider', () => {
+  it('tie notes per player: W-L, then point diff (no head-to-head, no PLUPR)', () => {
     const data = build(played);
     expect(data?.kind).toBe('player');
-    // me, a and b are all 2-1: a 3-way tie on wins and losses. Head-to-head
-    // among them is 2-1 each (PKL-044), so point diff decides: a +9, me +3, b +1.
-    expect(data?.tables[0].rows.map(r => r.key)).toEqual(['a', 'me', 'b', 'c']);
+    // me, a and b are all 2-1: point diff decides: a +9, me +3, b +1.
+    expect(data?.tables[0].rows.map(r => [r.key, r.pf! - r.pa!])).toEqual([['a', 9], ['me', 3], ['b', 1], ['c', -13]]);
     const tie = data?.tables[0].ties?.me ?? '';
-    expect(tie).toBe('Tied on 2 wins with Ann, Bo. As opponents: won 11-9, lost 6-11 vs Ann; '
-      + 'won 11-5, lost 6-11 vs Bo. Diff +3. Decided by point diff.');
+    expect(tie).toBe('Tied on 2-1 with Ann, Bo; placed by point diff (+3 vs +9, +1).');
     expect(data?.tables[0].ties?.c).toBeUndefined();
   });
 

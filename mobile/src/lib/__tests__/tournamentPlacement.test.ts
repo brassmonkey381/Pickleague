@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { computeFinalPlacement, placeLabel, type PlacementMatch } from '../tournamentPlacement';
-import { explainTeamTies, explainPlayerTies, tieLine, meetingsOf, type TieMatch } from '../tournamentTieNotes';
+import { explainTies, tieLine } from '../tournamentTieNotes';
 import { tournamentSignature } from '../tournamentSignature';
 
 const pm = (
@@ -51,48 +51,45 @@ describe('computeFinalPlacement (PKL-037, Brian 2026-11-18)', () => {
   });
 });
 
-const tm = (a: string, b: string, winner: 'team1' | 'team2', s1: number, s2: number): TieMatch => ({
-  team1_player1: a, team1_player2: null, team2_player1: b, team2_player2: null,
-  winner_team: winner, status: 'completed', team1_score: s1, team2_score: s2,
-});
-
-describe('tie notes (PKL-040)', () => {
-  it('2-way tie: H2H decides, the line shows the result and the diff', () => {
-    const matches = [tm('a', 'b', 'team1', 11, 8)];
-    const notes = explainTeamTies([
-      { key: 'a', wins: 2, pf: 30, pa: 25 }, { key: 'b', wins: 2, pf: 40, pa: 20 },
-    ], matches);
-    expect(notes.a.decidedBy).toBe('h2h');
-    expect(tieLine(notes.a, k => k.toUpperCase())).toBe('Tied on 2 wins with B. H2H: won 11-8. Diff +5. Decided by head-to-head.');
-    expect(tieLine(notes.b, k => k.toUpperCase())).toBe('Tied on 2 wins with A. H2H: lost 8-11. Diff +20. Decided by head-to-head.');
-  });
-  it('2-way tie with no meeting: point diff, then seed', () => {
-    const byDiff = explainTeamTies([{ key: 'a', wins: 1, pf: 20, pa: 10 }, { key: 'b', wins: 1, pf: 15, pa: 10 }], []);
-    expect(byDiff.a.decidedBy).toBe('diff');
-    expect(tieLine(byDiff.b, k => k)).toBe('Tied on 1 win with a. H2H: not played. Diff +5. Decided by point diff.');
-    const bySeed = explainTeamTies([{ key: 'a', wins: 1, pf: 10, pa: 10, seed: 1 }, { key: 'b', wins: 1, pf: 10, pa: 10, seed: 2 }], []);
-    expect(bySeed.a.decidedBy).toBe('seed');
-  });
-  it('3-way tie: H2H is shown but skipped, point diff decides', () => {
-    const matches = [tm('a', 'b', 'team1', 11, 9), tm('b', 'c', 'team1', 11, 9), tm('c', 'a', 'team1', 11, 9)];
-    const notes = explainTeamTies([
-      { key: 'a', wins: 1, pf: 30, pa: 20 }, { key: 'b', wins: 1, pf: 25, pa: 20 }, { key: 'c', wins: 1, pf: 20, pa: 20 },
-    ], matches);
+describe('tie notes (PKL-040, rule PKL-052)', () => {
+  const up = (k: string) => k.toUpperCase();
+  it('2-way tie on W-L: point diff decides, never head-to-head', () => {
+    const notes = explainTies([
+      { key: 'a', wins: 4, losses: 2, pf: 60, pa: 48 }, { key: 'b', wins: 4, losses: 2, pf: 50, pa: 41 },
+    ]);
     expect(notes.a.decidedBy).toBe('diff');
-    expect(tieLine(notes.a, k => k)).toBe(
-      'Tied on 1 win with b, c. H2H: won 11-9 vs b; lost 9-11 vs c (not used in a 3+ way tie). Diff +10. Decided by point diff.');
+    expect(tieLine(notes.a, up)).toBe('Tied on 4-2 with B; ahead on point diff (+12 vs +9).');
+    expect(tieLine(notes.b, up)).toBe('Tied on 4-2 with A; behind on point diff (+9 vs +12).');
   });
-  it('per player: records as opponents only, never as partners', () => {
-    const m: TieMatch = {
-      team1_player1: 'a', team1_player2: 'b', team2_player1: 'c', team2_player2: 'd',
-      winner_team: 'team1', status: 'completed', team1_score: 11, team2_score: 4,
-    };
-    expect(meetingsOf([m], 'a', 'b', 'player')).toMatchObject({ won: 0, lost: 0 });
-    expect(meetingsOf([m], 'a', 'c', 'player')).toMatchObject({ won: 1, lost: 0, scores: ['won 11-4'] });
-    const notes = explainPlayerTies([
+  it('level on W-L and point diff with no admin order: waiting', () => {
+    const notes = explainTies([
+      { key: 'a', wins: 4, losses: 2, pf: 20, pa: 11 }, { key: 'b', wins: 4, losses: 2, pf: 19, pa: 10 },
+    ]);
+    expect(notes.a.decidedBy).toBe('waiting');
+    expect(tieLine(notes.a, up)).toBe('Tied on 4-2 and +9 with B: waiting for the admin to set the order.');
+  });
+  it('level with a full admin order: set by the admin', () => {
+    const notes = explainTies([
+      { key: 'a', wins: 4, losses: 2, pf: 20, pa: 11, tieRank: 1 }, { key: 'b', wins: 4, losses: 2, pf: 19, pa: 10, tieRank: 2 },
+    ]);
+    expect(notes.b.decidedBy).toBe('admin');
+    expect(tieLine(notes.b, up)).toBe('Tied on 4-2 and +9 with A; order set by the admin.');
+  });
+  it('3-way: one split by point diff, two level and waiting', () => {
+    const notes = explainTies([
+      { key: 'a', wins: 1, losses: 1, pf: 30, pa: 20 },
+      { key: 'b', wins: 1, losses: 1, pf: 25, pa: 25 },
+      { key: 'c', wins: 1, losses: 1, pf: 20, pa: 20 },
+    ]);
+    expect(tieLine(notes.a, k => k)).toBe('Tied on 1-1 with b, c; ahead on point diff (+10 vs 0, 0).');
+    expect(notes.b.decidedBy).toBe('waiting');
+    expect(notes.b.levelWith).toEqual(['c']);
+  });
+  it('same wins but different losses is not a tie', () => {
+    const notes = explainTies([
       { key: 'a', wins: 1, losses: 0 }, { key: 'c', wins: 1, losses: 1 },
-    ], [m]);
-    expect(notes.a.decidedBy).toBe('losses');
+    ]);
+    expect(notes).toEqual({});
   });
 });
 
