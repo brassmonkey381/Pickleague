@@ -43,6 +43,11 @@ export type ScheduleMatch = {
   team2_score?: number | null;
   is_dreambreaker?: boolean | null;
   round?: { id: string; label: string | null; round_type: string; round_number: number } | null;
+  /** PKL-049: the schedule round (rotating partners, round robin, pool), written at lock-in. */
+  play_round?: number | null;
+  /** PKL-039: the court the server called this match to, and when (server-owned). */
+  court?: string | null;
+  called_at?: string | null;
 };
 
 export type SchedulePlay = 'all' | 'to_play' | 'done';
@@ -124,14 +129,17 @@ export function isPlayable(m: ScheduleMatch): boolean {
 }
 
 /**
- * The viewer's next match: the earliest playable match they are in, by round
- * then schedule order. null when they have none left (or aren't playing).
+ * The viewer's next match: one already called to a court (PKL-039: the queue
+ * may call a later match while an earlier one waits on a busy player), else
+ * the earliest playable match they are in, by round then schedule order.
+ * null when they have none left (or aren't playing).
  */
 export function nextMatchFor<M extends ScheduleMatch>(matches: M[], userId: string | null): M | null {
   if (!userId) return null;
   const mine = visibleScheduleMatches(matches).filter(m => isPlayable(m) && involves(m, userId));
   mine.sort((a, b) =>
-    (a.round?.round_number ?? 999) - (b.round?.round_number ?? 999)
+    (a.called_at ? 0 : 1) - (b.called_at ? 0 : 1)
+    || (a.round?.round_number ?? 999) - (b.round?.round_number ?? 999)
     || (a.match_order ?? 0) - (b.match_order ?? 0));
   return mine[0] ?? null;
 }

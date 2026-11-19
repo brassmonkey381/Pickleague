@@ -333,6 +333,11 @@ export type Tournament = {
   // creates a third place match between the losing semifinalists once both
   // semifinals complete. (Top 2 always has a 3PM between standings #3/#4.)
   playoff_third_place: boolean;
+  // PKL-039: court names in call order. Null or [] = no courts reserved
+  // (players find an open court). With courts, the server calls matches to
+  // them (tournament_matches.court / called_at) and only called matches can
+  // be scored, except by the host.
+  courts?: string[] | null;
   // 'fixed' = user-defined pairs/rosters; 'random' = auto-paired/auto-generated.
   // Applies to Doubles and MLP; Singles ignores it.
   team_creation: 'fixed' | 'random';

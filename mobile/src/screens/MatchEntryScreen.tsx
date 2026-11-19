@@ -812,6 +812,9 @@ export default function MatchEntryScreen({ navigation, route }: Props) {
         setError(refusalCopy('match.not_member', { leagueName }));
       } else if ((e as { code?: string } | null)?.code === '23514' && /score_sanity/i.test(String((e as Error).message))) {
         setError(refusalCopy('match.score_invalid'));
+      } else if (/PL_TM_NOT_CALLED/.test(String((e as Error | null)?.message ?? ''))) {
+        // PKL-039: courts are reserved and the queue hasn't called this match.
+        setError('This match hasn\'t been called to a court yet. You\'ll get a push when it\'s your turn; the host can score it early.');
       } else {
         setError(
           explainRefusal(e, "Couldn't record the match. Try again.", {}, {

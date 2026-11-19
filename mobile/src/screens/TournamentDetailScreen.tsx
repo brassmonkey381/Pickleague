@@ -70,6 +70,10 @@ import WagerModals from '../components/tournament/WagerModals';
 import AlbumSection from '../components/AlbumSection';
 import GroupSessionSection from '../components/GroupSessionSection';
 import { tournamentEndsAt } from '../lib/groupSessionRules';
+import {
+  byesBefore, byesFor, courtAllowsScoring, courtState, courtStateLine, currentRound, hasCourts, playRounds, roundsText,
+  type CourtMatch,
+} from '../lib/tournamentCourts';
 
 type Props = {
   navigation: NativeStackNavigationProp<RootStackParamList, 'TournamentDetail'>;
@@ -463,6 +467,29 @@ export default function TournamentDetailScreen({ navigation, route }: Props) {
   const openTeams = () => reveal('teams', teamsOpen, () => setTeamsOpenChoice(true));
   const openSchedule = scheduleExists ? () => reveal('schedule', true, () => {}) : null;
 
+  // ── Courts and byes (PKL-039, PKL-049) ──
+  const courtMatches = td.savedMatches as CourtMatch[];
+  const schedRounds = playRounds(courtMatches, tournament.format, tournament.match_type);
+  const nowRound = currentRound(courtMatches, schedRounds);
+  const nextRound = nextMatch ? schedRounds.get(nextMatch.id) ?? null : null;
+  let byeLine: string | null = null;
+  if (myUserId && nowRound != null) {
+    if (nextMatch && nextRound != null) {
+      const pending = byesBefore(courtMatches, schedRounds, myUserId, nextMatch as CourtMatch).filter(b => b >= nowRound);
+      const partnerId = partnerOf(nextMatch, myUserId);
+      if (pending.length) {
+        byeLine = `Bye: ${roundsText(pending)}, then round ${nextRound}${partnerId ? ` with ${shortName(td.playerName(partnerId))}` : ''}`;
+      }
+    } else if (!nextMatch) {
+      const left = byesFor(courtMatches, schedRounds, myUserId).filter(b => b >= nowRound);
+      if (left.length) byeLine = `Bye: ${roundsText(left)}. Your matches are done.`;
+    }
+  }
+  const courtLine = nextMatch && hasCourts(tournament.courts)
+    ? courtStateLine(courtState(nextMatch as CourtMatch, courtMatches, tournament.courts, schedRounds), id => shortName(td.playerName(id)))
+    : null;
+  const canScoreNow = nextMatch ? courtAllowsScoring(nextMatch as CourtMatch, tournament.courts, isPriv) : true;
+
   // ── The You card ──
   const kind = youCardKind({
     status,
@@ -570,7 +597,10 @@ export default function TournamentDetailScreen({ navigation, route }: Props) {
     onOpenSetup: openManage,
     opponents: nextMatch && myUserId ? opponentsOf(nextMatch, myUserId).map(id => shortName(td.playerName(id))).join(' & ') : '',
     partner: nextMatch && myUserId && partnerOf(nextMatch, myUserId) ? td.playerName(partnerOf(nextMatch, myUserId)!) : null,
-    roundLabel: nextMatch?.round?.label ?? null,
+    roundLabel: nextRound != null ? `Round ${nextRound}` : nextMatch?.round?.label ?? null,
+    byeLine,
+    courtLine,
+    canScoreNow,
     recordLine: mine
       ? `You ${mine.row.wins}-${mine.row.losses}, #${mine.position} of ${mine.of}${mine.table ? ` in ${mine.table}` : ''}`
       : null,
@@ -1209,6 +1239,7 @@ export default function TournamentDetailScreen({ navigation, route }: Props) {
         editPayout={td.editPayout} setEditPayout={td.setEditPayout}
         editSeeding={td.editSeeding} setEditSeeding={td.setEditSeeding}
         showStartPicker={td.showStartPicker} setShowStartPicker={td.setShowStartPicker}
+        editCourts={td.editCourts} setEditCourts={td.setEditCourts}
       />
 
       <ConfirmModal
