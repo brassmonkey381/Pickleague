@@ -18,6 +18,13 @@ import AppRefreshControl from '../components/AppRefreshControl';
 import { SkeletonList } from '../components/Skeleton';
 import EmptyState from '../components/EmptyState';
 import { Match, RootStackParamList } from '../types';
+import {
+  fromTournamentHistoryRow,
+  mergeHistory,
+  tournamentRatingChange,
+  type TournamentHistoryMatch,
+  type TournamentHistoryRow,
+} from '../lib/tournamentHistory';
 
 type Props = { route: RouteProp<RootStackParamList, 'CalendarAnalytics'> };
 
@@ -95,7 +102,20 @@ export function CalendarAnalyticsView({ userId, leagueId }: { userId?: string; l
       setLoading(false);
       return;
     }
-    let matches: Match[] = data ?? [];
+    // Tournament matches live in tournament_matches (PKL-051: they were missing
+    // here). Best effort, like Match History: a failed read keeps league days.
+    let tournamentRows: TournamentHistoryMatch[] = [];
+    try {
+      const rows = await sbCall(() => supabase.rpc('get_tournament_match_history', {
+        p_user_id: uid ?? null,
+        p_league_id: leagueId ?? null,
+        p_limit: 300,
+      }));
+      tournamentRows = ((rows ?? []) as TournamentHistoryRow[]).map(fromTournamentHistoryRow);
+    } catch {
+      tournamentRows = [];
+    }
+    let matches: Match[] = mergeHistory<Match>(data ?? [], tournamentRows);
 
     if (uid) {
       matches = matches.filter((m) =>
@@ -117,10 +137,18 @@ export function CalendarAnalyticsView({ userId, leagueId }: { userId?: string; l
         if (won) map[dateKey].wins++;
         else map[dateKey].losses++;
 
-        const onTeam1 = isOnTeam1(match, uid);
-        const before  = onTeam1 ? match.player1_rating_before : match.player2_rating_before;
-        const after   = onTeam1 ? match.player1_rating_after  : match.player2_rating_after;
-        if (before != null && after != null) map[dateKey].ratingDelta += (after - before);
+        // My own move: a tournament row knows everyone's; a league row only
+        // player 1's and player 2's (a partner's teammate moved, not them).
+        const t = match as Partial<TournamentHistoryMatch>;
+        if (t.source === 'tournament') {
+          const d = tournamentRatingChange(t, uid);
+          if (d != null) map[dateKey].ratingDelta += d;
+        } else if (match.player1_id === uid || match.player2_id === uid) {
+          const mine    = match.player1_id === uid;
+          const before  = mine ? match.player1_rating_before : match.player2_rating_before;
+          const after   = mine ? match.player1_rating_after  : match.player2_rating_after;
+          if (before != null && after != null) map[dateKey].ratingDelta += (after - before);
+        }
       }
     }
 

@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { chartScale, nearestIndex, ratingSeries } from '../ratingHistory';
+import { chartScale, nearestIndex, ratingSeries, unratedCount } from '../ratingHistory';
 
 const row = (id: string, at: string, p1: string, p2: string, r1: number | null, r2: number | null, status: 'completed' | 'pending' | 'scheduled' = 'completed') => ({
   id, status, played_at: at, player1_id: p1, player2_id: p2, player1_rating_after: r1, player2_rating_after: r2,
@@ -55,5 +55,34 @@ describe('nearestIndex', () => {
   it('finds the point closest to a tap', () => {
     expect(nearestIndex([{ x: 0 }, { x: 50 }, { x: 100 }], 70)).toBe(1);
     expect(nearestIndex([{ x: 0 }, { x: 50 }, { x: 100 }], 90)).toBe(2);
+  });
+});
+
+describe('PKL-051: partners, unrated matches and the filter range', () => {
+  const doubles = (id: string, at: string, partner1: string | null, plupr: Record<string, { after: number }> | null) => ({
+    ...row(id, at, 'x', 'y', 3.1, 3.2), partner1_id: partner1, partner2_id: 'z', plupr_ratings: plupr,
+  });
+
+  it('a tournament row gives the partner a point from plupr_ratings', () => {
+    const s = ratingSeries([doubles('t1', '2026-11-19T21:00:00Z', 'me', { me: { after: 4.31 }, x: { after: 3.0 } })], 'me');
+    expect(s).toEqual([{ matchId: 't1', at: '2026-11-19T21:00:00Z', rating: 4.31 }]);
+  });
+
+  it('a league doubles row as partner has no point and counts as unrated', () => {
+    const rows = [doubles('l1', '2026-11-19T21:00:00Z', 'me', null), row('l2', '2026-11-19T22:00:00Z', 'me', 'x', 3.3, 3.2)];
+    expect(ratingSeries(rows, 'me').map((p) => p.matchId)).toEqual(['l2']);
+    expect(unratedCount(rows, 'me')).toBe(1);
+  });
+
+  it('with a range, x follows time across the whole range', () => {
+    const start = Date.parse('2026-11-12T22:00:00Z');
+    const end = Date.parse('2026-11-19T22:00:00Z');
+    const pts = [
+      { matchId: 'a', at: '2026-11-12T22:00:00Z', rating: 3 },
+      { matchId: 'b', at: '2026-11-19T22:00:00Z', rating: 3.2 },
+      { matchId: 'c', at: '2026-11-16T10:00:00Z', rating: 3.1 },
+    ];
+    const xs = chartScale(pts, 700, 100, { start, end }).xy.map((p) => Math.round(p.x));
+    expect(xs).toEqual([0, 700, 350]);
   });
 });
