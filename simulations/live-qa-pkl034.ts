@@ -5,6 +5,7 @@
  *   npx tsx live-qa-pkl034.ts setup   [--rehearsal]        create bots + private tournament, invite Brian
  *   npx tsx live-qa-pkl034.ts run     [--rehearsal] [--fast] [--interval 60]
  *   npx tsx live-qa-pkl034.ts status  [--rehearsal]
+ *   npx tsx live-qa-pkl034.ts replay  [--rehearsal]        PKL-054: save the replay page now (cleanup also saves one first)
  *   npx tsx live-qa-pkl034.ts cleanup [--rehearsal] [--restore-brian]
  *   npx tsx live-qa-pkl034.ts plan                         offline: schedule + scoring + standings self-test, no network
  *
@@ -33,6 +34,8 @@ import crypto from 'node:crypto';
 import { fileURLToPath } from 'node:url';
 import { seedPlayers, generateRoundRobin, generateRotatingPartners, rotatingPartnersRounds, FORMAT_META, type MatchPairing } from '../mobile/src/lib/tournament';
 import { buildStandingsComparator } from '../mobile/src/lib/tournamentTiebreakers';
+import { collectReplay } from './replay/collect';
+import { saveReplay } from './replay/render';
 
 // ── args ──────────────────────────────────────────────────────────────────────
 const argv = process.argv.slice(2);
@@ -86,13 +89,24 @@ function log(s: string) {
   fs.appendFileSync(LOG_FILE, line + '\n');
 }
 let failures = 0;
-function check(desc: string, ok: boolean, details?: string) {
+/** PKL-054: every check also goes to <mode>-checks.json, so the replay pins it to the moment it covers:
+ *  the match it names (pinned to when that match was scored), else when it ran. */
+const CHECKS_FILE = path.join(STATE_DIR, `${MODE}-checks.json`);
+type CheckRow = { at: string; ok: boolean; desc: string; detail?: string; known?: string; match_id?: string | null };
+const checkRows: CheckRow[] = (() => { try { return JSON.parse(fs.readFileSync(CHECKS_FILE, 'utf8')); } catch { return []; } })();
+function keepCheck(row: CheckRow) {
+  checkRows.push(row);
+  try { fs.writeFileSync(CHECKS_FILE, JSON.stringify(checkRows, null, 1)); } catch { /* the log still has it */ }
+}
+function check(desc: string, ok: boolean, details?: string, matchId?: string | null) {
   if (!ok) failures++;
   log(`${ok ? 'CHECK PASS' : 'CHECK FAIL'}  ${desc}${!ok && details ? ' :: ' + details : ''}`);
+  keepCheck({ at: new Date().toISOString(), ok, desc, detail: ok ? undefined : details, match_id: matchId ?? null });
 }
 /** A check whose failure is a known, already-logged app bug: logged, never counted (Brian decides the rule). */
-function knownBug(bug: string, desc: string, ok: boolean, details?: string) {
+function knownBug(bug: string, desc: string, ok: boolean, details?: string, matchId?: string | null) {
   log(`${ok ? 'CHECK PASS' : `KNOWN BUG ${bug} (expected, not counted)`}  ${desc}${!ok && details ? ' :: ' + details : ''}`);
+  keepCheck({ at: new Date().toISOString(), ok, desc, detail: ok ? undefined : details, known: ok ? undefined : bug, match_id: matchId ?? null });
 }
 const die = (s: string): never => { log('FAILED: ' + s); process.exit(1); };
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
@@ -1141,6 +1155,7 @@ async function cleanup() {
     log(`Brian now:    ${JSON.stringify(now)}`);
   }
   for (const tId of tIds) {
+    await saveRunReplay(tId);
     const { data: rs } = await admin.from('tournament_rounds').select('id, label').eq('tournament_id', tId);
     const { data: ms } = await admin.from('tournament_matches').select('id').eq('tournament_id', tId);
     const { data: regs } = await admin.from('tournament_registrations').select('id, user_id').eq('tournament_id', tId);
@@ -1205,8 +1220,22 @@ async function cleanup() {
   process.exitCode = failures ? 1 : 0;
 }
 
+// ── replay (PKL-054) ──────────────────────────────────────────────────────────
+/** Saves the run's replay (timeline + page) to state/replays before cleanup deletes the tournament. */
+async function saveRunReplay(tId: string) {
+  try {
+    const data = await collectReplay(admin, tId, checkRows);
+    const out = saveReplay(data, path.join(repo, 'state', 'replays'), `${TAG}-${MODE}-${tId.slice(0, 8)}`);
+    log(`replay saved: ${out} (${data.events.length} events, ${data.alerts.length} alerts, ${data.checks.length} checks)`);
+  } catch (e: any) { log(`replay NOT saved for ${tId}: ${e?.message ?? e}`); }
+}
+async function replay() {
+  const st = readState(); if (!st?.tournament_id) return die(`no ${MODE} setup found`);
+  await saveRunReplay(st.tournament_id);
+}
+
 // ── main ──────────────────────────────────────────────────────────────────────
 process.on('SIGINT', () => { log('Ctrl+C: stopped. Run again to resume from the database state.'); process.exit(130); });
-const main: Record<string, () => unknown> = { setup, run, status, audit, cleanup, plan };
-if (!main[CMD]) { console.log('usage: npx tsx live-qa-pkl034.ts setup|run|status|cleanup|plan [--doubles] [--rehearsal] [--fast] [--interval 60] [--restore-brian]'); process.exit(2); }
+const main: Record<string, () => unknown> = { setup, run, status, audit, replay, cleanup, plan };
+if (!main[CMD]) { console.log('usage: npx tsx live-qa-pkl034.ts setup|run|status|audit|replay|cleanup|plan [--doubles] [--rehearsal] [--fast] [--interval 60] [--restore-brian]'); process.exit(2); }
 Promise.resolve(main[CMD]()).catch((e) => die(String(e?.stack ?? e)));
