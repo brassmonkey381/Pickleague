@@ -1,22 +1,12 @@
 import { describe, it, expect } from 'vitest';
 import {
   teamKey,
-  headToHead,
+  entrantKey,
+  entrantKeyOfTeamKey,
   buildStandingsComparator,
-  type TiebreakerMatch,
+  compareStandings,
+  levelGroups,
 } from '../tournamentTiebreakers';
-
-function m(
-  t1p1: string, t1p2: string | null,
-  t2p1: string, t2p2: string | null,
-  winner: 'team1' | 'team2',
-): TiebreakerMatch {
-  return {
-    team1_player1: t1p1, team1_player2: t1p2,
-    team2_player1: t2p1, team2_player2: t2p2,
-    winner_team: winner, status: 'completed',
-  };
-}
 
 describe('teamKey', () => {
   it('is identity for singles', () => {
@@ -27,78 +17,98 @@ describe('teamKey', () => {
   });
 });
 
-describe('headToHead', () => {
-  it('returns -1 when A swept B', () => {
-    const matches = [m('alice', null, 'bob', null, 'team1')];
-    expect(headToHead(matches, 'alice', 'bob')).toBe(-1);
+describe('entrantKey (shared with the server)', () => {
+  it('is lo:hi for a pair, in either order', () => {
+    expect(entrantKey('bbb', 'aaa')).toBe('aaa:bbb');
+    expect(entrantKey('aaa', 'bbb')).toBe('aaa:bbb');
   });
-  it('returns 1 when B swept A', () => {
-    const matches = [m('alice', null, 'bob', null, 'team2')];
-    expect(headToHead(matches, 'alice', 'bob')).toBe(1);
+  it('is id:id for a single player', () => {
+    expect(entrantKey('aaa')).toBe('aaa:aaa');
+    expect(entrantKey('aaa', null)).toBe('aaa:aaa');
   });
-  it('returns 0 on a split series', () => {
-    const matches = [
-      m('alice', null, 'bob', null, 'team1'),
-      m('bob', null, 'alice', null, 'team1'),
-    ];
-    expect(headToHead(matches, 'alice', 'bob')).toBe(0);
+  it('orders canonical uuids like Postgres (lowercase hex)', () => {
+    const lo = '0a1b2c3d-0000-4000-8000-000000000000';
+    const hi = 'f0e1d2c3-0000-4000-8000-000000000000';
+    expect(entrantKey(hi, lo)).toBe(`${lo}:${hi}`);
   });
-  it('returns 0 when the two teams have not played', () => {
-    const matches = [m('alice', null, 'carol', null, 'team1')];
-    expect(headToHead(matches, 'alice', 'bob')).toBe(0);
-  });
-  it('handles doubles (pair-keyed)', () => {
-    const matches = [
-      // (alice+bob) beat (carol+dave)
-      m('alice', 'bob', 'carol', 'dave', 'team1'),
-    ];
-    const keyAB = teamKey('alice', 'bob');
-    const keyCD = teamKey('carol', 'dave');
-    expect(headToHead(matches, keyAB, keyCD)).toBe(-1);
-  });
-  it('ignores incomplete matches', () => {
-    const matches: TiebreakerMatch[] = [
-      { team1_player1: 'alice', team1_player2: null,
-        team2_player1: 'bob', team2_player2: null,
-        winner_team: null, status: 'pending' },
-    ];
-    expect(headToHead(matches, 'alice', 'bob')).toBe(0);
+  it('converts a teamKey', () => {
+    expect(entrantKeyOfTeamKey(teamKey('b', 'a'))).toBe('a:b');
+    expect(entrantKeyOfTeamKey('a')).toBe('a:a');
   });
 });
 
-describe('buildStandingsComparator', () => {
-  it('falls through to point_diff when 3+ are tied on wins', () => {
-    const entries = [
-      { key: 'a', wins: 2, pf: 30, pa: 20 }, // diff +10
-      { key: 'b', wins: 2, pf: 25, pa: 21 }, // diff +4
-      { key: 'c', wins: 2, pf: 20, pa: 25 }, // diff -5
+describe('the ranking chain (PKL-052)', () => {
+  const sortKeys = <T extends { key: string }>(rows: T[]) =>
+    [...rows].sort(buildStandingsComparator() as any).map(r => (r as any).key);
+
+  it('wins, then fewer losses, then point diff', () => {
+    const rows = [
+      { key: 'a', wins: 2, losses: 2, pf: 50, pa: 20 },
+      { key: 'b', wins: 2, losses: 1, pf: 20, pa: 30 },
+      { key: 'c', wins: 3, losses: 3, pf: 10, pa: 40 },
+      { key: 'd', wins: 2, losses: 2, pf: 40, pa: 20 },
     ];
-    // Even if b beat a head-to-head, with 3-way tie H2H is skipped.
-    const matches = [m('a', null, 'b', null, 'team2')];
-    const sorted = [...entries].sort(buildStandingsComparator(entries, matches));
-    expect(sorted.map(e => e.key)).toEqual(['a', 'b', 'c']);
+    expect(sortKeys(rows)).toEqual(['c', 'b', 'a', 'd']);
   });
-  it('uses H2H to break exactly-2-way wins ties', () => {
-    const entries = [
-      { key: 'a', wins: 2, pf: 30, pa: 20 }, // diff +10
-      { key: 'b', wins: 2, pf: 25, pa: 21 }, // diff +4
-      { key: 'c', wins: 1, pf: 10, pa: 20 },
+
+  it('a 2-way tie goes to point diff, even when the other team won the meeting', () => {
+    // b beat a head-to-head; under PKL-052 that counts for nothing: a's +10
+    // beats b's +4.
+    const rows = [
+      { key: 'b', wins: 2, losses: 1, pf: 25, pa: 21 },
+      { key: 'a', wins: 2, losses: 1, pf: 30, pa: 20 },
+      { key: 'c', wins: 1, losses: 2, pf: 10, pa: 20 },
     ];
-    // b beat a head-to-head, so b ranks above a despite worse point_diff.
-    const matches = [m('a', null, 'b', null, 'team2')];
-    const sorted = [...entries].sort(buildStandingsComparator(entries, matches));
-    expect(sorted.map(e => e.key)).toEqual(['b', 'a', 'c']);
+    expect(sortKeys(rows)).toEqual(['a', 'b', 'c']);
   });
-  it('uses point_diff when H2H is a split series (2-way tie)', () => {
-    const entries = [
-      { key: 'a', wins: 2, pf: 30, pa: 20 }, // diff +10
-      { key: 'b', wins: 2, pf: 25, pa: 21 }, // diff +4
+
+  it('then the admin tie order, then seed', () => {
+    const level = { wins: 1, losses: 1, pf: 10, pa: 10 };
+    expect(compareStandings({ ...level, tieRank: 2, seed: 1 }, { ...level, tieRank: 1, seed: 9 })).toBeGreaterThan(0);
+    expect(compareStandings({ ...level, seed: 1 }, { ...level, seed: 2 })).toBeLessThan(0);
+    // A set tie order beats none.
+    expect(compareStandings({ ...level, seed: 1 }, { ...level, tieRank: 5, seed: 9 })).toBeGreaterThan(0);
+  });
+
+  it('ignores rating entirely (no such input)', () => {
+    const level = { wins: 1, losses: 1, pf: 10, pa: 10 };
+    const hi = { ...level, key: 'hi', rating: 5.0, seed: 2 };
+    const lo = { ...level, key: 'lo', rating: 2.0, seed: 1 };
+    expect(sortKeys([hi, lo])).toEqual(['lo', 'hi']);
+  });
+});
+
+describe('levelGroups', () => {
+  const three = (ranks: (number | undefined)[]) => [
+    { key: 'x', wins: 3, losses: 0, pf: 33, pa: 10 },
+    { key: 'a', wins: 1, losses: 2, pf: 20, pa: 25, tieRank: ranks[0], seed: 1 },
+    { key: 'b', wins: 1, losses: 2, pf: 20, pa: 25, tieRank: ranks[1], seed: 2 },
+    { key: 'c', wins: 1, losses: 2, pf: 20, pa: 25, tieRank: ranks[2], seed: 3 },
+  ];
+
+  it('finds a 3-way group W-L and point diff cannot split, waiting with no admin order', () => {
+    const rows = three([undefined, undefined, undefined]).sort(compareStandings);
+    expect(rows.map(r => r.key)).toEqual(['x', 'a', 'b', 'c']);
+    const g = levelGroups(rows);
+    expect(g).toHaveLength(1);
+    expect(g[0]).toMatchObject({ start: 1, waiting: true });
+    expect(g[0].members.map(m => m.key)).toEqual(['a', 'b', 'c']);
+  });
+  it('a full, distinct admin order: not waiting', () => {
+    const g = levelGroups(three([3, 1, 2]).sort(compareStandings));
+    expect(g[0].waiting).toBe(false);
+    expect(g[0].members.map(m => m.key)).toEqual(['b', 'c', 'a']);
+  });
+  it('a partial or duplicated admin order is still waiting', () => {
+    expect(levelGroups(three([1, 2, undefined]))[0].waiting).toBe(true);
+    expect(levelGroups(three([1, 1, 2]))[0].waiting).toBe(true);
+  });
+  it('scope keeps separately ranked groups apart', () => {
+    const rows = [
+      { key: 'p', wins: 1, losses: 1, pf: 0, pa: 0, pool: 'A' },
+      { key: 'q', wins: 1, losses: 1, pf: 0, pa: 0, pool: 'B' },
     ];
-    const matches = [
-      m('a', null, 'b', null, 'team1'),
-      m('b', null, 'a', null, 'team1'),
-    ];
-    const sorted = [...entries].sort(buildStandingsComparator(entries, matches));
-    expect(sorted.map(e => e.key)).toEqual(['a', 'b']);
+    expect(levelGroups(rows)).toHaveLength(1);
+    expect(levelGroups(rows, r => r.pool)).toHaveLength(0);
   });
 });

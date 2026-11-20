@@ -2,11 +2,13 @@
 // built only from lib/tournamentStandings.ts so the screen adds no ranking
 // order of its own:
 //   - fixed teams (round robin, elimination; singles or fixed doubles pairs):
-//     computeTeamStandings, the canonical chain (wins, 2-way head-to-head,
-//     point diff, seed);
+//     computeTeamStandings;
 //   - pool play: one such table per pool, scoped to that pool's matches;
 //   - rotating partners: computePlayerStandings, the per-user mirror;
-//   - MLP: the mlp_team_standings RPC rows in their existing display order.
+//   - MLP: the mlp_team_standings RPC rows, with points from the matches.
+// Every table ranks by one chain (PKL-052): wins, fewer losses, point diff,
+// then the admin's tie order (tournament_tie_orders), then seed. Groups still
+// level after point diff without a full admin order are "waiting".
 // Round robin / pool play with a playoff rank the GROUP STAGE only once the
 // playoff exists, before and after completion: that's the order
 // generate_playoff_bracket seeded from, and a playoff win must not reshuffle it.
@@ -16,17 +18,18 @@
 // placement from lib/tournamentPlacement.ts (Final 1-2, 3rd place match 3-4,
 // the rest by round robin order).
 // PKL-040: each table carries a one-line tie note per tied row
-// (lib/tournamentTieNotes.ts).
+// (lib/tournamentTieNotes.ts) and its level groups for the admin's tie order.
 // Pure TS (no React) so the You card and the Standings section read the same
 // numbers.
 import type { Tournament, TournamentRegistration } from '../../types';
 import {
   computeTeamStandings, computePlayerStandings, orderByFinalRanks, sortMlpTeamStandings,
-  type FinalRankRow,
+  type FinalRankRow, type TieRanks,
 } from '../../lib/tournamentStandings';
+import { diffOf, entrantKey, levelGroups } from '../../lib/tournamentTiebreakers';
 import { computeFinalPlacement, placeLabel, placementSourceLabel } from '../../lib/tournamentPlacement';
-import { explainPlayerTies, explainTeamTies, tieLine } from '../../lib/tournamentTieNotes';
-import { hasBothStages, roundStage, visibleScheduleMatches, type ScheduleMatch } from './tournamentModel';
+import { explainTies, signed, tieLine } from '../../lib/tournamentTieNotes';
+import { hasBothStages, roundStage, visibleScheduleMatches, type MlpTeamSlots, type ScheduleMatch } from './tournamentModel';
 
 export type StandingRow = {
   key: string;
@@ -37,6 +40,23 @@ export type StandingRow = {
   /** Points for / against. */
   pf?: number;
   pa?: number;
+  /** PKL-052: level on W-L and point diff, and the admin hasn't ordered it yet. */
+  waiting?: boolean;
+};
+
+/** One group level on W-L and point diff, for the admin's tie order sheet. */
+export type TieGroupView = {
+  key: string;
+  /** The table's label ("Pool A"), or null for a single table. */
+  table: string | null;
+  /** 1-based place of the group's first row in its table. */
+  position: number;
+  /** "4-2 and +9" */
+  record: string;
+  waiting: boolean;
+  /** In current table order. `tieKeys` are the server entrant keys to send
+   *  (one per entrant; an MLP team sends its four players). */
+  entrants: { key: string; name: string; tieKeys: string[] }[];
 };
 
 export type StandingsTable = {
@@ -46,6 +66,8 @@ export type StandingsTable = {
   rows: StandingRow[];
   /** PKL-040: for each tied row, one line on what decided its place. */
   ties?: Record<string, string>;
+  /** PKL-052: the groups level on W-L and point diff. */
+  groups?: TieGroupView[];
 };
 
 /** One row of the final placement table (PKL-037). */
@@ -72,7 +94,7 @@ export type PlacementData = {
 };
 
 export type StandingsData = {
-  /** 'team' tables show W-L and point diff; 'player' and 'mlp' show W-L. */
+  /** Every kind shows W-L and point diff (PKL-052). */
   kind: 'team' | 'player' | 'mlp';
   /** The entrant column's heading. */
   entrantLabel: string;
@@ -87,6 +109,8 @@ export type StandingsData = {
   groupStage?: boolean;
   /** PKL-037: the final placement, a separate table. Null when there is none yet. */
   placement?: PlacementData | null;
+  /** PKL-052: level groups still waiting for the admin, across all tables. */
+  waitingCount: number;
 };
 
 type MlpRow = {
@@ -100,13 +124,50 @@ export type StandingsInput = {
   savedRounds: { id: string; round_type: string; round_number: number; label?: string | null }[];
   registrations: TournamentRegistration[];
   profileNames: Record<string, string>;
-  profileRatings: Record<string, number>;
   myUserId: string | null;
   mlpStandings: MlpRow[] | null;
   /** The viewer's MLP team id (from mlp_teams), for the MLP "you" row. */
   myMlpTeamId: string | null;
+  /** MLP teams' player slots: points for the ± column and the tie keys. */
+  mlpTeams?: MlpTeamSlots[];
   finalRanks: FinalRankRow[];
+  /** Admin tie orders (tournament_tie_orders), keyed by entrant key. */
+  tieRanks?: TieRanks;
 };
+
+/** The one line under every table on how places are decided. */
+export const RANK_RULE = 'Wins, then fewer losses, then point differential. A tie after that is ordered by the tournament admin.';
+
+type Rankish = StandingRow & { tieRank?: number | null; tieKeys: string[] };
+
+/**
+ * Tie notes, level groups and waiting flags for one ordered table. `scope`
+ * keeps apart rows ranked separately (MLP pools in one table).
+ */
+function withTieInfo(
+  key: string, label: string | null, rows: Rankish[], scope?: (r: Rankish) => string,
+): StandingsTable {
+  const notes = explainTies(rows, scope);
+  const nameByKey = new Map(rows.map(r => [r.key, r.name]));
+  const ties: Record<string, string> = {};
+  for (const k of Object.keys(notes)) ties[k] = tieLine(notes[k], x => nameByKey.get(x) ?? '?');
+  const groups: TieGroupView[] = levelGroups(rows, scope).map(g => {
+    if (g.waiting) for (const m of g.members) m.waiting = true;
+    const first = g.members[0];
+    return {
+      key: `${key}:${g.start}`,
+      table: label,
+      position: g.start + 1,
+      record: `${first.wins}-${first.losses} and ${signed(diffOf(first))}`,
+      waiting: g.waiting,
+      entrants: g.members.map(m => ({ key: m.key, name: m.name, tieKeys: m.tieKeys })),
+    };
+  });
+  return { key, label, rows, ties, groups };
+}
+
+const countWaiting = (tables: StandingsTable[]) =>
+  tables.reduce((n, t) => n + (t.groups ?? []).filter(g => g.waiting).length, 0);
 
 const SETTLED_NOTE = 'Final places, as stored when the tournament closed.';
 
@@ -132,23 +193,56 @@ export function buildStandings(i: StandingsInput): StandingsData | null {
 
   if (isMlp) {
     if (!i.mlpStandings || i.mlpStandings.length === 0) return null;
+    // Points per team from its sub-matches (the RPC has W-L only), and the
+    // team's four players as its tie keys. A team's admin tie order is its
+    // best player's (the RPC sends the four together, in team order).
+    const members = new Map((i.mlpTeams ?? []).map(t => [t.id,
+      [t.male_1_id, t.male_2_id, t.female_1_id, t.female_2_id].filter(Boolean) as string[]]));
+    const pts = new Map<string, { pf: number; pa: number }>();
+    for (const [teamId, ids] of members) {
+      const p = { pf: 0, pa: 0 };
+      for (const m of visibleScheduleMatches(i.savedMatches)) {
+        if (m.status !== 'completed' || !m.winner_team) continue;
+        const on1 = [m.team1_player1, m.team1_player2].some(x => !!x && ids.includes(x));
+        const on2 = [m.team2_player1, m.team2_player2].some(x => !!x && ids.includes(x));
+        if (on1 === on2) continue;
+        const s1 = m.team1_score ?? 0;
+        const s2 = m.team2_score ?? 0;
+        p.pf += on1 ? s1 : s2;
+        p.pa += on1 ? s2 : s1;
+      }
+      pts.set(teamId, p);
+    }
+    const ranks = i.tieRanks ?? {};
+    const withPts = i.mlpStandings.map(r => {
+      const ids = members.get(r.team_id) ?? [];
+      const own = ids.map(id => ranks[entrantKey(id)]).filter((x): x is number => x != null);
+      return {
+        ...r, ...(pts.get(r.team_id) ?? { pf: 0, pa: 0 }),
+        tieRank: own.length > 0 ? Math.min(...own) : null,
+        tieKeys: ids.map(id => entrantKey(id)),
+      };
+    });
+    const rows: Rankish[] = sortMlpTeamStandings(withPts).map(r => ({
+      key: r.team_id,
+      name: r.pool_letter ? `${r.team_name}, Pool ${r.pool_letter}` : r.team_name,
+      isMe: !!i.myMlpTeamId && r.team_id === i.myMlpTeamId,
+      wins: r.sub_matches_won,
+      losses: r.sub_matches_lost,
+      pf: r.pf, pa: r.pa,
+      tieRank: r.tieRank,
+      tieKeys: r.tieKeys,
+    }));
+    const poolOf = new Map(i.mlpStandings.map(r => [r.team_id, r.pool_letter ?? '']));
+    const table = withTieInfo('mlp', null, rows, r => poolOf.get(r.key) ?? '');
     return {
       kind: 'mlp',
       entrantLabel: 'Team',
       recordLabel: 'Sub W-L',
-      note: 'By sub-matches won (men\'s, women\'s and 2 mixed per team meeting).',
+      note: `By sub-matches (men's, women's and 2 mixed per team meeting). ${RANK_RULE}`,
       settled: false,
-      tables: [{
-        key: 'mlp',
-        label: null,
-        rows: sortMlpTeamStandings(i.mlpStandings).map(r => ({
-          key: r.team_id,
-          name: r.pool_letter ? `${r.team_name}, Pool ${r.pool_letter}` : r.team_name,
-          isMe: !!i.myMlpTeamId && r.team_id === i.myMlpTeamId,
-          wins: r.sub_matches_won,
-          losses: r.sub_matches_lost,
-        })),
-      }],
+      tables: [table],
+      waitingCount: countWaiting([table]),
     };
   }
 
@@ -164,17 +258,16 @@ export function buildStandings(i: StandingsInput): StandingsData | null {
     // so the final placement follows this order (the server also pins the
     // champion badge holder first). It gets its own table once stored, or
     // once every match is in.
-    const entrants = i.registrations.filter(r => r.status === 'approved').map(r => r.user_id);
-    const ratingOf = (id: string) => i.profileRatings[id];
+    const approved = i.registrations.filter(r => r.status === 'approved');
+    const seedById = new Map(approved.map(r => [r.user_id, r.seed]));
     const live = computePlayerStandings(matches as any, {
-      entrants,
+      entrants: approved.map(r => r.user_id),
       nameOf,
       isMe: id => id === myUserId,
-      ratingOf,
+      seedOf: id => seedById.get(id),
+      tieRanks: i.tieRanks,
     });
-    const notes = explainPlayerTies(live, matches as any, ratingOf);
-    const ties: Record<string, string> = {};
-    for (const k of Object.keys(notes)) ties[k] = tieLine(notes[k], nameOf, 'player');
+    const table = withTieInfo('players', null, live.map(r => ({ ...r, tieKeys: [r.tieKey] })));
     let placement: PlacementData | null = null;
     if (settledNow) {
       const places = storedPlaces(live, i.finalRanks);
@@ -201,10 +294,11 @@ export function buildStandings(i: StandingsInput): StandingsData | null {
       kind: 'player',
       entrantLabel: 'Player',
       recordLabel: 'W-L',
-      note: 'Each player\'s own wins (games, in best-of matches), then fewer losses, then PLUPR.',
+      note: `Each player's own record (games, in best-of matches). ${RANK_RULE}`,
       settled: settledNow,
-      tables: [{ key: 'players', label: null, rows: live, ties }],
+      tables: [table],
       placement,
+      waitingCount: countWaiting([table]),
     };
   }
 
@@ -222,9 +316,10 @@ export function buildStandings(i: StandingsInput): StandingsData | null {
     // A null partner never matches a null viewer (the live table's guard).
     isMe: (p1: string, p2: string | null) => !!myUserId && (p1 === myUserId || p2 === myUserId),
     seedOf,
+    tieRanks: i.tieRanks,
   };
   const entrantLabel = t.match_type === 'doubles' ? 'Team' : 'Player';
-  const teamNote = 'By wins, then head-to-head (2-way ties), then point diff, then seed.';
+  const teamNote = RANK_RULE;
 
   // Two-stage draw (round robin / pool play + playoff, once the playoff
   // rounds exist): the standings rank the group stage only, always, even
@@ -241,11 +336,7 @@ export function buildStandings(i: StandingsInput): StandingsData | null {
 
   const withTies = (key: string, label: string | null, ms: typeof matches): StandingsTable => {
     const rows = computeTeamStandings(ms as any, opts);
-    const notes = explainTeamTies(rows, ms as any);
-    const byKey = new Map(rows.map(r => [r.key, r.name]));
-    const ties: Record<string, string> = {};
-    for (const k of Object.keys(notes)) ties[k] = tieLine(notes[k], x => byKey.get(x) ?? '?', 'team');
-    return { key, label, rows, ties };
+    return withTieInfo(key, label, rows.map(r => ({ ...r, tieKeys: [r.tieKey] })));
   };
 
   const poolRounds = i.savedRounds
@@ -324,7 +415,38 @@ export function buildStandings(i: StandingsInput): StandingsData | null {
     groupStage: twoStage,
     tables,
     placement,
+    waitingCount: countWaiting(tables),
   };
+}
+
+/**
+ * PKL-052: why the playoff can't be drawn yet, or null. A group waiting for
+ * the admin blocks it when any member sits inside the advancing places of a
+ * table that feeds the playoff (it decides who advances, or their seed).
+ * Pool play with an overall top N blocks on any waiting group in any pool.
+ */
+export function playoffTieBlock(
+  data: StandingsData | null,
+  playoffFormat: string | null | undefined,
+): string | null {
+  if (!data || data.kind === 'mlp') return null;
+  const perPool = playoffFormat === 'top_1_per_pool' ? 1 : playoffFormat === 'top_2_per_pool' ? 2 : null;
+  const topN = playoffFormat === 'top_2' ? 2 : playoffFormat === 'top_4' ? 4 : playoffFormat === 'top_8' ? 8 : null;
+  const multi = data.tables.length > 1;
+  for (const t of data.tables) {
+    const cut = perPool ?? (multi ? Number.POSITIVE_INFINITY : topN ?? Number.POSITIVE_INFINITY);
+    const g = (t.groups ?? []).find(x => x.waiting && x.position <= cut);
+    if (g) {
+      const where = t.label ? `${t.label} has` : 'The standings have';
+      return `${where} a tie at ${ordinal(g.position)}: set the tie order first.`;
+    }
+  }
+  return null;
+}
+
+function ordinal(n: number): string {
+  const s = n % 100 >= 11 && n % 100 <= 13 ? 'th' : ({ 1: 'st', 2: 'nd', 3: 'rd' } as Record<number, string>)[n % 10] ?? 'th';
+  return `${n}${s}`;
 }
 
 /** The viewer's final placement row, or null. */

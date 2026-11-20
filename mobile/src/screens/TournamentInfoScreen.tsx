@@ -20,13 +20,14 @@ type Props = {
 };
 
 // Per-format explainers — what's shown depends on this tournament's format.
-// UI compaction P5b fixed the stale copy: standings follow the canonical
-// chain (wins, head-to-head between exactly 2 tied, point differential, seed;
-// lib/tournamentTiebreakers.ts), not PLUPR; pool-play advancement depends on
+// UI compaction P5b fixed the stale copy; PKL-052 set the rule for every
+// format: wins, fewer losses, point differential, then the admin orders any
+// tie left (lib/tournamentTiebreakers.ts). No head-to-head, no PLUPR.
+// Pool-play advancement depends on
 // the configured playoff (playoffLines below); MLP teams are 4 players with
 // sub-matches; and the partner-finder modal these pages pointed to is gone
 // (partners pair up in the tournament's Pairs / Teams section).
-const CANONICAL_TIEBREAK = 'Standings: wins first, then head-to-head when exactly two are tied, then point differential, then seed.';
+const CANONICAL_TIEBREAK = 'Standings: wins, then fewer losses, then point differential. A tie after that is ordered by the tournament admin.';
 
 const FORMAT_EXPLAINERS: Record<Tournament['format'], { headline: string; flow: string[]; advancement: string[] }> = {
   round_robin: {
@@ -71,7 +72,7 @@ const FORMAT_EXPLAINERS: Record<Tournament['format'], { headline: string; flow: 
     flow: [
       'Players are split into balanced pools (snake draft under PLUPR seeding, otherwise random).',
       'Inside each pool, every entrant plays every other entrant once.',
-      'Pool standings: wins first, then head-to-head when exactly two are tied, then point differential, then seed.',
+      'Pool standings: wins, then fewer losses, then point differential. A tie after that is ordered by the tournament admin.',
     ],
     advancement: [],
   },
@@ -80,7 +81,7 @@ const FORMAT_EXPLAINERS: Record<Tournament['format'], { headline: string; flow: 
     flow: [
       'Captains build fixed teams in the Teams section before the bracket is drawn.',
       'Each team meeting is 4 doubles sub-matches: men\'s, women\'s and 2 mixed. A 2-2 meeting is settled by a singles dreambreaker.',
-      'Team standings are by sub-matches won.',
+      'Team standings: sub-matches won, then fewer lost, then point differential. A tie after that is ordered by the tournament admin.',
     ],
     advancement: [],
   },
@@ -89,7 +90,7 @@ const FORMAT_EXPLAINERS: Record<Tournament['format'], { headline: string; flow: 
     flow: [
       'The organizer drafts approved players into teams (random or snake draft).',
       'Each team meeting is 4 doubles sub-matches: men\'s, women\'s and 2 mixed. A 2-2 meeting is settled by a singles dreambreaker.',
-      'Team standings are by sub-matches won.',
+      'Team standings: sub-matches won, then fewer lost, then point differential. A tie after that is ordered by the tournament admin.',
     ],
     advancement: [],
   },
@@ -102,7 +103,7 @@ const FORMAT_EXPLAINERS: Record<Tournament['format'], { headline: string; flow: 
     ],
     advancement: [
       'No bracket — every match is independent.',
-      'Standings are per player: wins (games, in best-of matches), then fewer losses, then head-to-head among the tied players, then point difference, then PLUPR.',
+      'Standings are per player: wins (games, in best-of matches), then fewer losses, then point differential. A tie after that is ordered by the tournament admin.',
     ],
   },
 };

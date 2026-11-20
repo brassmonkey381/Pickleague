@@ -41,7 +41,7 @@ import { picklesLabel } from '../components/PickleAmount';
 import { useTheme } from '../lib/ThemeContext';
 import { useTournamentDetail } from '../components/tournament/useTournamentDetail';
 import { buildFlowStages } from '../components/tournament/flowStages';
-import { buildStandings, myPlacement, myStanding } from '../components/tournament/standingsData';
+import { buildStandings, myPlacement, myStanding, playoffTieBlock } from '../components/tournament/standingsData';
 import { useTournamentLive } from '../lib/tournamentLive';
 import {
   canRecordMatch, currentSetupStep, doublesPairingDone, doublesPartnerOf, involves, medalStage, mlpTeamOf, mlpTeamsDone,
@@ -260,13 +260,14 @@ export default function TournamentDetailScreen({ navigation, route }: Props) {
     savedRounds: td.savedRounds,
     registrations,
     profileNames: td.profileNames,
-    profileRatings: td.profileRatings,
     myUserId,
     mlpStandings: td.mlpStandings,
     myMlpTeamId: mlpTeamOf(td.mlpTeams, myUserId)?.id ?? null,
+    mlpTeams: td.mlpTeams,
     finalRanks: td.finalRanks,
+    tieRanks: td.tieRanks,
   }) : null, [tournament, td.savedMatches, td.savedRounds, registrations, td.profileNames,
-    td.profileRatings, myUserId, td.mlpStandings, td.mlpTeams, td.finalRanks]);
+    myUserId, td.mlpStandings, td.mlpTeams, td.finalRanks, td.tieRanks]);
   // PKL-038: scores, standings and the playoff draw arrive while the screen
   // is open (realtime plus a light poll), no pull-to-refresh needed.
   useTournamentLive(tournamentId, tournament?.status === 'active', td.load);
@@ -763,6 +764,7 @@ export default function TournamentDetailScreen({ navigation, route }: Props) {
             savedMatches={td.savedMatches}
             generatingPlayoff={td.generatingPlayoff}
             generatePlayoff={td.generatePlayoff}
+            tieBlock={playoffTieBlock(standings, tournament.playoff_format)}
           />
         ),
       });
@@ -1065,7 +1067,12 @@ export default function TournamentDetailScreen({ navigation, route }: Props) {
             {/* Standings for every format, your row pinned */}
             {standings && (
               <View ref={anchorRef('standings')} style={styles.block} onLayout={anchorLayout('standings')}>
-                <StandingsSection data={standings} title={standingsTitle} />
+                <StandingsSection
+                  data={standings}
+                  title={standingsTitle}
+                  canOrderTies={isPriv}
+                  onSaveTieOrder={td.saveTieOrder}
+                />
               </View>
             )}
 
@@ -1104,6 +1111,8 @@ export default function TournamentDetailScreen({ navigation, route }: Props) {
                   savedMatches={td.savedMatches}
                   profileNames={td.profileNames}
                   openMatchActionSheetById={td.openMatchActionSheetById}
+                  registrations={registrations}
+                  tieRanks={td.tieRanks}
                 />
               </View>
             )}

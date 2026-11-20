@@ -2,36 +2,49 @@
 // or one per pool, built by standingsData.ts from lib/tournamentStandings.ts.
 // Long tables show the top rows with the viewer's row pinned underneath
 // ("… #9 You") and a "Show all (N)" toggle.
+// PKL-052: W-L and ± for every format; rows the admin still has to order say
+// "tie: admin to order", and an admin gets "Set tie order" (TieOrderSheet).
 import React, { useState } from 'react';
 import { View, Text, TouchableOpacity, StyleSheet } from 'react-native';
 import { HAIRLINE, RADIUS, SPACE, SMALL_TEXT_MAX_SCALE } from '@just-messin-around/expo-foundation/styles';
 import { FONT, textStyles } from '@just-messin-around/expo-foundation/typography';
 import { Icon } from '@just-messin-around/expo-foundation/icons';
 import { RankMedal } from '@just-messin-around/expo-foundation/ui';
+import { Button } from '@just-messin-around/expo-foundation/forms';
 import { useTheme } from '../../lib/ThemeContext';
 import { pinMyRow } from '../../lib/tournamentStandings';
 import SectionCard from './SectionCard';
+import TieOrderSheet from './TieOrderSheet';
 import type { StandingRow, StandingsData } from './standingsData';
 
 /** Rows shown before "Show all" on a single long table. */
 const TOP_ROWS = 8;
 
-export default function StandingsSection({ data, title }: { data: StandingsData; title: string }) {
+export default function StandingsSection({ data, title, canOrderTies = false, onSaveTieOrder }: {
+  data: StandingsData;
+  title: string;
+  /** The viewer is a tournament admin/host (PKL-052). */
+  canOrderTies?: boolean;
+  /** Saves one level group's order (server entrant keys, first place first). */
+  onSaveTieOrder?: (tieKeys: string[]) => Promise<void>;
+}) {
   const { colors: c } = useTheme();
   const t = textStyles(c);
   const [showAll, setShowAll] = useState(false);
   // PKL-040: tie notes under tied rows, behind one toggle.
   const [showTies, setShowTies] = useState(false);
+  const [orderOpen, setOrderOpen] = useState(false);
   const single = data.tables.length === 1;
-  const showDiff = data.kind === 'team';
   const tieCount = data.tables.reduce((n, tbl) => n + Object.keys(tbl.ties ?? {}).length, 0);
+  const groups = data.tables.flatMap(tbl => tbl.groups ?? []);
+  const adminCanOrder = canOrderTies && !!onSaveTieOrder && groups.length > 0;
 
   const header = (
     <View style={[styles.row, styles.headRow, { borderBottomColor: c.border }]}>
       <Text style={[t.fieldLabel, styles.rank]} maxFontSizeMultiplier={SMALL_TEXT_MAX_SCALE}>#</Text>
       <Text style={[t.fieldLabel, styles.name]} maxFontSizeMultiplier={SMALL_TEXT_MAX_SCALE}>{data.entrantLabel}</Text>
       <Text style={[t.fieldLabel, styles.wl]} maxFontSizeMultiplier={SMALL_TEXT_MAX_SCALE}>{data.recordLabel}</Text>
-      {showDiff && <Text style={[t.fieldLabel, styles.diff]} maxFontSizeMultiplier={SMALL_TEXT_MAX_SCALE}>±</Text>}
+      <Text style={[t.fieldLabel, styles.diff]} maxFontSizeMultiplier={SMALL_TEXT_MAX_SCALE}>±</Text>
     </View>
   );
 
@@ -47,7 +60,7 @@ export default function StandingsSection({ data, title }: { data: StandingsData;
           (last || tieShown) && styles.lastRow,
           r.isMe && { backgroundColor: c.primaryLight, borderRadius: RADIUS.sm },
         ]}
-        accessibilityLabel={`${position}. ${r.name}${r.isMe ? ' (you)' : ''}, ${r.wins} and ${r.losses}`}
+        accessibilityLabel={`${position}. ${r.name}${r.isMe ? ' (you)' : ''}, ${r.wins} and ${r.losses}, point diff ${diff}${r.waiting ? ', tie waiting for the admin' : ''}`}
       >
         {/* Places 1-3 as medal discs, 4+ as the plain number in the same box
             width (RankMedal), so the column lines up; the row label reads it. */}
@@ -56,14 +69,14 @@ export default function StandingsSection({ data, title }: { data: StandingsData;
         </View>
         <Text style={[t.sub, styles.name, { color: r.isMe ? c.primary : c.text }, r.isMe && styles.strong]} numberOfLines={2}>
           {r.name}{r.isMe ? ' (you)' : ''}
-          {tie && !showTies ? <Text style={[t.meta, { color: c.textMuted }]}>{'  tied'}</Text> : null}
+          {r.waiting
+            ? <Text style={[t.meta, { color: c.danger }]}>{'  tie: admin to order'}</Text>
+            : tie && !showTies ? <Text style={[t.meta, { color: c.textMuted }]}>{'  tied'}</Text> : null}
         </Text>
         <Text style={[t.sub, styles.wl, { color: c.text }]}>{r.wins}-{r.losses}</Text>
-        {showDiff && (
-          <Text style={[t.sub, styles.diff, { color: diff > 0 ? c.success : diff < 0 ? c.danger : c.textSub }]}>
-            {diff > 0 ? `+${diff}` : diff}
-          </Text>
-        )}
+        <Text style={[t.sub, styles.diff, { color: diff > 0 ? c.success : diff < 0 ? c.danger : c.textSub }]}>
+          {diff > 0 ? `+${diff}` : diff}
+        </Text>
       </View>
       {tieShown ? (
         <Text
@@ -93,6 +106,23 @@ export default function StandingsSection({ data, title }: { data: StandingsData;
           <Text style={[t.meta, { color: c.primary }]} maxFontSizeMultiplier={SMALL_TEXT_MAX_SCALE}>
             {showTies ? 'Hide tiebreaks' : `Show tiebreaks (${tieCount} tied)`}
           </Text>
+        </TouchableOpacity>
+      ) : null}
+      {adminCanOrder && data.waitingCount > 0 ? (
+        <Button
+          size="sm"
+          title="Set tie order"
+          onPress={() => setOrderOpen(true)}
+          style={styles.orderBtn}
+          accessibilityLabel={`Set tie order, ${data.waitingCount} tie${data.waitingCount === 1 ? '' : 's'} waiting`}
+        />
+      ) : adminCanOrder && showTies ? (
+        <TouchableOpacity
+          onPress={() => setOrderOpen(true)}
+          style={styles.tieToggle}
+          accessibilityRole="button"
+        >
+          <Text style={[t.meta, { color: c.primary }]} maxFontSizeMultiplier={SMALL_TEXT_MAX_SCALE}>Edit tie order</Text>
         </TouchableOpacity>
       ) : null}
       {data.tables.map(tbl => {
@@ -140,6 +170,14 @@ export default function StandingsSection({ data, title }: { data: StandingsData;
           </Text>
         </TouchableOpacity>
       ) : null}
+      {adminCanOrder ? (
+        <TieOrderSheet
+          visible={orderOpen}
+          onClose={() => setOrderOpen(false)}
+          groups={groups}
+          onSave={onSaveTieOrder!}
+        />
+      ) : null}
     </SectionCard>
   );
 }
@@ -162,5 +200,6 @@ const styles = StyleSheet.create({
   poolBlock: { marginTop: SPACE.sm },
   poolLabel: { paddingVertical: SPACE.xs },
   tieToggle: { minHeight: 44, justifyContent: 'center', alignSelf: 'flex-start' },
+  orderBtn: { alignSelf: 'flex-start', marginBottom: SPACE.xs },
   tieLine: { paddingHorizontal: SPACE.xs, paddingBottom: SPACE.xs, paddingLeft: 24 + SPACE.sm + SPACE.xs, borderBottomWidth: HAIRLINE },
 });

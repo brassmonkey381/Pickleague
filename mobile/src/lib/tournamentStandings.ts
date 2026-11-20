@@ -4,26 +4,20 @@
  *
  * This module adds no ranking rule of its own. It is a wrapper with two
  * sources of order, and nothing else:
- *   1. Live standings use the canonical tiebreak chain from
- *      lib/tournamentTiebreakers.ts (wins → 2-way head-to-head → point
- *      differential → registration seed), the TS mirror of the team path in
- *      compute_tournament_final_ranks (supabase/migration_unify_tournament_rankings.sql,
- *      re-issued unchanged for fixed teams by migration_fix_champion_rank_collision.sql).
+ *   1. Live standings use the ranking chain from lib/tournamentTiebreakers.ts
+ *      (wins, fewer losses, point differential, the admin's tie order, seed;
+ *      PKL-052: no head-to-head and no rating anywhere), the TS mirror of
+ *      compute_tournament_final_ranks.
  *   2. Completed tournaments can read the server's settled ranks from
  *      `tournament_final_ranks` (RLS: readable by everyone). Those settle
  *      wagers and pin the bracket champion / grand-final loser, so "your
  *      finish" and the podium must come from them, not from a re-derivation.
  *
- * Before the unify migration there were three different chains; a fourth here
- * would bring that bug class back. lib/__tests__/tournamentStandings.test.ts
- * pins this module's order to the comparator and to an emulation of the SQL.
- *
- * The MLP team table (sortMlpTeamStandings) is the existing display order of
- * the mlp_team_standings RPC rows, moved here from TournamentDetailScreen so
- * every client ordering lives in one file. It is not a new rule.
+ * lib/__tests__/tournamentStandings.test.ts pins this module's order to the
+ * comparator and to an emulation of the SQL.
  */
 import type { SupabaseClient } from '@supabase/supabase-js';
-import { buildStandingsComparator, teamKey, type TiebreakerMatch } from './tournamentTiebreakers';
+import { compareStandings, entrantKey, teamKey, type TiebreakerMatch } from './tournamentTiebreakers';
 
 /** A tournament_matches row as far as standings care. Extra columns are fine. */
 export type StandingsMatch = TiebreakerMatch & {
@@ -42,7 +36,14 @@ export type TeamStanding = {
   pa: number;
   /** Registration seed; only present when the caller supplies `seedOf`. */
   seed?: number;
+  /** The server's entrant key (entrantKey), for tie orders. */
+  tieKey: string;
+  /** The admin's tie order for this entrant, when one is set. */
+  tieRank?: number;
 };
+
+/** Admin tie orders (tournament_tie_orders), keyed by entrantKey(). */
+export type TieRanks = Record<string, number>;
 
 export type TeamStandingsOptions = {
   /** Display name for an entrant. p1 is always set; p2 is the doubles partner. */
@@ -59,15 +60,17 @@ export type TeamStandingsOptions = {
    * TournamentDetail tables have always shown.
    */
   seedOf?: (p1: string, p2: string | null) => number | null | undefined;
+  /** Admin tie orders, keyed by entrantKey(). */
+  tieRanks?: TieRanks;
 };
 
 /**
  * Tally W-L and points for every entrant that appears in `matches`, then sort
- * with the canonical comparator. Entrants are created in first-appearance
+ * with the ranking chain. Entrants are created in first-appearance
  * order and Array.prototype.sort is stable, so ties the chain can't separate
  * keep that order. Only completed matches with a winner count; scheduled ones
- * still list their entrants at 0-0. Head-to-head reads the same `matches`, so
- * pass a pool's matches for a pool table and all matches for an overall one.
+ * still list their entrants at 0-0. Pass a pool's matches for a pool table and
+ * all matches for an overall one.
  */
 export function computeTeamStandings(
   matches: StandingsMatch[],
@@ -82,7 +85,10 @@ export function computeTeamStandings(
         key, name: opts.nameOf(p1, p2),
         isMe: opts.isMe(p1, p2),
         wins: 0, losses: 0, pf: 0, pa: 0,
+        tieKey: entrantKey(p1, p2),
       };
+      const rank = opts.tieRanks?.[entry.tieKey];
+      if (rank != null) entry.tieRank = rank;
       if (opts.seedOf) {
         const seed = opts.seedOf(p1, p2);
         if (seed != null) entry.seed = seed;
@@ -104,16 +110,7 @@ export function computeTeamStandings(
     }
   }
 
-  const entries = Array.from(stats.values());
-  const tbMatches: TiebreakerMatch[] = matches.map(m => ({
-    team1_player1: m.team1_player1,
-    team1_player2: m.team1_player2,
-    team2_player1: m.team2_player1,
-    team2_player2: m.team2_player2,
-    winner_team: m.winner_team,
-    status: m.status,
-  }));
-  return entries.sort(buildStandingsComparator(entries, tbMatches));
+  return Array.from(stats.values()).sort(compareStandings);
 }
 
 // ── Settled ranks (completed tournaments) ───────────────────────────────────
@@ -201,24 +198,27 @@ export function settledStandings<T extends { key: string }>(
 
 // ── MLP team table ──────────────────────────────────────────────────────────
 
-/** A mlp_team_standings RPC row, as far as ordering cares. */
+/** A mlp_team_standings RPC row, as far as ordering cares. Points and the
+ *  admin tie order are added by the caller (the RPC has neither). */
 export type MlpTeamStandingLike = {
   sub_matches_won: number;
   sub_matches_lost: number;
   seed: number | null;
+  pf?: number;
+  pa?: number;
+  tieRank?: number | null;
 };
 
 /**
- * Display order of the MLP team table: sub-matches won desc, then fewer
- * sub-matches lost, then seed. Unchanged from TournamentDetailScreen.
+ * Display order of the MLP team table, the same chain as every format:
+ * sub-matches won desc, fewer lost, point diff, the admin's tie order, seed.
  * Returns a sorted copy.
  */
 export function sortMlpTeamStandings<T extends MlpTeamStandingLike>(rows: T[]): T[] {
-  return [...rows].sort((a, b) => {
-    if (a.sub_matches_won !== b.sub_matches_won) return b.sub_matches_won - a.sub_matches_won;
-    if (a.sub_matches_lost !== b.sub_matches_lost) return a.sub_matches_lost - b.sub_matches_lost;
-    return (a.seed ?? 999) - (b.seed ?? 999);
-  });
+  return [...rows].sort((a, b) => compareStandings(
+    { wins: a.sub_matches_won, losses: a.sub_matches_lost, pf: a.pf ?? 0, pa: a.pa ?? 0, tieRank: a.tieRank, seed: a.seed },
+    { wins: b.sub_matches_won, losses: b.sub_matches_lost, pf: b.pf ?? 0, pa: b.pa ?? 0, tieRank: b.tieRank, seed: b.seed },
+  ));
 }
 
 // ── Per-player table (rotating partners) ────────────────────────────────────
@@ -237,27 +237,26 @@ export type PlayerStanding = {
   isMe: boolean;
   wins: number;
   losses: number;
-  /** Points scored / conceded by the player's side (point diff breaks ties
-   *  after head-to-head). */
+  /** Points scored / conceded by the player's side. */
   pf: number;
   pa: number;
+  /** The server's entrant key (`${id}:${id}`), for tie orders. */
+  tieKey: string;
+  tieRank?: number;
+  seed?: number;
 };
 
 /**
  * Per-player standings for formats whose lineups change every match
- * (rotating partners). This is the client mirror of the PER-USER path of
- * compute_tournament_final_ranks (migration_fix_champion_rank_collision.sql),
- * not a new rule:
+ * (rotating partners). The client mirror of the PER-USER path of
+ * compute_tournament_final_ranks:
  *   - entrants are the approved players, in the order given;
  *   - only completed matches with a winner count;
  *   - a match with a non-empty game_scores array counts GAMES won and lost
  *     (best-of-N), otherwise the match itself is one win or one loss;
- *   - order: wins desc, losses asc, then among players level on both:
- *     head-to-head (tiedOpponentRecord, net matches won), point diff desc,
- *     rating desc (PKL-044, Brian 2026-11-18). Full ties keep entrant order.
- * The stored ranks are this order exactly for rotating partners (the SQL pins
- * a champion badge holder first for MLP only). Once the tournament completes,
- * callers show the stored ranks.
+ *   - order: the shared chain (wins, fewer losses, point diff, the admin's
+ *     tie order, seed), then entrant order. No head-to-head, no rating
+ *     (PKL-052).
  */
 export function computePlayerStandings(
   matches: PlayerStandingsMatch[],
@@ -265,13 +264,21 @@ export function computePlayerStandings(
     entrants: string[];
     nameOf: (userId: string) => string;
     isMe: (userId: string) => boolean;
-    ratingOf?: (userId: string) => number | null | undefined;
+    seedOf?: (userId: string) => number | null | undefined;
+    tieRanks?: TieRanks;
   },
 ): PlayerStanding[] {
-  const rows = opts.entrants.map((id, i) => ({
-    i,
-    row: { key: id, name: opts.nameOf(id), isMe: opts.isMe(id), wins: 0, losses: 0, pf: 0, pa: 0 } as PlayerStanding,
-  }));
+  const rows = opts.entrants.map((id, i) => {
+    const row: PlayerStanding = {
+      key: id, name: opts.nameOf(id), isMe: opts.isMe(id), wins: 0, losses: 0, pf: 0, pa: 0,
+      tieKey: entrantKey(id),
+    };
+    const rank = opts.tieRanks?.[row.tieKey];
+    if (rank != null) row.tieRank = rank;
+    const seed = opts.seedOf?.(id);
+    if (seed != null) row.seed = seed;
+    return { i, row };
+  });
   const byId = new Map(rows.map(r => [r.row.key, r.row]));
   for (const m of matches) {
     if ((m.status ?? 'completed') !== 'completed') continue;
@@ -296,70 +303,9 @@ export function computePlayerStandings(
     for (const id of team1) { const r = byId.get(id); if (r) { r.wins += g1; r.losses += g2; r.pf += s1; r.pa += s2; } }
     for (const id of team2) { const r = byId.get(id); if (r) { r.wins += g2; r.losses += g1; r.pf += s2; r.pa += s1; } }
   }
-  const rating = (id: string) => opts.ratingOf?.(id) ?? 0;
-  // Head-to-head inside each group tied on wins and losses (PKL-044).
-  const groups = new Map<string, string[]>();
-  for (const { row } of rows) {
-    const k = `${row.wins}|${row.losses}`;
-    if (!groups.has(k)) groups.set(k, []);
-    groups.get(k)!.push(row.key);
-  }
-  const h2h = new Map<string, number>();
-  for (const ids of groups.values()) {
-    if (ids.length < 2) continue;
-    for (const id of ids) {
-      const rec = tiedOpponentRecord(matches, id, ids);
-      h2h.set(id, rec.won - rec.lost);
-    }
-  }
   return rows
-    .sort((a, b) => {
-      if (a.row.wins !== b.row.wins) return b.row.wins - a.row.wins;
-      if (a.row.losses !== b.row.losses) return a.row.losses - b.row.losses;
-      const ha = h2h.get(a.row.key) ?? 0;
-      const hb = h2h.get(b.row.key) ?? 0;
-      if (ha !== hb) return hb - ha;
-      const da = a.row.pf - a.row.pa;
-      const db = b.row.pf - b.row.pa;
-      if (da !== db) return db - da;
-      const ra = rating(a.row.key);
-      const rb = rating(b.row.key);
-      if (ra !== rb) return rb - ra;
-      return a.i - b.i;
-    })
+    .sort((a, b) => compareStandings(a.row, b.row) || a.i - b.i)
     .map(r => r.row);
-}
-
-/**
- * Head-to-head for one player in a per-player tie (rotating partners, PKL-044):
- * completed matches this player played where at least one OTHER player of the
- * tied group was on the opposing side, counted as whole matches won and lost
- * (one match counts once, even with two tied opponents on it). With two tied
- * players this is plain head-to-head; with three or more it is a mini-table
- * among them. It is applied once to the whole tied group, not again to
- * players still level after it. Mirrored by compute_tournament_final_ranks
- * (migration_rotating_partners_tiebreak.sql).
- */
-export function tiedOpponentRecord(
-  matches: PlayerStandingsMatch[],
-  playerId: string,
-  tiedIds: string[],
-): { won: number; lost: number } {
-  const others = new Set(tiedIds.filter(id => id !== playerId));
-  let won = 0;
-  let lost = 0;
-  for (const m of matches) {
-    if ((m.status ?? 'completed') !== 'completed') continue;
-    if (m.winner_team !== 'team1' && m.winner_team !== 'team2') continue;
-    const team1 = [m.team1_player1, m.team1_player2].filter(Boolean) as string[];
-    const team2 = [m.team2_player1, m.team2_player2].filter(Boolean) as string[];
-    let mine: 'team1' | 'team2' | null = null;
-    if (team1.includes(playerId) && team2.some(id => others.has(id))) mine = 'team1';
-    else if (team2.includes(playerId) && team1.some(id => others.has(id))) mine = 'team2';
-    if (!mine) continue;
-    if (m.winner_team === mine) won++; else lost++;
-  }
-  return { won, lost };
 }
 
 // ── Display helpers (no ordering of their own) ──────────────────────────────

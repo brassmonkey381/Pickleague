@@ -479,12 +479,12 @@ async function runToCompletion(host: Actor, tId: string, tName: string, playerId
       const { data: regs } = await admin.from('tournament_registrations')
         .select('user_id, seed').eq('tournament_id', tId).eq('status', 'approved');
       const seedOf = new Map((regs ?? []).map((r: any) => [r.user_id, r.seed ?? 999]));
-      type E = { key: string; wins: number; pf: number; pa: number; seed?: number };
+      type E = { key: string; wins: number; losses: number; pf: number; pa: number; seed?: number };
       const entries = new Map<string, E>();
       const ensure = (p1: string | null, p2: string | null) => {
         if (!p1) return null;
         const k = teamKey(p1, p2);
-        if (!entries.has(k)) entries.set(k, { key: k, wins: 0, pf: 0, pa: 0 });
+        if (!entries.has(k)) entries.set(k, { key: k, wins: 0, losses: 0, pf: 0, pa: 0 });
         return entries.get(k)!;
       };
       for (const m of (ms ?? []) as any[]) {
@@ -493,13 +493,15 @@ async function runToCompletion(host: Actor, tId: string, tName: string, playerId
         if (!a || !b || m.status !== 'completed' || !m.winner_team || m.match_type === 'bye') continue;
         a.pf += m.team1_score ?? 0; a.pa += m.team2_score ?? 0;
         b.pf += m.team2_score ?? 0; b.pa += m.team1_score ?? 0;
-        if (m.winner_team === 'team1') a.wins++; else b.wins++;
+        if (m.winner_team === 'team1') { a.wins++; b.losses++; } else { b.wins++; a.losses++; }
       }
       for (const e of entries.values()) {
         e.seed = Math.min(...e.key.split('|').map((u) => Number(seedOf.get(u) ?? 999)));
       }
       const list = [...entries.values()];
-      list.sort(buildStandingsComparator(list, (ms ?? []) as any));
+      // PKL-052 chain: wins, fewer losses, point diff, admin tie order (none
+      // in a sim run), seed. No head-to-head.
+      list.sort(buildStandingsComparator());
       const clientOrder = list.map((e) => e.key);
       const byRank = new Map<number, string[]>();
       for (const r of (ranks ?? []) as any[]) {
