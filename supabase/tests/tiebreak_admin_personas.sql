@@ -140,6 +140,19 @@ begin
   perform pg_temp.won(v_t, v_r, 5, 'TB8', 'TB7', 11, 9);
   v_x := pg_temp.rr(v_t);
   perform pg_temp.ok('T2.1 2-1 tie: point diff (+20) puts TB6 above TB5, who won their meeting', v_x like 'TB6>TB5>%', v_x);
+
+  -- A tournament co-admin (registration role) may set it, like Create playoff.
+  update public.tournament_registrations set role = 'co-admin' where tournament_id = v_t and user_id = pg_temp.p('TB5');
+  perform set_config('request.jwt.claims', json_build_object('sub', pg_temp.p('TB5'), 'role', 'authenticated')::text, true);
+  perform set_config('role', 'authenticated', true);
+  begin
+    perform public.set_tournament_tie_order(v_t, array[pg_temp.key1('TB8'), pg_temp.key1('TB7')]);
+    v_x := 'saved';
+  exception when others then v_x := sqlerrm;
+  end;
+  perform set_config('role', 'none', true);
+  perform set_config('request.jwt.claims', '', true);
+  perform pg_temp.ok('T2.2 a tournament co-admin can set the tie order', v_x = 'saved', v_x);
 end $$;
 
 

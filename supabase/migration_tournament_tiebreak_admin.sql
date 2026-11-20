@@ -61,7 +61,16 @@ declare
   v_key text;
   v_i int := 0;
 begin
-  if v_uid is null or not public._is_tournament_admin(p_tournament_id, v_uid) then
+  -- Same people who can create the playoff (generate_playoff_bracket): the
+  -- host or a league admin, a tournament admin / co-admin, or godmode.
+  if v_uid is null or not (
+    public._is_tournament_admin(p_tournament_id, v_uid)
+    or exists (
+      select 1 from public.tournament_registrations r
+       where r.tournament_id = p_tournament_id and r.user_id = v_uid
+         and r.status = 'approved' and r.role in ('admin', 'co-admin'))
+    or coalesce(public.is_godmode_user(), false)
+  ) then
     raise exception 'PL_TIE_NOT_ADMIN: only a tournament admin can set the tie order';
   end if;
   if p_entrant_keys is null or cardinality(p_entrant_keys) < 2 then
