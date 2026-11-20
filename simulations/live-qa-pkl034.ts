@@ -1254,7 +1254,7 @@ async function auditDoubles(st: State, tId: string, players: string[]) {
 
   // A1. "your first match", once each
   for (const p of players) {
-    const first = notes.filter((n) => n.user_id === p && kindOf(n) === 'tm_ready');
+    const first = notes.filter((n) => n.user_id === p && kindOf(n) === 'tm_ready' && (n.title ?? '').startsWith(`🏓 ${tName} is on: `));
     const T = first[0] ? ts(first[0].created_at) : 0;
     const nx = nextAt(p, T);
     if (!nx) { bad.push(`${N(p)}: no matches`); continue; }
@@ -1273,7 +1273,8 @@ async function auditDoubles(st: State, tId: string, players: string[]) {
   let reporterUnknown = 0;
   for (const m of ms) {
     const ns = notes.filter((n) => kindOf(n) === 'tm_score' && n.title.includes(tName) && four(m).includes(n.user_id)
-      && (n.body ?? '').startsWith(line(m, n.user_id) + ', '));
+      && (n.body ?? '').startsWith(line(m, n.user_id) + ', ')
+      && Math.abs(Date.parse(n.created_at) - Date.parse(m.completed_at)) < 1500);
     const entered = ns.map((n) => /Entered by (.+?)\./.exec(n.body ?? '')?.[1]).filter(Boolean);
     const reporterName = entered[0];
     const reporter = four(m).find((p) => N(p) === reporterName) ?? null;
@@ -1310,11 +1311,21 @@ async function auditDoubles(st: State, tId: string, players: string[]) {
   const placePay = new Map((pp ?? []).map((g: any) => [g.user_id, Number(g.paid)]));
   const ord = (n: number) => n + (n % 100 >= 11 && n % 100 <= 13 ? 'th' : ['th', 'st', 'nd', 'rd'][n % 10] ?? 'th');
   const bad4: string[] = [];
+  const places = new Set(((ranks ?? []) as any[]).map((r) => r.final_rank)).size;
+  const { data: tf } = await admin.from('tournaments').select('format').eq('id', tId).single() as { data: any };
+  const staged = ['round_robin', 'pool_play'].includes(tf?.format) && (rds ?? []).some((r: any) => !['winners', 'pool'].includes(r.round_type));
+  const rrOf = new Map<string, number>();
+  if (staged) {
+    const { data: regsA } = await admin.from('tournament_registrations').select('user_id, seed').eq('tournament_id', tId);
+    const seedA = new Map((regsA ?? []).map((r: any) => [r.user_id, r.seed ?? 999]));
+    const gAll = ((ms0 ?? []) as any[]) as PO.PM[];
+    PO.groupOrder(gAll, (rds ?? []) as PO.PR[], seedA, await tieRanks(tId)).forEach((r, i) => { for (const u of PO.membersOf(r.key)) rrOf.set(u, i + 1); });
+  }
   for (const r of (ranks ?? []) as any[]) {
     const k = r.final_rank as number, p = r.user_id as string;
     const title = k === 1 ? `🥇 You won ${tName}!` : k === 2 ? `🥈 2nd place in ${tName}` : k === 3 ? `🥉 3rd place in ${tName}` : `🏁 ${tName}: you finished ${ord(k)}`;
     const pay = placePay.get(p);
-    const body = [`Final placement: ${ord(k)} of ${(ranks ?? []).length}.`, pay && pay > 0 ? `+${pay} 🥒 placement pay.` : null, 'Open the tournament for the final table.'].filter(Boolean).join(' ');
+    const body = [`Final placement: ${ord(k)} of ${places}.`, staged && rrOf.has(p) ? `Round robin: ${ord(rrOf.get(p)!)}.` : null, pay && pay > 0 ? `+${pay} 🥒 placement pay.` : null, 'Open the tournament for the final table.'].filter(Boolean).join(' ');
     const hit = notes.filter((n) => n.user_id === p && kindOf(n) === 'tm_finished');
     if (hit.length !== 1 || hit[0].title !== title || hit[0].body !== body) bad4.push(`${N(p)}: x${hit.length} "${hit[0]?.title ?? ''} | ${hit[0]?.body ?? ''}" want "${title} | ${body}"`);
   }
@@ -1453,7 +1464,8 @@ async function auditDoubles(st: State, tId: string, players: string[]) {
     const badE2: string[] = [];
     for (const m of called.filter((x) => ts(x.called_at) - firstCall > 1000)) {
       for (const p of four(m)) {
-        const hit = notes.filter((n) => n.user_id === p && kindOf(n) === 'tm_court' && (n.body ?? '').startsWith(line(m, p) + '.'));
+        const hit = notes.filter((n) => n.user_id === p && kindOf(n) === 'tm_court' && (n.body ?? '').startsWith(line(m, p) + '.')
+          && Math.abs(Date.parse(n.created_at) - ts(m.called_at)) < 1500);
         const want = `${line(m, p)}. Head to ${cLabel(m.court)} now.`;
         if (hit.length !== 1 || hit[0].title !== `🏓 You're on ${cLabel(m.court)} in ${tName}` || hit[0].body !== want)
           badE2.push(`#${m.match_order} ${N(p)}: x${hit.length}${hit[0] ? ` "${hit[0].title} | ${hit[0].body}"` : ''}`);
