@@ -1,14 +1,15 @@
 import React, { useEffect, useState } from 'react';
 import { View, Text, FlatList, StyleSheet, ScrollView, Pressable } from 'react-native';
 import { Calendar, DateData } from 'react-native-calendars';
-import { RouteProp } from '@react-navigation/native';
+import { RouteProp, useNavigation } from '@react-navigation/native';
+import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import {
   sbCall,
   currentUserId as sessionUserId,
   friendlySbMessage,
 } from '@just-messin-around/expo-foundation/supabase';
 import { isoDate } from '@just-messin-around/expo-foundation/scheduling/drillTime';
-import { ErrorState } from '@just-messin-around/expo-foundation/ui';
+import { ErrorState, FilterChipRow } from '@just-messin-around/expo-foundation/ui';
 import { HAIRLINE, RADIUS, SPACE } from '@just-messin-around/expo-foundation/styles';
 import { FONT, textStyles } from '@just-messin-around/expo-foundation/typography';
 import { supabase } from '../lib/supabase';
@@ -25,6 +26,17 @@ import {
   type TournamentHistoryMatch,
   type TournamentHistoryRow,
 } from '../lib/tournamentHistory';
+import {
+  CAL_KIND_LABEL,
+  calendarKinds,
+  itemsByDay,
+  lengthText,
+  type CalItem,
+  type CalKind,
+} from '../lib/calendarItems';
+import { PLAY_KIND_LABEL } from '../lib/playHistory';
+
+const shortName = (n: string | null | undefined) => (n ?? '').trim().split(/\s+/)[0] || 'someone';
 
 type Props = { route: RouteProp<RootStackParamList, 'CalendarAnalytics'> };
 
@@ -51,22 +63,111 @@ export function CalendarAnalyticsView({ userId, leagueId }: { userId?: string; l
   const [currentUserId, setCurrentUserId] = useState<string | null>(null);
   const [loading, setLoading]       = useState(true);
   const [loadError, setLoadError]   = useState<string | null>(null);
+  const navigation = useNavigation<NativeStackNavigationProp<RootStackParamList>>();
+  // PKL-051: what this calendar offers (lib/calendarItems) and which kinds are on.
+  const [kinds, setKinds]           = useState<CalKind[]>(['matches']);
+  const [shown, setShown]           = useState<CalKind[]>(['matches']);
+  const [itemMap, setItemMap]       = useState<Record<string, CalItem[]>>({});
 
   // LOCAL session read — getUser() is a network call, so offline `uid` came back
   // null and the calendar silently showed EVERYONE's matches instead of yours.
-  const refresh = useRefresh(async () => {
-    const uid = userId ?? (await sessionUserId(supabase));
+  async function loadAll(sessionUid: string | null, first: boolean) {
+    const uid = userId ?? sessionUid;
     setCurrentUserId(uid);
-    await loadMatches(uid);
+    const offered = calendarKinds({ own: !!uid && uid === sessionUid, leagueId });
+    setKinds(offered);
+    if (first) setShown(offered);
+    await Promise.all([loadMatches(uid), loadItems(uid, offered)]);
+  }
+
+  const refresh = useRefresh(async () => {
+    await loadAll(await sessionUserId(supabase), false);
   });
 
   useEffect(() => {
-    sessionUserId(supabase).then((sessionUid) => {
-      const uid = userId ?? sessionUid;
-      setCurrentUserId(uid);
-      loadMatches(uid);
-    });
+    sessionUserId(supabase).then((sessionUid) => loadAll(sessionUid, true));
   }, []);
+
+  /** Upcoming matches, events, drills and check-ins for this calendar. Each
+   *  source is best effort: one failing leaves the others (and the results). */
+  async function loadItems(uid: string | null, offered: CalKind[]) {
+    if (!uid) { setItemMap({}); return; }
+    const items: CalItem[] = [];
+    const tries: Promise<void>[] = [];
+
+    if (offered.includes('upcoming')) tries.push((async () => {
+      let q = supabase
+        .from('matches')
+        .select(`id, scheduled_at, match_type, league_id, player1_id, partner1_id, player2_id, partner2_id,
+          player1:profiles!matches_player1_id_fkey(full_name), partner1:profiles!matches_partner1_id_fkey(full_name),
+          player2:profiles!matches_player2_id_fkey(full_name), partner2:profiles!matches_partner2_id_fkey(full_name),
+          league:leagues(name)`)
+        .eq('status', 'scheduled')
+        .not('scheduled_at', 'is', null)
+        .or(`player1_id.eq.${uid},partner1_id.eq.${uid},player2_id.eq.${uid},partner2_id.eq.${uid}`);
+      if (leagueId) q = q.eq('league_id', leagueId);
+      const rows = ((await sbCall(() => q)) ?? []) as any[];
+      for (const m of rows) {
+        const onTeam1 = m.player1_id === uid || m.partner1_id === uid;
+        const opp = onTeam1 ? [m.player2, m.partner2] : [m.player1, m.partner1];
+        const names = opp.filter(Boolean).map((p: any) => shortName(p.full_name)).join(' & ');
+        items.push({ id: `m:${m.id}`, kind: 'upcoming', at: m.scheduled_at, title: `vs ${names || 'TBD'}`,
+          sub: leagueId ? null : m.league?.name ?? null });
+      }
+    })());
+
+    if (offered.includes('events')) tries.push((async () => {
+      let leagueIds: string[];
+      if (leagueId) leagueIds = [leagueId];
+      else {
+        const mem = ((await sbCall(() => supabase.from('league_members').select('league_id').eq('user_id', uid))) ?? []) as { league_id: string }[];
+        leagueIds = mem.map((r) => r.league_id);
+      }
+      if (!leagueIds.length) return;
+      const rows = ((await sbCall(() => supabase
+        .from('league_events')
+        .select('id, title, location_name, league:leagues(name), event_slots!league_events_confirmed_slot_id_fkey!inner(starts_at, ends_at)')
+        .in('league_id', leagueIds)
+        .in('status', ['scheduled', 'completed']))) ?? []) as any[];
+      for (const e of rows) {
+        const slot = Array.isArray(e.event_slots) ? e.event_slots[0] : e.event_slots;
+        if (!slot?.starts_at) continue;
+        items.push({ id: `e:${e.id}`, kind: 'events', at: slot.starts_at, title: e.title, eventId: e.id,
+          sub: [e.location_name, leagueId ? null : e.league?.name].filter(Boolean).join(', ') || null });
+      }
+    })());
+
+    if (offered.includes('drills')) tries.push((async () => {
+      const rows = ((await sbCall(() => supabase
+        .from('drill_sessions')
+        .select('id, player1_id, starts_at, length_minutes, p1:profiles!drill_sessions_player1_id_fkey(full_name), p2:profiles!drill_sessions_player2_id_fkey(full_name), req:drill_requests(location_name)')
+        .or(`player1_id.eq.${uid},player2_id.eq.${uid}`)
+        .not('starts_at', 'is', null))) ?? []) as any[];
+      for (const d of rows) {
+        const other = d.player1_id === uid ? d.p2 : d.p1;
+        const req = Array.isArray(d.req) ? d.req[0] : d.req;
+        items.push({ id: `d:${d.id}`, kind: 'drills', at: d.starts_at, title: `Drill with ${shortName(other?.full_name)}`,
+          sub: [req?.location_name, d.length_minutes ? `${d.length_minutes} min` : null].filter(Boolean).join(', ') || null });
+      }
+    })());
+
+    if (offered.includes('play')) tries.push((async () => {
+      const rows = ((await sbCall(() => supabase
+        .from('play_sessions')
+        .select('id, kind, started_at, ended_at, venues(name)')
+        .eq('user_id', uid)
+        .is('discarded_at', null))) ?? []) as any[];
+      for (const p of rows) {
+        const venue = Array.isArray(p.venues) ? p.venues[0] : p.venues;
+        items.push({ id: `p:${p.id}`, kind: 'play', at: p.started_at,
+          title: venue?.name ? `Checked in at ${venue.name}` : 'Checked in',
+          sub: [PLAY_KIND_LABEL[p.kind as keyof typeof PLAY_KIND_LABEL], lengthText(p.started_at, p.ended_at)].filter(Boolean).join(', ') || null });
+      }
+    })());
+
+    await Promise.all(tries.map((t) => t.catch(() => undefined)));
+    setItemMap(itemsByDay(items, isoDate));
+  }
 
   function isOnTeam1(match: Match, uid: string) {
     return match.player1_id === uid || match.partner1_id === uid;
@@ -172,7 +273,12 @@ export function CalendarAnalyticsView({ userId, leagueId }: { userId?: string; l
     };
   }
 
-  const selectedDayRecord = selectedDate ? dateMap[selectedDate] : null;
+  const showResults = shown.includes('matches');
+  const itemsOn = (day: string) => (itemMap[day] ?? []).filter((it) => shown.includes(it.kind));
+  const selectedDayRecord = selectedDate && showResults ? dateMap[selectedDate] ?? null : null;
+  const selectedItems = selectedDate ? itemsOn(selectedDate) : [];
+  const anyData = (showResults && Object.keys(dateMap).length > 0)
+    || Object.keys(itemMap).some((d) => itemsOn(d).length > 0);
 
   if (loading) return <View style={{ flex: 1, backgroundColor: colors.bg }}><SkeletonList rows={6} /></View>;
 
@@ -191,10 +297,22 @@ export function CalendarAnalyticsView({ userId, leagueId }: { userId?: string; l
 
   return (
     <ScrollView style={S.container} refreshControl={<AppRefreshControl {...refresh} />}>
+      {kinds.length > 1 && (
+        <FilterChipRow<CalKind>
+          multi
+          size="md"
+          scrollable
+          options={kinds.map((k) => ({ value: k, label: CAL_KIND_LABEL[k] }))}
+          values={shown}
+          onChangeValues={(v) => setShown([...v])}
+          style={S.chips}
+        />
+      )}
       <Calendar
         markedDates={markedDates}
         dayComponent={({ date, state }: any) => {
-          const record     = date ? dateMap[date.dateString] : undefined;
+          const record     = date && showResults ? dateMap[date.dateString] : undefined;
+          const dayItems   = date ? itemsOn(date.dateString).length : 0;
           const isSelected = date?.dateString === selectedDate;
           const isDisabled = state === 'disabled';
 
@@ -237,6 +355,12 @@ export function CalendarAnalyticsView({ userId, leagueId }: { userId?: string; l
                   {record.ratingDelta > 0 ? '+' : ''}{record.ratingDelta.toFixed(2)}
                 </Text>
               )}
+              {/* Upcoming matches, events, drills or check-ins that day: a count badge. */}
+              {dayItems > 0 && (
+                <View style={[S.itemBadge, isSelected && S.itemBadgeSelected]}>
+                  <Text style={[S.itemBadgeText, isSelected && S.itemBadgeTextSelected]}>{dayItems}</Text>
+                </View>
+              )}
             </Pressable>
           );
         }}
@@ -250,11 +374,19 @@ export function CalendarAnalyticsView({ userId, leagueId }: { userId?: string; l
         }}
       />
 
-      {Object.keys(dateMap).length === 0 && (
-        <EmptyState iconName="calendar-event" title="No matches yet" subtitle="No match data found for this view." />
+      {!anyData && (
+        <EmptyState iconName="calendar-event" title="Nothing on the calendar yet"
+          subtitle={kinds.length > 1 ? 'Nothing here for the kinds picked above.' : 'No match data found for this view.'} />
       )}
 
-      {selectedDayRecord ? (
+      {selectedDate && !selectedDayRecord && selectedItems.length > 0 ? (
+        <View style={S.dayDetail}>
+          <Text style={S.detailDate}>
+            {new Date(selectedDate + 'T12:00:00').toLocaleDateString(undefined, { weekday: 'long', month: 'long', day: 'numeric' })}
+          </Text>
+          {selectedItems.map(renderItem)}
+        </View>
+      ) : selectedDayRecord ? (
         <View style={S.dayDetail}>
           <Text style={S.detailDate}>
             {new Date(selectedDate! + 'T12:00:00').toLocaleDateString(undefined, {
@@ -332,14 +464,37 @@ export function CalendarAnalyticsView({ userId, leagueId }: { userId?: string; l
               );
             }}
           />
+          {selectedItems.map(renderItem)}
         </View>
       ) : (
-        Object.keys(dateMap).length > 0 && (
-          <Text style={S.hint}>Tap a highlighted date to see match details.</Text>
+        anyData && (
+          <Text style={S.hint}>Tap a highlighted date to see that day.</Text>
         )
       )}
     </ScrollView>
   );
+
+  function renderItem(it: CalItem) {
+    const time = new Date(it.at).toLocaleTimeString(undefined, { hour: 'numeric', minute: '2-digit' });
+    const body = (
+      <>
+        <Text style={S.itemKind}>{CAL_KIND_LABEL[it.kind]}</Text>
+        <View style={S.itemText}>
+          <Text style={S.matchOpponent} numberOfLines={2}>{it.title}</Text>
+          {it.sub ? <Text style={S.matchTime} numberOfLines={1}>{it.sub}</Text> : null}
+        </View>
+        <Text style={S.matchTime}>{time}</Text>
+      </>
+    );
+    return it.eventId ? (
+      <Pressable key={it.id} style={({ pressed }) => [S.matchRow, pressed && S.dayCellPressed]} accessibilityRole="link"
+        onPress={() => navigation.navigate('EventDetail', { eventId: it.eventId!, title: it.title })}>
+        {body}
+      </Pressable>
+    ) : (
+      <View key={it.id} style={S.matchRow}>{body}</View>
+    );
+  }
 }
 
 function makeStyles(c: ReturnType<typeof useTheme>['colors']) {
@@ -379,5 +534,15 @@ function makeStyles(c: ReturnType<typeof useTheme>['colors']) {
     matchScore: { fontSize: FONT.size.md, fontWeight: FONT.weight.bold, color: c.textSub, fontVariant: ['tabular-nums'] },
     matchTime: { ...t.caption },
     hint: { ...t.hint, textAlign: 'center', marginTop: SPACE.xl, padding: SPACE.lg },
+    chips: { paddingHorizontal: SPACE.md, backgroundColor: c.surface },
+    itemBadge: {
+      position: 'absolute', top: 1, right: 1, minWidth: 14, height: 14, borderRadius: 7, paddingHorizontal: 3,
+      backgroundColor: c.surfaceAlt, borderWidth: HAIRLINE, borderColor: c.border, alignItems: 'center', justifyContent: 'center',
+    },
+    itemBadgeSelected: { backgroundColor: c.textInverse, borderColor: c.textInverse },
+    itemBadgeText: { fontSize: FONT.size.xxs, lineHeight: 12, color: c.textSub, fontWeight: FONT.weight.bold },
+    itemBadgeTextSelected: { color: c.primary },
+    itemKind: { ...t.fieldLabel, width: 64 },
+    itemText: { flex: 1, minWidth: 0 },
   });
 }
