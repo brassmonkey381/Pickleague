@@ -32,7 +32,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import crypto from 'node:crypto';
 import { fileURLToPath } from 'node:url';
-import { seedPlayers, seedTeams, generateDoublesSingleElim, generateDoubleElim, generateRoundRobin, generateRotatingPartners, rotatingPartnersRounds, generateDoublesPoolPlay, validatePools, FORMAT_META, type MatchPairing } from '../mobile/src/lib/tournament';
+import { seedPlayers, seedTeams, generateMLPSchedule, generateDoublesSingleElim, generateDoubleElim, generateRoundRobin, generateRotatingPartners, rotatingPartnersRounds, generateDoublesPoolPlay, validatePools, FORMAT_META, type MatchPairing } from '../mobile/src/lib/tournament';
 import * as PO from './qa/pools-oracle';
 import { buildStandingsComparator } from '../mobile/src/lib/tournamentTiebreakers';
 import { collectReplay } from './replay/collect';
@@ -65,14 +65,20 @@ const R5_PO = val('--playoff', 'top_4');
 // PKL-060 R3: double elimination singles, 8 players (the app needs a power of 2 for double elim), random seeding,
 // no courts, invite only. Nobody is out before a second loss; the Grand Final decides it.
 const R3 = has('--r3');
+// PKL-060 R2 (bots only for now): MLP with random teams (mlp_random), snake draft by PLUPR, round robin + top 4 playoff,
+// dreambreakers. 20 bots (10 men, 10 women) = 5 teams. With 5 teams the round robin follows a fixed plan in which the
+// 4th and 5th teams tie on sub-match W-L and the 5th has the better point diff (a PKL-052 probe). --semis dreambreaker
+// (default: both semifinals go 2-2 and a dreambreaker decides) | decided (3-1, the dreambreaker is cancelled).
+const R2 = has('--r2');
+const R2_SEMIS = val('--semis', 'dreambreaker');
 const POOL_COUNT = Number(val('--pool-count', '2'));
 const PLAYOFF = val('--playoff', 'top_2_per_pool');
 const ANTE = POOLS || R7 || R5 ? Number(val('--ante', '50')) : 0;
 const VARIANT = val('--variant', '').replace(/[^a-z0-9]/gi, '').toLowerCase();
 const DOUBLES = has('--doubles') || POOLS || R7 || R4;
-const TAG = POOLS ? 'pkl050' : R7 ? 'pkl060r7' : R4 ? 'pkl060r4' : R5 ? 'pkl060r5' : R3 ? 'pkl060r3' : DOUBLES ? 'pkl043' : 'pkl034';
-const ITEM = POOLS ? 'PKL-050' : R7 || R4 || R5 || R3 ? 'PKL-060' : DOUBLES ? 'PKL-043' : 'PKL-034';
-const N_PLAYERS = POOLS ? Number(val('--players', '16')) : R7 ? Number(val('--players', '9')) : R4 ? 16 : R5 ? Number(val('--players', '7')) : DOUBLES ? 10 : 8;
+const TAG = POOLS ? 'pkl050' : R7 ? 'pkl060r7' : R4 ? 'pkl060r4' : R5 ? 'pkl060r5' : R3 ? 'pkl060r3' : R2 ? 'pkl060r2' : DOUBLES ? 'pkl043' : 'pkl034';
+const ITEM = POOLS ? 'PKL-050' : R7 || R4 || R5 || R3 || R2 ? 'PKL-060' : DOUBLES ? 'PKL-043' : 'PKL-034';
+const N_PLAYERS = POOLS ? Number(val('--players', '16')) : R7 ? Number(val('--players', '9')) : R4 ? 16 : R5 ? Number(val('--players', '7')) : R2 ? Number(val('--players', '20')) : DOUBLES ? 10 : 8;
 const N_BOTS = REHEARSAL ? N_PLAYERS : N_PLAYERS - 1;
 /** R4: two more bots that only try to join late (one when the field is full: waitlisted; one after the deadline: refused). */
 const LATE_BOTS = R4 ? 2 : 0;
@@ -81,6 +87,7 @@ const T_NAME = POOLS ? `[SIM] PKL-050 pool play QA${VARIANT ? ' ' + VARIANT : ''
   : R4 ? `[SIM] PKL-060 R4 single elim doubles QA${REHEARSAL ? ' rehearsal' : ''}`
   : R5 ? `[SIM] PKL-060 R5 round robin singles QA${VARIANT ? ' ' + VARIANT : ''}${REHEARSAL ? ' rehearsal' : ''}`
   : R3 ? `[SIM] PKL-060 R3 double elim singles QA${REHEARSAL ? ' rehearsal' : ''}`
+  : R2 ? `[SIM] PKL-060 R2 MLP random teams QA${VARIANT ? ' ' + VARIANT : ''}${REHEARSAL ? ' rehearsal' : ''}`
   : DOUBLES ? (REHEARSAL ? '[SIM] PKL-043 doubles QA rehearsal' : '[SIM] PKL-043 doubles QA')
   : REHEARSAL ? '[SIM] PKL-034 rehearsal' : '[SIM] PKL-034 live QA';
 const L_NAME = POOLS ? `[SIM] PKL-050 QA league${VARIANT ? ' ' + VARIANT : ''}${REHEARSAL ? ' rehearsal' : ''}`
@@ -88,6 +95,7 @@ const L_NAME = POOLS ? `[SIM] PKL-050 QA league${VARIANT ? ' ' + VARIANT : ''}${
   : R4 ? `[SIM] PKL-060 R4 QA league${REHEARSAL ? ' rehearsal' : ''}`
   : R5 ? `[SIM] PKL-060 R5 QA league${VARIANT ? ' ' + VARIANT : ''}${REHEARSAL ? ' rehearsal' : ''}`
   : R3 ? `[SIM] PKL-060 R3 QA league${REHEARSAL ? ' rehearsal' : ''}`
+  : R2 ? `[SIM] PKL-060 R2 QA league${VARIANT ? ' ' + VARIANT : ''}${REHEARSAL ? ' rehearsal' : ''}`
   : DOUBLES ? (REHEARSAL ? '[SIM] PKL-043 rehearsal league' : '[SIM] PKL-043 QA league')
   : REHEARSAL ? '[SIM] PKL-034 rehearsal league' : '[SIM] PKL-034 QA league';
 const BOT_TAG = `${TAG}${REHEARSAL ? 'r' : ''}${VARIANT}`;
@@ -112,7 +120,7 @@ const FAST_MS = 2500;
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const repo = path.resolve(here, '..');
-const STATE_DIR = path.join(repo, 'state', POOLS ? 'pkl-050' : R7 ? 'pkl-060-r7' : R4 ? 'pkl-060-r4' : R5 ? 'pkl-060-r5' : R3 ? 'pkl-060-r3' : DOUBLES ? 'pkl-043' : 'pkl-034');
+const STATE_DIR = path.join(repo, 'state', POOLS ? 'pkl-050' : R7 ? 'pkl-060-r7' : R4 ? 'pkl-060-r4' : R5 ? 'pkl-060-r5' : R3 ? 'pkl-060-r3' : R2 ? 'pkl-060-r2' : DOUBLES ? 'pkl-043' : 'pkl-034');
 /** R7: the second tournament, created only to be cancelled (cancel-check). */
 const T2_NAME = `${T_NAME} (cancel check)`;
 const RUN = `${MODE}${VARIANT ? '-' + VARIANT : ''}`; // file stem: live, rehearsal, rehearsal-p3, ...
@@ -308,6 +316,7 @@ function planPools() {
 }
 
 function plan() {
+  if (R2) return planR2();
   if (POOLS) return planPools();
   if (DOUBLES) return planDoubles();
   const ids = Array.from({ length: 8 }, (_, i) => `p${i + 1}`);
@@ -393,6 +402,8 @@ async function brianSnapshot(id: string) {
 // ── setup ─────────────────────────────────────────────────────────────────────
 async function setup() {
   log(`=== setup (${MODE}) ===`);
+  if (R2 && !REHEARSAL) die('R2 is bots-only for now: run it with --rehearsal');
+  if (R2 && (N_PLAYERS % 4 || N_PLAYERS < 8)) die(`R2 needs a multiple of 4 players, at least 8 (got ${N_PLAYERS})`);
   const prior = readState();
   if (prior?.tournament_id) {
     const { data } = await admin.from('tournaments').select('id').eq('id', prior.tournament_id).maybeSingle();
@@ -423,14 +434,16 @@ async function setup() {
     const email = EMAIL(n), name = `QA Bot ${n}`;
     const { data, error } = await admin.auth.admin.createUser({
       email, password: st.password, email_confirm: true,
-      user_metadata: { full_name: name, username: POOLS || R7 || R4 || R5 || R3 ? `qa${BOT_TAG}${n}` : `qabot${n}${REHEARSAL ? 'r' : ''}` },
+      user_metadata: { full_name: name, username: POOLS || R7 || R4 || R5 || R3 || R2 ? `qa${BOT_TAG}${n}` : `qabot${n}${REHEARSAL ? 'r' : ''}` },
     });
     if (error) die(`create ${email}: ${error.message} (run cleanup, then setup again)`);
     const id = data.user!.id;
     st.bots.push({ n, id, email, name }); writeState(st);
-    const { error: pe } = await admin.from('profiles').update({ full_name: name, gender: 'male' }).eq('id', id);
+    // R2 (MLP): odd bots are men, even bots women, each with its own PLUPR so the snake draft has one right answer.
+    const prof: Record<string, unknown> = R2 ? { full_name: name, gender: n % 2 ? 'male' : 'female', rating: r2Rating(n, N_BOTS) } : { full_name: name, gender: 'male' };
+    const { error: pe } = await admin.from('profiles').update(prof).eq('id', id);
     if (pe) log(`  note: profile update ${name}: ${pe.message}`);
-    log(`bot ${name}  ${id}  ${email}`);
+    log(`bot ${name}  ${id}  ${email}${R2 ? `  ${prof.gender}, PLUPR ${prof.rating}` : ''}`);
   }
   const host = st.bots[0];
   // Starting a league costs 5000 pickles and a tournament 2500 (migration_create_costs.sql); new accounts have none.
@@ -463,7 +476,19 @@ async function setup() {
 
   // 3. tournament, as the app's CreateTournament writes it
   const start = new Date(Date.now() + 15 * 60_000);
-  const payload = R3 ? {
+  const payload = R2 ? {
+    // CreateTournamentScreen for MLP + Random teams + Round robin + Playoff top 4: format mlp_random, match_type
+    // doubles, team_creation random, mlp_play_format round_robin_playoff, mlp_playoff_teams 4, mlp_pool_count 2
+    // (it sends 2 when the format is not pool play), and no playoff_format (only sent for non-MLP formats).
+    league_id: lg!.id, name: T_NAME,
+    description: `QA test (${ITEM}). Private, invite only. ${N_BOTS} QA bots post scores automatically; this is not a real event.`,
+    created_by: host.id, format: 'mlp_random', match_type: 'doubles', seeding: 'elo', pool_count: 1,
+    partner_rotation: null, team_creation: 'random', registration_mode: 'invite_only', registration_closes_at: null,
+    min_players: N_PLAYERS, max_players: N_PLAYERS, start_time: start.toISOString(), expected_length_hours: 3,
+    location_name: 'QA test (online)', location_lat: null, location_lng: null,
+    pickle_ante: 0, payout_structure: [60, 25, 15], status: 'registration',
+    mlp_play_format: 'round_robin_playoff', mlp_pool_count: 2, mlp_playoff_teams: 4, courts: null,
+  } : R3 ? {
     league_id: lg!.id, name: T_NAME,
     description: `QA test (${ITEM}). Private, invite only. ${N_BOTS} QA bots post scores automatically; this is not a real event.`,
     created_by: host.id, format: 'double_elimination', match_type: 'singles', seeding: 'random', pool_count: 1,
@@ -985,6 +1010,420 @@ async function finishR5(st: State, nm: Map<string, string>, completeAsked: boole
   catch (e: any) { check('PKL-043 audit ran', false, 'audit threw: ' + (e?.message ?? e)); }
 }
 
+// ── PKL-060 R2: MLP, random teams ─────────────────────────────────────────────
+/** Bot n's PLUPR for R2: distinct values (7 is coprime with the player count when it is a multiple of 4 and 20, 16, ...). */
+export function r2Rating(n: number, total: number) { return Number((2.5 + ((n * 7) % total) * 0.1).toFixed(2)); }
+
+type MT = { id: string; name: string; seed: number | null; status: string; created_at?: string; captain_id?: string | null;
+  male_1_id: string | null; male_2_id: string | null; female_1_id: string | null; female_2_id: string | null; dreambreaker_player_id: string | null };
+type XM = M & { is_dreambreaker?: boolean | null; completed_at?: string | null; created_at?: string | null };
+type XR = { id: string; label: string | null; round_type: string; round_number: number };
+const mlpMembers = (t: MT) => [t.male_1_id, t.male_2_id, t.female_1_id, t.female_2_id].filter((x): x is string => !!x);
+/** A small stable hash (resume-safe "random" choices). */
+const h32 = (s: string) => { let h = 2166136261; for (let i = 0; i < s.length; i++) { h ^= s.charCodeAt(i); h = Math.imul(h, 16777619); } return h >>> 0; };
+
+/** One team meeting (a tournament_round): its 4 sub-matches, the dreambreaker, and where it stands. */
+export function r2Meeting(round: XR, ms: XM[], teams: MT[]) {
+  const rm = ms.filter((m) => m.round_id === round.id).sort((a, b) => a.match_order - b.match_order);
+  const subs = rm.filter((m) => !m.is_dreambreaker), db = rm.find((m) => !!m.is_dreambreaker) ?? null;
+  const teamOf = (u: string | null | undefined) => (u ? teams.find((t) => mlpMembers(t).includes(u)) ?? null : null);
+  const A = teamOf(subs[0]?.team1_player1), B = teamOf(subs[0]?.team2_player1);
+  const won = (m: XM, w: string) => m.status === 'completed' && m.winner_team === w;
+  const subA = subs.filter((m) => won(m, 'team1')).length, subB = subs.filter((m) => won(m, 'team2')).length;
+  const aw = rm.filter((m) => won(m, 'team1')).length, bw = rm.filter((m) => won(m, 'team2')).length;
+  const pts = (side: 1 | 2) => rm.filter((m) => m.status === 'completed').reduce((s, m) => s + ((side === 1 ? m.team1_score : m.team2_score) ?? 0), 0);
+  const subsDone = subs.length > 0 && subs.every((m) => m.status === 'completed');
+  const total = rm.length, completed = rm.filter((m) => m.status === 'completed').length;
+  // _maybe_auto_close_mlp_tournament's "decided": more than half the rows won, or every row completed
+  const decided = aw > Math.floor(total / 2) || bw > Math.floor(total / 2) || completed >= total
+    || (subsDone && (!db || db.status === 'cancelled' || db.status === 'completed'));
+  // _mlp_round_winner: sub-match wins (dreambreaker included), then points, then team seed
+  const aBetter = aw !== bw ? aw > bw : pts(1) !== pts(2) ? pts(1) > pts(2) : (A?.seed ?? 999) <= (B?.seed ?? 999);
+  return { round, rm, subs, db, A, B, subA, subB, aw, bw, subsDone, decided, winner: aBetter ? A : B, loser: aBetter ? B : A };
+}
+
+/**
+ * R2's plan for 5 teams, by team seed (lo-hi: sub-match wins of the lower seed, then of the higher; db = who wins the
+ * dreambreaker when it is 2-2). Seeds 4 and 5 finish level on sub-match W-L (6-11) and seed 5 has the better point diff
+ * (it wins big and loses close, seed 4 the opposite): PKL-052 puts seed 5 into the top 4, a seed tiebreak puts seed 4.
+ */
+const R2_PLAN: Record<string, { a: number; b: number; db?: 'a' | 'b' }> = {
+  '1-2': { a: 3, b: 1 }, '1-3': { a: 3, b: 1 }, '1-4': { a: 3, b: 1 }, '1-5': { a: 4, b: 0 },
+  '2-3': { a: 2, b: 2, db: 'a' }, '2-4': { a: 3, b: 1 }, '2-5': { a: 3, b: 1 },
+  '3-4': { a: 3, b: 1 }, '3-5': { a: 1, b: 3 }, '4-5': { a: 2, b: 2, db: 'a' },
+};
+/** The target for a meeting as sub-match wins of its team1 side (A) and team2 side (B), and the dreambreaker winner. */
+export function r2Target(round: XR, aSeed: number, bSeed: number, nTeams: number, semis: string) {
+  const r = h32(round.id);
+  if (round.round_type === 'winners') {
+    const p = nTeams === 5 ? R2_PLAN[`${Math.min(aSeed, bSeed)}-${Math.max(aSeed, bSeed)}`] : null;
+    if (p) { const flip = aSeed > bSeed; return { a: flip ? p.b : p.a, b: flip ? p.a : p.b, db: (p.db === 'a') !== flip ? 'A' : 'B' } as const; }
+    const a = [4, 3, 3, 2, 2, 1, 1, 0][r % 8]; return { a, b: 4 - a, db: r & 256 ? 'A' : 'B' } as const;
+  }
+  if (round.round_type === 'semifinals' && semis === 'dreambreaker') return { a: 2, b: 2, db: r & 1 ? 'A' : 'B' } as const;
+  const aWins = !!(r & 1); return { a: aWins ? 3 : 1, b: aWins ? 1 : 3, db: aWins ? 'A' : 'B' } as const;
+}
+/** Winner-first score. In the 5-team plan seed 5 wins 11-0 and loses 10-12, seed 4 wins 12-10 and loses 0-11 (their
+ *  own meeting is 11-9 every time); everything else is a random valid score. */
+export function r2Score(wSeed: number, lSeed: number, plan5: boolean, rand = Math.random): [number, number] {
+  if (plan5) {
+    const pair = new Set([wSeed, lSeed]);
+    if (pair.has(4) && pair.has(5)) return [11, 9];
+    if (wSeed === 5) return [11, 0];
+    if (lSeed === 5) return [12, 10];
+    if (wSeed === 4) return [12, 10];
+    if (lSeed === 4) return [11, 0];
+  }
+  return randomScore(rand);
+}
+/** Per team over the given matches: sub-match W, L (dreambreakers included, as mlp_team_standings) and point diff. */
+export function r2Tally(ms: XM[], teams: MT[]) {
+  const rows = new Map(teams.map((t) => [t.id, { team: t, wins: 0, losses: 0, diff: 0 }]));
+  for (const m of ms) {
+    if (m.status !== 'completed' || !m.winner_team) continue;
+    const a = teams.find((t) => mlpMembers(t).includes(m.team1_player1 ?? '')), b = teams.find((t) => mlpMembers(t).includes(m.team2_player1 ?? ''));
+    const s1 = m.team1_score ?? 0, s2 = m.team2_score ?? 0;
+    const ra = a && rows.get(a.id), rb = b && rows.get(b.id);
+    if (ra) { ra.diff += s1 - s2; if (m.winner_team === 'team1') ra.wins++; else ra.losses++; }
+    if (rb) { rb.diff += s2 - s1; if (m.winner_team === 'team2') rb.wins++; else rb.losses++; }
+  }
+  return [...rows.values()];
+}
+type TRow = ReturnType<typeof r2Tally>[number];
+/** The server's playoff order (_generate_mlp_playoff_unchecked): sub-match wins desc, losses asc, seed. */
+export const r2ServerOrder = (rows: TRow[]) => [...rows].sort((a, b) => b.wins - a.wins || a.losses - b.losses || (a.team.seed ?? 999) - (b.team.seed ?? 999));
+/** PKL-052: W desc, L asc, point diff desc, then the admin's tie order (none for MLP teams yet), then seed. */
+export const r2RuleOrder = (rows: TRow[]) => [...rows].sort((a, b) => b.wins - a.wins || a.losses - b.losses || b.diff - a.diff || (a.team.seed ?? 999) - (b.team.seed ?? 999));
+
+/** Offline: the 5-team plan through the oracle (no network). */
+function planR2() {
+  const teams: MT[] = Array.from({ length: 5 }, (_, i) => ({ id: `T${i + 1}`, name: `Team ${i + 1}`, seed: i + 1, status: 'locked',
+    male_1_id: `m${i}a`, male_2_id: `m${i}b`, female_1_id: `f${i}a`, female_2_id: `f${i}b`, dreambreaker_player_id: `m${i}a` }));
+  const ms: XM[] = []; let k = 0, dbs = 0, cancelled = 0, okMeet = true;
+  for (let i = 0; i < 5; i++) for (let j = i + 1; j < 5; j++) {
+    const A = teams[i], B = teams[j], round: XR = { id: `r${i}${j}`, label: `${A.name} vs ${B.name}`, round_type: 'winners', round_number: ++k };
+    const tg = r2Target(round, A.seed!, B.seed!, 5, 'dreambreaker');
+    const lineups = [[A.male_1_id, A.male_2_id, B.male_1_id, B.male_2_id], [A.female_1_id, A.female_2_id, B.female_1_id, B.female_2_id],
+      [A.male_1_id, A.female_1_id, B.male_1_id, B.female_1_id], [A.male_2_id, A.female_2_id, B.male_2_id, B.female_2_id]];
+    let aw = 0;
+    lineups.forEach((l, s) => {
+      const need = tg.a - aw, left = 4 - s, aWin = need >= left ? true : need <= 0 ? false : h32(`${round.id}${s}`) % left < need;
+      if (aWin) aw++;
+      const [w, lo] = r2Score(aWin ? A.seed! : B.seed!, aWin ? B.seed! : A.seed!, true);
+      ms.push({ id: `${round.id}s${s}`, round_id: round.id, match_order: ms.length, status: 'completed', winner_team: aWin ? 'team1' : 'team2',
+        team1_player1: l[0], team1_player2: l[1], team2_player1: l[2], team2_player2: l[3], team1_score: aWin ? w : lo, team2_score: aWin ? lo : w });
+    });
+    if (aw !== tg.a) okMeet = false;
+    if (aw === 2) { dbs++; const aWin = tg.db === 'A'; const [w, lo] = r2Score(aWin ? A.seed! : B.seed!, aWin ? B.seed! : A.seed!, true);
+      ms.push({ id: `${round.id}db`, round_id: round.id, match_order: ms.length, status: 'completed', winner_team: aWin ? 'team1' : 'team2', is_dreambreaker: true,
+        team1_player1: A.dreambreaker_player_id, team2_player1: B.dreambreaker_player_id, team1_score: aWin ? w : lo, team2_score: aWin ? lo : w }); }
+    else cancelled++;
+  }
+  const rows = r2Tally(ms, teams);
+  const fmt = (o: TRow[]) => o.map((r) => `${r.team.name} ${r.wins}-${r.losses} ${r.diff >= 0 ? '+' : ''}${r.diff}`).join(', ');
+  const sv = r2ServerOrder(rows), rl = r2RuleOrder(rows);
+  console.log(`R2 plan: 10 meetings, ${ms.length} sub-matches, ${dbs} dreambreakers played, ${cancelled} cancelled; meetings hit their targets: ${okMeet}`);
+  console.log('server order (W, L, seed):  ' + fmt(sv));
+  console.log('PKL-052 order (W, L, ±):    ' + fmt(rl));
+  const t4 = rows.find((r) => r.team.seed === 4)!, t5 = rows.find((r) => r.team.seed === 5)!;
+  const okTie = t4.wins === t5.wins && t4.losses === t5.losses && t5.diff > t4.diff;
+  const okProbe = sv[3].team.seed === 4 && rl[3].team.seed === 5;
+  console.log(`seeds 4 and 5 level on W-L with seed 5 ahead on ±: ${okTie}; the probe splits the two rules at 4th: ${okProbe}`);
+  let okScores = true; for (let i = 0; i < 2000; i++) for (const [a, b] of [[1, 5], [5, 1], [4, 2], [2, 4], [4, 5], [1, 2]]) { const [w, l] = r2Score(a, b, true); if (!validScore(w, l)) okScores = false; }
+  console.log(`R2 scores valid: ${okScores}; ratings distinct for 20: ${new Set(Array.from({ length: 20 }, (_, i) => r2Rating(i + 1, 20))).size === 20}`);
+  process.exit(okMeet && okTie && okProbe && okScores && dbs === 2 ? 0 : 1);
+}
+
+/** R2 state across loop passes. */
+const r2 = { ratings: null as Map<string, number> | null, genders: null as Map<string, string> | null, teamsChecked: false, scheduleChecked: false,
+  drawChecked: false, finalChecked: false, idle: 0, playoffForced: false, completeAsked: false, stalled: false };
+
+/**
+ * R2 before the schedule exists, as the organizer does it in the app's Teams section (MlpTeamSection):
+ * (1) "Snake-Draft (balanced)" = generate_random_mlp_teams(p_mode 'snake'); (2) a Dreambreaker player per team
+ * (mlp_set_dreambreaker; the server only adds the dreambreaker row when both teams have one); (3) "Generate Bracket" =
+ * generate_mlp_bracket, which writes every meeting and sets the tournament active. One step per call.
+ */
+async function r2Draw(st: State, approved: string[]) {
+  const tId = st.tournament_id!; const hc = await asBot(st, st.bots[0].id);
+  const { data: t0 } = await admin.from('mlp_teams').select('*').eq('tournament_id', tId);
+  const teams = (t0 ?? []) as MT[];
+  if (!teams.length) {
+    const { data: profs } = await admin.from('profiles').select('id, rating, gender').in('id', approved);
+    r2.ratings = new Map((profs ?? []).map((p: any) => [p.id, Number(p.rating)]));
+    r2.genders = new Map((profs ?? []).map((p: any) => [p.id, String(p.gender)]));
+    const { data, error } = await hc.rpc('generate_random_mlp_teams', { p_tournament_id: tId, p_mode: 'snake' });
+    log(error ? `TEAMS ERROR generate_random_mlp_teams: ${error.message}` : `host ${st.bots[0].name} tapped "Snake-Draft (balanced)": ${data} teams`);
+    if (error) die('could not form MLP teams');
+    return;
+  }
+  if (!r2.teamsChecked) { r2.teamsChecked = true; await r2CheckTeams(st, teams, approved); }
+  const noDb = teams.filter((t) => !t.dreambreaker_player_id);
+  if (noDb.length) {
+    for (const t of noDb) {
+      const mem = mlpMembers(t); const pick = mem[h32(t.id) % mem.length];
+      const { error } = await hc.rpc('mlp_set_dreambreaker', { p_team_id: t.id, p_user_id: pick });
+      log(error ? `DREAMBREAKER ERROR ${t.name}: ${error.message}` : `host set ${t.name}'s Dreambreaker player: ${st.bots.find((b) => b.id === pick)?.name}`);
+    }
+    return;
+  }
+  const { data, error } = await hc.rpc('generate_mlp_bracket', { p_tournament_id: tId });
+  log(error ? `BRACKET ERROR generate_mlp_bracket: ${error.message}` : `host tapped "Generate Bracket" (generate_mlp_bracket): ${data} sub-matches`);
+  if (error) die('could not generate the MLP bracket');
+}
+
+/** Teams from the snake draft: 4 per team in the right slots, everyone once, locked, and the snake pattern by PLUPR. */
+async function r2CheckTeams(st: State, teams: MT[], approved: string[]) {
+  const nm = (u: string | null) => (u ? st.bots.find((b) => b.id === u)?.name ?? u.slice(0, 8) : '-');
+  const g = r2.genders ?? new Map(((await admin.from('profiles').select('id, gender').in('id', approved)).data ?? []).map((p: any) => [p.id, String(p.gender)]));
+  const rt = r2.ratings ?? new Map(((await admin.from('profiles').select('id, rating').in('id', approved)).data ?? []).map((p: any) => [p.id, Number(p.rating)]));
+  const n = approved.length / 4;
+  log('TEAMS (snake draft):\n' + teams.map((t) => `    ${t.name.padEnd(22)} M ${nm(t.male_1_id)} (${rt.get(t.male_1_id!)}), ${nm(t.male_2_id)} (${rt.get(t.male_2_id!)})`
+    + `  W ${nm(t.female_1_id)} (${rt.get(t.female_1_id!)}), ${nm(t.female_2_id)} (${rt.get(t.female_2_id!)})  ${t.status}`).join('\n'));
+  const bad: string[] = [];
+  if (teams.length !== n) bad.push(`${teams.length} teams, want ${n}`);
+  const all = teams.flatMap(mlpMembers);
+  if (!sameSet(all, approved)) bad.push(`${all.length} slotted players / ${new Set(all).size} distinct, ${approved.length} approved`);
+  for (const t of teams) {
+    if (mlpMembers(t).length !== 4) bad.push(`${t.name}: ${mlpMembers(t).length} players`);
+    if (t.status !== 'locked') bad.push(`${t.name}: status ${t.status}`);
+    for (const u of [t.male_1_id, t.male_2_id]) if (g.get(u!) !== 'male') bad.push(`${t.name}: ${nm(u)} in a men's slot is ${g.get(u!)}`);
+    for (const u of [t.female_1_id, t.female_2_id]) if (g.get(u!) !== 'female') bad.push(`${t.name}: ${nm(u)} in a women's slot is ${g.get(u!)}`);
+  }
+  check(`R2 teams: the app's random-team RPC made ${n} locked teams of 4 (2 men's slots, 2 women's slots), everyone on exactly one team`, bad.length === 0, bad.slice(0, 4).join(' ; '));
+  // snake: by PLUPR desc, team i = man i + man 2n+1-i, woman i + woman 2n+1-i
+  const by = (sex: string) => approved.filter((u) => g.get(u) === sex).sort((a, b) => (rt.get(b) ?? 0) - (rt.get(a) ?? 0));
+  const M = by('male'), F = by('female'), badS: string[] = [];
+  for (const t of teams) {
+    const i = M.indexOf(t.male_1_id!);
+    const want = [M[i], M[2 * n - 1 - i], F[i], F[2 * n - 1 - i]];
+    if (i < 0 || i >= n || ![t.male_1_id, t.male_2_id, t.female_1_id, t.female_2_id].every((u, k) => u === want[k]))
+      badS.push(`${t.name}: ${[t.male_1_id, t.male_2_id, t.female_1_id, t.female_2_id].map(nm).join(', ')}; want ${want.map((u) => nm(u ?? null)).join(', ')}`);
+  }
+  check('R2 snake draft by PLUPR: team i = the i-th and (2n+1-i)-th best man and the i-th and (2n+1-i)-th best woman', badS.length === 0, badS.slice(0, 3).join(' ; '));
+}
+
+/** Once the schedule exists: team seeds (PLUPR order), every team meets every other team once, each meeting's lineups. */
+async function r2CheckSchedule(st: State, teams: MT[], rounds: XR[], ms: XM[]) {
+  const nm = (u: string | null | undefined) => (u ? st.bots.find((b) => b.id === u)?.name ?? u.slice(0, 8) : '-');
+  const rt = r2.ratings ?? new Map();
+  // seeds: generate_mlp_bracket numbers the locked teams by created_at; the draft wrote them in snake order
+  const bestMan = (t: MT) => rt.get(t.male_1_id!) ?? 0;
+  const draftOrder = [...teams].sort((a, b) => bestMan(b) - bestMan(a));
+  const seeds = draftOrder.map((t) => t.seed);
+  const sameTime = new Set(teams.map((t) => t.created_at)).size === 1;
+  log(`TEAM SEEDS (generate_mlp_bracket, by created_at${sameTime ? '; every team has the same created_at' : ''}): ` + [...teams].sort((a, b) => (a.seed ?? 99) - (b.seed ?? 99)).map((t) => `${t.seed}=${t.name}`).join(' '));
+  check('R2 team seeds follow PLUPR: the draft\'s team 1 (best man and woman) is seed 1, team 2 seed 2, ...', seeds.every((s, i) => s === i + 1),
+    `draft order has seeds ${seeds.join(',')}${sameTime ? ' (all teams share one created_at, so the seed order is arbitrary)' : ''}`);
+  const rr = rounds.filter((r) => r.round_type === 'winners');
+  const n = teams.length, bad: string[] = [];
+  if (rr.length !== (n * (n - 1)) / 2) bad.push(`${rr.length} meetings, want ${(n * (n - 1)) / 2}`);
+  const seen = new Map<string, number>();
+  for (const r of rr) {
+    const mt = r2Meeting(r, ms, teams);
+    if (!mt.A || !mt.B || mt.A.id === mt.B.id) { bad.push(`${r.label}: teams not found`); continue; }
+    const k = [mt.A.id, mt.B.id].sort().join('|'); seen.set(k, (seen.get(k) ?? 0) + 1);
+    const A = mt.A, B = mt.B;
+    const want = [[A.male_1_id, A.male_2_id, B.male_1_id, B.male_2_id], [A.female_1_id, A.female_2_id, B.female_1_id, B.female_2_id],
+      [A.male_1_id, A.female_1_id, B.male_1_id, B.female_1_id], [A.male_2_id, A.female_2_id, B.male_2_id, B.female_2_id]];
+    const got = mt.subs.map((m) => [m.team1_player1, m.team1_player2, m.team2_player1, m.team2_player2]);
+    if (mt.subs.length !== 4 || want.some((w, i) => JSON.stringify(w) !== JSON.stringify(got[i])) || mt.subs.some((m) => m.match_type !== 'doubles'))
+      bad.push(`${r.label}: sub-matches are not Men's, Women's, Mixed 1, Mixed 2`);
+    if (!mt.db || mt.db.match_type !== 'singles' || mt.db.team1_player1 !== A.dreambreaker_player_id || mt.db.team2_player1 !== B.dreambreaker_player_id || mt.db.status !== 'pending')
+      bad.push(`${r.label}: dreambreaker ${mt.db ? `${nm(mt.db.team1_player1)} v ${nm(mt.db.team2_player1)} (${mt.db.match_type}, ${mt.db.status})` : 'missing'}`);
+    if (r.label !== `${A.name} vs ${B.name}`) bad.push(`label "${r.label}"`);
+  }
+  for (let i = 0; i < n; i++) for (let j = i + 1; j < n; j++) {
+    const k = [teams[i].id, teams[j].id].sort().join('|');
+    if (seen.get(k) !== 1) bad.push(`${teams[i].name} v ${teams[j].name}: ${seen.get(k) ?? 0} meetings`);
+  }
+  check(`R2 schedule: every team meets every other team once (${(n * (n - 1)) / 2} meetings); each is Men's, Women's, Mixed 1, Mixed 2 + a singles dreambreaker between the two Dreambreaker players`,
+    bad.length === 0, bad.slice(0, 4).join(' ; '));
+  // The Manage checklist's "Generate MLP schedule" + "Lock in & notify" (useTournamentDetail.generateBracket ->
+  // generateMLPSchedule([male_1, male_2] per team) -> doLockIn) would write this instead. Pure, nothing is written.
+  const alt = generateMLPSchedule(teams.map((t) => [t.male_1_id!, t.male_2_id!] as [string, string]));
+  const women = new Set(teams.flatMap((t) => [t.female_1_id, t.female_2_id]));
+  const altWomen = alt.some((m) => [...m.team1, ...m.team2].some((u) => women.has(u ?? null)));
+  check('R2 Manage checklist path: "Generate MLP schedule" + "Lock in & notify" would also write MLP meetings (sub-matches with the women)',
+    altWomen && alt.length === rr.length * 4, `generateMLPSchedule gives ${alt.length} men-only doubles rows for ${rr.length} meetings, no women's, mixed or dreambreaker rows`);
+}
+
+/** Every meeting: a dreambreaker is played exactly when the 4 sub-matches split 2-2 and is cancelled once a team has 3. */
+function r2CheckMeetings(label: string, rounds: XR[], ms: XM[], teams: MT[]) {
+  const bad: string[] = []; let played = 0, cancelled = 0;
+  for (const r of rounds) {
+    const mt = r2Meeting(r, ms, teams);
+    if (!mt.db) { bad.push(`${r.label}: no dreambreaker row`); continue; }
+    if (mt.subA >= 3 || mt.subB >= 3) { if (mt.db.status !== 'cancelled') bad.push(`${r.label}: ${mt.subA}-${mt.subB}, dreambreaker ${mt.db.status}`); else cancelled++; }
+    else if (mt.subsDone && mt.subA === 2) { if (mt.db.status !== 'completed') bad.push(`${r.label}: 2-2, dreambreaker ${mt.db.status}`); else played++; }
+    if (mt.db.status === 'completed' && !(mt.subsDone && mt.subA === 2)) bad.push(`${r.label}: dreambreaker played at ${mt.subA}-${mt.subB}`);
+  }
+  check(`${label}: a dreambreaker is played exactly when a meeting splits 2-2 and cancelled once a team has 3 (${played} played, ${cancelled} cancelled)`,
+    bad.length === 0, bad.slice(0, 4).join(' ; '));
+}
+
+/**
+ * One pass of the R2 loop once the schedule exists. Returns 'scored' | 'wait' | 'stop'.
+ * Bots score sub-matches in match order (meeting by meeting) to the plan; a dreambreaker only once its meeting is 2-2.
+ */
+async function r2Tick(st: State, nm: Map<string, string>): Promise<'scored' | 'wait' | 'stop'> {
+  const tId = st.tournament_id!; const N = (u: string | null | undefined) => (u ? nm.get(u) ?? u.slice(0, 8) : '-');
+  const { data: rs0 } = await admin.from('tournament_rounds').select('id, label, round_type, round_number').eq('tournament_id', tId).order('round_number');
+  const { data: ms0 } = await admin.from('tournament_matches').select('*').eq('tournament_id', tId).order('match_order');
+  const { data: tm0 } = await admin.from('mlp_teams').select('*').eq('tournament_id', tId);
+  const rounds = (rs0 ?? []) as XR[], ms = (ms0 ?? []) as XM[], teams = (tm0 ?? []) as MT[];
+  const tn = (t: MT | null | undefined) => (t ? `${t.name} (seed ${t.seed})` : '?');
+  if (!r2.scheduleChecked) { r2.scheduleChecked = true; await r2CheckSchedule(st, teams, rounds, ms); }
+  const rr = rounds.filter((r) => r.round_type === 'winners');
+  const semis = rounds.filter((r) => r.round_type === 'semifinals'), fin = rounds.filter((r) => r.round_type === 'finals');
+  const playoff = rounds.filter((r) => ['quarterfinals', 'semifinals', 'finals', 'third_place_match'].includes(r.round_type));
+  const rrMs = ms.filter((m) => rr.some((r) => r.id === m.round_id));
+
+  // the playoff draw, once, as soon as it exists and before anyone scores it
+  if (playoff.length && !r2.drawChecked) {
+    r2.drawChecked = true;
+    r2CheckMeetings('R2 round robin', rr, ms, teams);
+    const rows = r2Tally(rrMs, teams);
+    const { data: srv } = await (await asBot(st, st.bots[0].id)).rpc('mlp_team_standings', { p_tournament_id: tId });
+    const sRows = (srv ?? []) as any[];
+    log('ROUND ROBIN DONE. Team standings (sub-matches W-L, ±, seed):\n' + r2RuleOrder(rows).map((r, i) =>
+      `    ${i + 1}. ${r.team.name.padEnd(22)} ${r.wins}-${r.losses}  ${r.diff >= 0 ? '+' : ''}${r.diff}  seed ${r.team.seed}`).join('\n'));
+    const badSt = rows.filter((r) => { const s = sRows.find((x) => x.team_id === r.team.id); return !s || s.sub_matches_won !== r.wins || s.sub_matches_lost !== r.losses; })
+      .map((r) => { const s = sRows.find((x) => x.team_id === r.team.id); return `${r.team.name} server ${s?.sub_matches_won ?? '-'}-${s?.sub_matches_lost ?? '-'}, results ${r.wins}-${r.losses}`; });
+    check('R2 team standings (mlp_team_standings) = the sub-match results, dreambreakers included', badSt.length === 0 && sRows.length === teams.length, badSt.slice(0, 3).join(' ; '));
+    const first = playoff.filter((r) => r.round_type === 'semifinals');
+    const got = first.map((r) => { const mt = r2Meeting(r, ms, teams); return [mt.A?.id, mt.B?.id].sort().join('|'); }).sort();
+    const pairs = (o: TRow[]) => [[o[0], o[3]], [o[1], o[2]]].map((p) => p.map((x) => x?.team.id).sort().join('|')).sort();
+    const sv = r2ServerOrder(rows), rl = r2RuleOrder(rows);
+    const txt = (o: TRow[]) => `${o[0]?.team.name} v ${o[3]?.team.name}, ${o[1]?.team.name} v ${o[2]?.team.name}`;
+    const gotTxt = first.map((r) => r.label).join(' ; ');
+    check('R2 playoff: semifinals are created on their own after the round robin (top 4, 1v4 and 2v3)', first.length === 2 && !r2.playoffForced, `${first.length} semifinal meetings${r2.playoffForced ? ' (the host had to press Generate playoff)' : ''}`);
+    check('R2 playoff draw = the server\'s own standings order (sub-match W, L, seed): 1v4, 2v3', JSON.stringify(got) === JSON.stringify(pairs(sv)), `got ${gotTxt}; want ${txt(sv)}`);
+    check('R2 playoff draw by the PKL-052 rule (W-L, then point diff, then the admin tie order; never head-to-head): 1v4, 2v3',
+      JSON.stringify(got) === JSON.stringify(pairs(rl)), `got ${gotTxt}; PKL-052 wants ${txt(rl)} (${rl.slice(2, 5).map((r) => `${r.team.name} ${r.wins}-${r.losses} ${r.diff >= 0 ? '+' : ''}${r.diff}`).join(', ')})`);
+    check('no playoff sub-match is already scored when the checks run', !ms.some((m) => playoff.some((r) => r.id === m.round_id) && m.status === 'completed'));
+  }
+  if (fin.length && !r2.finalChecked && semis.length && semis.every((r) => r2Meeting(r, ms, teams).decided)) {
+    r2.finalChecked = true;
+    r2CheckMeetings('R2 semifinals', semis, ms, teams);
+    const winners = semis.map((r) => r2Meeting(r, ms, teams).winner?.id).sort().join('|');
+    const fm = r2Meeting(fin[0], ms, teams);
+    check('R2 Final = the two semifinal winners (sub-match wins, dreambreaker included)', fin.length === 1 && [fm.A?.id, fm.B?.id].sort().join('|') === winners,
+      `final ${fin.map((r) => r.label).join(' ; ')}; semifinal winners ${semis.map((r) => tn(r2Meeting(r, ms, teams).winner)).join(', ')}`);
+  }
+
+  // the next sub-match to score: meetings in round order, sub-matches in match order
+  for (const r of [...rr, ...[...playoff].sort((a, b) => a.round_number - b.round_number)]) {
+    const mt = r2Meeting(r, ms, teams);
+    if (!mt.A || !mt.B) continue;
+    if (fin.some((f) => f.id === r.id) && mt.decided) continue; // the Final is over once a team has 3
+    const tg = r2Target(r, mt.A.seed ?? 99, mt.B.seed ?? 99, teams.length, R2_SEMIS);
+    let m = mt.subs.find((x) => x.status === 'pending') ?? null;
+    let aWin: boolean;
+    if (m) {
+      const left = mt.subs.filter((x) => x.status === 'pending').length, need = tg.a - mt.subA;
+      aWin = need >= left ? true : need <= 0 ? false : h32(m.id) % left < need;
+    } else if (mt.db && mt.db.status === 'pending' && mt.subsDone && mt.subA === 2 && mt.subB === 2) { m = mt.db; aWin = tg.db === 'A'; }
+    else continue;
+    const W = aWin ? mt.A : mt.B, L = aWin ? mt.B : mt.A;
+    const [w, l] = r2Score(W.seed ?? 99, L.seed ?? 99, teams.length === 5 && r.round_type === 'winners');
+    const s1 = aWin ? w : l, s2 = aWin ? l : w;
+    const reporter = four(m)[h32(m.id + 'r') % four(m).length];
+    const bc = await asBot(st, reporter);
+    // what MatchEntryScreen writes for a single-game tournament match (the bots have a gender: no overrides)
+    const { data: upd, error } = await bc.from('tournament_matches').update({
+      team1_score: s1, team2_score: s2, game_scores: null, winner_team: aWin ? 'team1' : 'team2', status: 'completed',
+      team1_player1_gender_override: null, team1_player2_gender_override: null,
+      team2_player1_gender_override: null, team2_player2_gender_override: null,
+    }).eq('id', m.id).select('id');
+    const kind = m.is_dreambreaker ? 'Dreambreaker' : ["Men's", "Women's", 'Mixed 1', 'Mixed 2'][mt.subs.indexOf(m)] ?? 'sub-match';
+    const side = (a: string | null | undefined, b: string | null | undefined) => (b ? `${N(a)} & ${N(b)}` : N(a));
+    if (error || !upd?.length) { log(`SCORE ERROR ${r.label} ${kind}: ${error?.message ?? 'no row updated (RLS?)'}`); return 'stop'; }
+    log(`SCORE ${r.label} · ${kind}: ${side(m.team1_player1, m.team1_player2)} ${s1}-${s2} ${side(m.team2_player1, m.team2_player2)}  (entered by ${N(reporter)})`
+      + `  [meeting ${mt.subA + (aWin && !m.is_dreambreaker ? 1 : 0)}-${mt.subB + (!aWin && !m.is_dreambreaker ? 1 : 0)}${m.is_dreambreaker ? `, dreambreaker to ${W.name}` : ''}]`);
+    r2.idle = 0;
+    return 'scored';
+  }
+
+  // nothing to score: what should have happened on its own?
+  r2.idle++;
+  const G = fast ? 5 : 8;
+  if (r2.idle < G) return 'wait';
+  const lingering = rr.concat(playoff).map((r) => r2Meeting(r, ms, teams)).filter((mt) => mt.db?.status === 'pending' && (mt.subA >= 3 || mt.subB >= 3));
+  if (lingering.length) {
+    check('R2: a dreambreaker is cancelled once a team has 3 sub-match wins', false, lingering.map((mt) => `${mt.round.label} ${mt.subA}-${mt.subB}, dreambreaker still pending`).join(' ; '));
+    return 'stop';
+  }
+  if (!playoff.length) {
+    if (r2.playoffForced) { log('STUCK: the playoff did not appear even after Generate playoff'); return 'stop'; }
+    const hc = await asBot(st, st.bots[0].id);
+    const { data, error } = await hc.rpc('generate_mlp_playoff', { p_tournament_id: tId });
+    r2.playoffForced = true; r2.idle = 0;
+    log(`the playoff did not appear on its own after the last round-robin match; host pressed "Generate playoff" (MlpPlayoffPreview): ${error ? 'ERROR ' + error.message : data + ' sub-matches'}`);
+    return 'wait';
+  }
+  if (semis.length && !fin.length && semis.every((r) => r2Meeting(r, ms, teams).decided)) {
+    r2.stalled = true;
+    const ev = semis.map((r) => { const mt = r2Meeting(r, ms, teams); return `${r.label}: ${mt.subA}-${mt.subB}, dreambreaker ${mt.db?.status ?? 'none'}, winner ${mt.winner?.name}`; });
+    check('R2 Final is created once both semifinals are decided (_advance_mlp_playoff_round)', false,
+      `no Final after ${G} idle passes; ${ev.join(' ; ')}. The trigger counts every semifinal row with status <> 'completed' as pending, so a cancelled dreambreaker blocks it`);
+    log('STOPPED: the Final never came, there is no app button for it, and nothing is left to score. Cleanup removes the tournament.');
+    return 'stop';
+  }
+  if (fin.length && r2Meeting(fin[0], ms, teams).decided && !r2.completeAsked) {
+    r2.completeAsked = true; r2.idle = 0;
+    check('R2 tournament auto-completed once the Final was decided (_maybe_auto_close_mlp_tournament)', false, 'still active');
+    const { error } = await (await asBot(st, st.bots[0].id)).rpc('admin_complete_tournament', { p_tournament_id: tId });
+    log(error ? `COMPLETE ERROR: ${error.message}` : 'host pressed "Complete tournament" (admin_complete_tournament)');
+    return 'wait';
+  }
+  if (r2.idle > G * 3) {
+    log('STUCK: nothing to score and nothing changing: ' + rounds.map((r) => { const mt = r2Meeting(r, ms, teams); return `${r.label} ${mt.subA}-${mt.subB} db ${mt.db?.status ?? '-'}`; }).join(' ; '));
+    check('R2 run reached the end', false, 'stuck with nothing to score');
+    return 'stop';
+  }
+  return 'wait';
+}
+
+/** R2 completion: auto-close, the champion, every meeting's dreambreaker, the final ranks, then the PKL-043 audit. */
+async function finishR2(st: State, nm: Map<string, string>) {
+  const tId = st.tournament_id!; const N = (id: string) => nm.get(id) ?? id.slice(0, 8);
+  const { data: rs0 } = await admin.from('tournament_rounds').select('id, label, round_type, round_number').eq('tournament_id', tId).order('round_number');
+  const { data: ms0 } = await admin.from('tournament_matches').select('*').eq('tournament_id', tId);
+  const { data: tm0 } = await admin.from('mlp_teams').select('*').eq('tournament_id', tId);
+  const { data: regs } = await admin.from('tournament_registrations').select('user_id, seed, status').eq('tournament_id', tId);
+  const { data: ranks } = await admin.from('tournament_final_ranks').select('user_id, final_rank, wins, losses').eq('tournament_id', tId).order('final_rank');
+  const rounds = (rs0 ?? []) as XR[], ms = (ms0 ?? []) as XM[], teams = (tm0 ?? []) as MT[];
+  const players = (regs ?? []).filter((r: any) => r.status === 'approved').map((r: any) => r.user_id as string);
+  const seedOf = new Map((regs ?? []).map((r: any) => [r.user_id, r.seed ?? 999]));
+  const teamOf = (u: string) => teams.find((t) => mlpMembers(t).includes(u));
+  log('COMPLETED. Final ranks:\n' + (ranks ?? []).map((r: any) => `    ${String(r.final_rank).padStart(2)}. ${N(r.user_id).padEnd(12)} ${teamOf(r.user_id)?.name.padEnd(22) ?? ''} ${r.wins}-${r.losses}`).join('\n'));
+  check('R2 tournament auto-completed after the Final (no "Complete tournament")', !r2.completeAsked);
+  const fin = rounds.filter((r) => r.round_type === 'finals');
+  const fm = fin[0] ? r2Meeting(fin[0], ms, teams) : null;
+  if (!r2.finalChecked) r2CheckMeetings('R2 semifinals', rounds.filter((r) => r.round_type === 'semifinals'), ms, teams);
+  const pendingFinal = fm ? fm.subs.filter((m) => m.status === 'pending').length : 0;
+  log(`CHAMPION: ${fm?.winner?.name ?? '?'} (${fm ? `${fm.aw}-${fm.bw} in the Final` : 'no Final'}): ${fm?.winner ? mlpMembers(fm.winner).map(N).join(', ') : ''}`
+    + (pendingFinal ? `; ${pendingFinal} Final sub-match(es) left unplayed (the tournament closed at 3 wins)` : ''));
+  check('R2 champion = the Final winner by sub-match wins', !!fm && !!fm.winner && (fm.aw >= 3 || fm.bw >= 3), fm ? `${fm.aw}-${fm.bw}` : 'no Final');
+  // final ranks: the server's per-player rule for MLP (compute_tournament_final_ranks: W, fewer L, ±, admin tie order, seed)
+  const pr = PO.playerRanks(ms as PO.PM[], players, seedOf, await tieRanks(tId));
+  const got = new Map((ranks ?? []).map((r: any) => [r.user_id, r.final_rank]));
+  const badR = players.filter((u) => got.get(u) !== pr.ranks.get(u)).map((u) => `${N(u)} ${got.get(u) ?? '-'}, want ${pr.ranks.get(u)}`);
+  check(`R2 final ranks: ${players.length} rows by the server's per-player MLP rule (W, fewer L, ±, admin tie order; no head-to-head)`,
+    badR.length === 0 && (ranks ?? []).length === players.length, badR.slice(0, 4).join(' ; '));
+  if (fm?.winner && fm.loser) {
+    const champs = mlpMembers(fm.winner), runners = mlpMembers(fm.loser);
+    const off = [...champs.filter((u) => (got.get(u) ?? 99) > 4).map((u) => `${N(u)} (champion) ${got.get(u)}`),
+      ...runners.filter((u) => { const k = got.get(u) ?? 99; return k <= 4 || k > 8; }).map((u) => `${N(u)} (runner-up) ${got.get(u)}`)];
+    const r1 = (ranks ?? []).find((r: any) => r.final_rank === 1);
+    check('R2 final places by team: the 4 Final winners hold places 1-4, the 4 runners-up 5-8', off.length === 0,
+      `${off.slice(0, 5).join(' ; ')}${r1 ? `; rank 1 is ${N(r1.user_id)} of ${teamOf(r1.user_id)?.name}` : ''}`);
+  }
+  try { await auditDoubles(st, tId, players); }
+  catch (e: any) { check('PKL-043 audit ran', false, 'audit threw: ' + (e?.message ?? e)); }
+}
+
 async function lockIn(st: State, players: string[]) {
   if (R4) return lockInElim(st, players);
   if (POOLS) return lockInPools(st, players);
@@ -1175,6 +1614,13 @@ async function run() {
           tt.format === 'round_robin' && tt.match_type === 'singles' && tt.playoff_format === R5_PO && tt.playoff_third_place === true
             && tt.pickle_ante === ANTE && (tt.courts ?? []).length === 3 && !!tt.bracket_release_time, JSON.stringify(tt));
       }
+      if (R2 && !formatChecked) {
+        formatChecked = true;
+        const { data: tt } = await admin.from('tournaments').select('format, match_type, team_creation, seeding, mlp_play_format, mlp_playoff_teams, courts').eq('id', tId).single() as { data: any };
+        check('R2 tournament is mlp_random / doubles / random teams / PLUPR seeding / round robin + playoff top 4 / no courts',
+          tt.format === 'mlp_random' && tt.match_type === 'doubles' && tt.team_creation === 'random' && tt.seeding === 'elo'
+            && tt.mlp_play_format === 'round_robin_playoff' && tt.mlp_playoff_teams === 4 && !(tt.courts ?? []).some((c: string) => c?.trim()), JSON.stringify(tt));
+      }
       if (R4 && !formatChecked) {
         formatChecked = true;
         const { data: tt } = await admin.from('tournaments').select('format, match_type, team_creation, registration_mode, seeding, max_players').eq('id', tId).single() as { data: any };
@@ -1203,11 +1649,18 @@ async function run() {
           : 'waiting: pairs forming';
         if (msg !== lastWaitMsg) log(msg); lastWaitMsg = msg; await sleep(fast ? FAST_MS : 5000); continue;
       }
+      if (R2) { await r2Draw(st, approved); await sleep(fast ? FAST_MS : 5000); continue; }
       if (R7) await ensureCoAdmin(st, regs ?? []);
       if (R4) await r4LateAndPairs(st);
       await lockIn(st, approved); await sleep(fast ? FAST_MS : 5000); continue;
     }
 
+    if (R2) {
+      const step = await r2Tick(st, nm);
+      if (step === 'stop') break;
+      await sleep(step === 'scored' ? (fast ? FAST_MS : intervalMs) : 3000);
+      continue;
+    }
     const playoffTypes = POOLS || R5 ? ['quarterfinals', 'semifinals', 'finals', 'third_place_match'] : ['finals', 'third_place_match'];
     const groupIds = new Set((rounds ?? []).filter((r: any) => !playoffTypes.includes(r.round_type)).map((r: any) => r.id));
     const real = ms.filter((m) => m.team1_player1 && m.team2_player1);
@@ -1932,6 +2385,7 @@ async function auditDoubles(st: State, tId: string, players: string[]) {
 }
 
 async function finish(st: State, nm: Map<string, string>, completeAsked = false) {
+  if (R2) return finishR2(st, nm);
   if (DOUBLES) return finishDoubles(st, nm, completeAsked);
   if (R5) return finishR5(st, nm, completeAsked);
   if (R3) return finishR3(st, nm, completeAsked);
@@ -1974,7 +2428,7 @@ async function finish(st: State, nm: Map<string, string>, completeAsked = false)
 /** Re-run the PKL-043 audit on the finished tournament in the state file. Read-only (no XP replay). */
 async function audit() {
   const st = readState(); if (!st?.tournament_id) return die(`no ${MODE} setup found`);
-  if (!DOUBLES) return die('audit needs --doubles');
+  if (!DOUBLES && !R2) return die('audit needs --doubles or --r2');
   const { data: regs } = await admin.from('tournament_registrations').select('user_id, seed, status').eq('tournament_id', st.tournament_id);
   const players = (regs ?? []).filter((r: any) => r.status === 'approved').sort((a: any, b: any) => (a.seed ?? 999) - (b.seed ?? 999)).map((r: any) => r.user_id as string);
   log(`=== audit (${MODE}) ${st.tournament_id} ===`);
