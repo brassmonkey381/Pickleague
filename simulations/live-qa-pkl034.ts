@@ -2050,19 +2050,30 @@ async function auditDoubles(st: State, tId: string, players: string[]) {
   const tName = t.name as string;
   const courtsOn = ((t.courts ?? []) as string[]).some((c) => c.trim() !== '');
   const { data: ms0 } = await admin.from('tournament_matches')
-    .select('id, round_id, created_at, match_order, status, winner_team, team1_player1, team1_player2, team2_player1, team2_player2, team1_score, team2_score, completed_at, play_round, court, called_at, plupr_delta, plupr_global_weight, plupr_category, plupr_ratings, plupr_applied_at')
+    .select('id, round_id, created_at, match_order, status, winner_team, team1_player1, team1_player2, team2_player1, team2_player2, team1_score, team2_score, completed_at, play_round, court, called_at, plupr_delta, plupr_global_weight, plupr_category, plupr_ratings, plupr_applied_at, is_dreambreaker')
     .eq('tournament_id', tId).order('match_order');
   const { data: rds } = await admin.from('tournament_rounds').select('id, label, round_type, round_number').eq('tournament_id', tId);
   const rdOf = new Map((rds ?? []).map((r: any) => [r.id, r]));
   const PLAYOFF_T = ['quarterfinals', 'semifinals', 'finals', 'third_place_match', 'grand_final', 'losers'];
   const ms = ((ms0 ?? []) as any[]).filter((m) => m.status === 'completed' && m.team1_player1 && m.team2_player1);
   // _pl_tm_player_matches: round number, then match order, then created_at
-  const byOrder = [...ms].sort((a, b) => (rdOf.get(a.round_id)?.round_number ?? 0) - (rdOf.get(b.round_id)?.round_number ?? 0)
+  // MLP (PKL-060 R2): the notices (_pl_tm_player_matches) count every row that is not cancelled at the time, so a
+  // dreambreaker counts until its meeting reaches 3 sub-match wins (it is cancelled in that same write) and a Final
+  // sub-match left unplayed when the tournament closed counts too. Those rows join the player's list, never the scores.
+  const goneAt = new Map<string, number>();
+  const extraRows = ((R2 ? ms0 ?? [] : []) as any[]).filter((m) => m.team1_player1 && m.team2_player1 && m.status !== 'completed'
+    && (m.status === 'pending' || (m.status === 'cancelled' && m.is_dreambreaker)));
+  for (const x of extraRows.filter((m) => m.status === 'cancelled')) {
+    const subs = ms.filter((m) => m.round_id === x.round_id && !m.is_dreambreaker).sort((a, b) => String(a.completed_at).localeCompare(String(b.completed_at)));
+    let a = 0, b = 0;
+    for (const m of subs) { if (m.winner_team === 'team1') a++; else b++; if (a >= 3 || b >= 3) { goneAt.set(x.id, Date.parse(m.completed_at)); break; } }
+  }
+  const byOrder = [...ms, ...extraRows].sort((a, b) => (rdOf.get(a.round_id)?.round_number ?? 0) - (rdOf.get(b.round_id)?.round_number ?? 0)
     || a.match_order - b.match_order || String(a.created_at).localeCompare(String(b.created_at)));
   const byDone = [...ms].sort((a, b) => String(a.completed_at).localeCompare(String(b.completed_at)));
   const mineOf = (p: string) => byOrder.filter((m) => four(m).includes(p));
   /** The player's matches that existed at time T (a playoff match is only counted once it was drawn). */
-  const mineAt = (p: string, T: number) => mineOf(p).filter((m) => !(Date.parse(m.created_at) > T + 1500));
+  const mineAt = (p: string, T: number) => mineOf(p).filter((m) => !(Date.parse(m.created_at) > T + 1500) && !((goneAt.get(m.id) ?? Infinity) <= T));
   const onT1 = (m: any, p: string) => p === m.team1_player1 || p === m.team1_player2;
   const sideTxt = (a: string | null, b: string | null, viewer: string) =>
     [a, b].filter((x): x is string => !!x).sort((x, y) => Number(y === viewer) - Number(x === viewer))
