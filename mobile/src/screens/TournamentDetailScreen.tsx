@@ -557,18 +557,25 @@ export default function TournamentDetailScreen({ navigation, route }: Props) {
       const prof = registrations.find(r => r.user_id === id)?.profile;
       return cardPlayer({ id, fullName: prof?.full_name ?? td.profileNames[id] ?? null, deleted: !!prof?.deleted_at }, blocked);
     });
-    if (steps.length > 0) {
-      // PKL-063: the "Bracket" layout, for formats with a group stage (elimination brackets have no pools to show).
-      const groupLabel = ({ pool_play: 'Pool play', round_robin: 'Round robin', rotating_partners: 'Rotating partners',
-        mlp: 'Team play', mlp_random: 'Team play' } as Record<string, string>)[tournament.format];
-      const placesOf = new Set(td.finalRanks.map(r => r.final_rank)).size || null;
-      const overview = groupLabel
-        ? bracketOverview(td.savedRounds as OverviewRoundIn[], td.savedMatches as OverviewMatchIn[], myUserId, {
-            groupLabel,
-            playoffAhead: !!tournament.playoff_format && tournament.playoff_format !== 'none' && status !== 'completed',
-            final: status === 'completed' && myRank != null ? { rank: myRank, of: placesOf } : null,
-          })
-        : null;
+    // PKL-063: the "Bracket" layout, for formats with a group stage (elimination brackets have no pools to show).
+    const groupLabel = ({ pool_play: 'Pool play', round_robin: 'Round robin', rotating_partners: 'Rotating partners',
+      mlp: 'Team play', mlp_random: 'Team play' } as Record<string, string>)[tournament.format];
+    const placesOf = new Set(td.finalRanks.map(r => r.final_rank)).size || null;
+    // PKL-065: the playoff stages the settings will create (drawn or not), named, so the card shows what's still to play.
+    const expected = flowStages ? flowStages.filter(s => s.kind === 'playoff').map(s => s.label) : null;
+    if (expected && tournament.playoff_third_place && /_per_pool$/.test(tournament.playoff_format ?? '')
+      && !expected.some(l => /third/i.test(l)) && expected.length >= 2) expected.push('Third Place Match');
+    const overview = groupLabel
+      ? bracketOverview(td.savedRounds as OverviewRoundIn[], td.savedMatches as OverviewMatchIn[], myUserId, {
+          groupLabel,
+          perPlayer: tournament.format === 'rotating_partners' || tournament.format === 'mlp' || tournament.format === 'mlp_random',
+          expected,
+          playoffAhead: !!tournament.playoff_format && tournament.playoff_format !== 'none' && status !== 'completed',
+          final: status === 'completed' && myRank != null ? { rank: myRank, of: placesOf } : null,
+        })
+      : null;
+    // PKL-065: shareable from the draw on (the overview has something to show), not only after a first score.
+    if (steps.length > 0 || (overview && overview.here >= 0)) {
       bracketModel = bracketCardModel({
         overview,
         title: tournament.name,

@@ -176,7 +176,7 @@ describe('bracket card', () => {
   });
 });
 
-describe('bracket overview (PKL-063)', () => {
+describe('bracket overview (PKL-063, PKL-065): right at any point of the tournament', () => {
   const R = [
     { id: 'pa', label: 'Pool A', round_type: 'pool', round_number: 1 },
     { id: 'pb', label: 'Pool B', round_type: 'pool', round_number: 2 },
@@ -185,35 +185,80 @@ describe('bracket overview (PKL-063)', () => {
     { id: 'tp', label: 'Third Place Match', round_type: 'third_place_match', round_number: 1150 },
   ];
   const m = (id: string, round_id: string, t1: [string, string], t2: [string, string], s1: number | null, s2: number | null) => ({
-    id, round_id, status: s1 == null ? 'scheduled' : 'completed', winner_team: s1 == null ? null : (s1 > (s2 ?? 0) ? 'team1' : 'team2') as 'team1' | 'team2' | null,
+    id, round_id, status: s1 == null ? 'scheduled' : 'completed',
+    winner_team: s1 == null ? null : (s1 > (s2 ?? 0) ? 'team1' : 'team2') as 'team1' | 'team2' | null,
     team1_player1: t1[0], team1_player2: t1[1], team2_player1: t2[0], team2_player2: t2[1], team1_score: s1, team2_score: s2,
   });
-  it('pool play into a playoff: group stage, then semis / third place / final, the sharer lit where they are', () => {
-    const ms = [
-      m('1', 'pa', ['me', 'p'], ['a', 'b'], 11, 7), m('2', 'pb', ['c', 'd'], ['e', 'f'], 11, 3),
-      m('3', 'sf', ['me', 'p'], ['c', 'd'], 11, 8), m('4', 'sf', ['a', 'b'], ['e', 'f'], 4, 11),
-      m('5', 'f', ['me', 'p'], ['e', 'f'], null, null),
-    ];
-    const ov = bracketOverview(R, ms, 'me', { groupLabel: 'Pool play' });
-    expect(ov.stages.map((x) => x.label)).toEqual(['Pool play', 'Semifinals', 'Finals']);
-    expect(ov.stages[0]).toMatchObject({ state: 'done', note: '1-0' });
-    expect(ov.stages[1]).toMatchObject({ state: 'done', mine: 'won', note: 'W 11–8' });
-    expect(ov.stages[2]).toMatchObject({ state: 'now', mine: 'in', note: 'Playing' });
-    expect(ov.here).toBe(2);
+  const expected = ['Semifinals', 'Finals', 'Third Place Match'];
+  // Pool A: me+p, a+b, g+h. Pool B: c+d, e+f.
+  const pools = (s: (number | null)[]) => [
+    m('1', 'pa', ['me', 'p'], ['a', 'b'], s[0], s[0] == null ? null : 7),
+    m('2', 'pa', ['me', 'p'], ['g', 'h'], s[1], s[1] == null ? null : 9),
+    m('3', 'pa', ['a', 'b'], ['g', 'h'], s[2], s[2] == null ? null : 5),
+    m('4', 'pb', ['c', 'd'], ['e', 'f'], s[3], s[3] == null ? null : 3),
+  ];
+
+  it('just drawn: nothing scored, every stage named, the playoff still to play', () => {
+    const ov = bracketOverview(R, pools([null, null, null, null]), 'me', { groupLabel: 'Pool play', expected });
+    expect(ov.stages).toEqual([
+      { label: 'Pool play', state: 'now', mine: 'in', note: '0-0', sub: '0 of 2 played · 2 to go' },
+      { label: 'Semifinals', state: 'next', mine: null, note: 'still to play', sub: null },
+      { label: 'Third Place Match', state: 'next', mine: null, note: 'still to play', sub: null },
+      { label: 'Finals', state: 'next', mine: null, note: 'still to play', sub: null },
+    ]);
+    expect(ov.here).toBe(0);
   });
-  it('rotating partners mid-run: one stage, the round being played, a playoff still to come', () => {
+
+  it('mid-pools: W-L, the standing now, played / to go', () => {
+    const ov = bracketOverview(R, pools([11, null, 11, 11]), 'me', { groupLabel: 'Pool play', expected });
+    expect(ov.stages[0]).toEqual({ label: 'Pool play', state: 'now', mine: 'in', note: '1-0 · 1st now', sub: '1 of 2 played · 1 to go' });
+    expect(ov.stages.slice(1).every((x) => x.state === 'next')).toBe(true);
+  });
+
+  it('mid-playoff: pools done with my place, my semifinal won, the final being played', () => {
+    const ms = [...pools([11, 11, 11, 11]),
+      m('5', 'sf', ['me', 'p'], ['e', 'f'], 11, 8), m('6', 'sf', ['c', 'd'], ['a', 'b'], 11, 4),
+      m('7', 'f', ['me', 'p'], ['c', 'd'], null, null)];
+    const ov = bracketOverview(R, ms, 'me', { groupLabel: 'Pool play', expected });
+    expect(ov.stages.map((x) => [x.label, x.state, x.mine, x.note])).toEqual([
+      ['Pool play', 'done', null, '2-0 · 1st in Pool A'],
+      ['Semifinals', 'done', 'won', 'W 11–8'],
+      ['Third Place Match', 'next', null, 'still to play'],
+      ['Finals', 'now', 'in', 'Playing'],
+    ]);
+    expect(ov.here).toBe(3);
+  });
+
+  it('finished: every stage done, the final place last', () => {
+    const ms = [...pools([11, 11, 11, 11]),
+      m('5', 'sf', ['me', 'p'], ['e', 'f'], 11, 8), m('6', 'sf', ['c', 'd'], ['a', 'b'], 11, 4),
+      m('7', 'f', ['me', 'p'], ['c', 'd'], 9, 11), m('8', 'tp', ['e', 'f'], ['a', 'b'], 11, 6)];
+    const ov = bracketOverview(R, ms, 'me', { groupLabel: 'Pool play', expected, final: { rank: 2, of: 4 } });
+    expect(ov.stages.map((x) => [x.label, x.state, x.note])).toEqual([
+      ['Pool play', 'done', '2-0 · 1st in Pool A'],
+      ['Semifinals', 'done', 'W 11–8'],
+      ['Third Place Match', 'done', null],
+      ['Finals', 'done', 'L 9–11'],
+      ['Final place', 'done', '2nd of 4'],
+    ]);
+    expect(ov.stages[3].mine).toBe('lost');
+    expect(ov.here).toBe(3);
+  });
+
+  it('rotating partners mid-run: per-player standing, played / to go, an unknown playoff as one stage', () => {
     const ms = [
       { ...m('1', 'w', ['me', 'p'], ['a', 'b'], 11, 4), play_round: 1 },
       { ...m('2', 'w', ['me', 'a'], ['p', 'b'], null, null), play_round: 2 },
     ];
     const ov = bracketOverview([{ id: 'w', label: 'Rotating Partners Schedule', round_type: 'winners', round_number: 1 }], ms, 'me',
-      { groupLabel: 'Rotating partners', playoffAhead: true });
+      { groupLabel: 'Rotating partners', perPlayer: true, playoffAhead: true });
     expect(ov.stages).toEqual([
-      { label: 'Rotating partners', state: 'now', mine: 'in', note: '1-0, round 2 of 2' },
-      { label: 'Playoff', state: 'next', mine: null, note: null },
+      { label: 'Rotating partners', state: 'now', mine: 'in', note: '1-0 · T-1st now', sub: '1 of 2 played · 1 to go' },
+      { label: 'Playoff', state: 'next', mine: null, note: 'still to play', sub: null },
     ]);
     expect(ov.here).toBe(0);
   });
+
   it('the Bracket layout is offered for bracket cards only', () => {
     expect(shareTemplatesFor(0, 'bracket')).toContain('overview');
     expect(shareTemplatesFor(0, 'match')).not.toContain('overview');

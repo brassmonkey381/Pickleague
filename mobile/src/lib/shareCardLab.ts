@@ -5,6 +5,7 @@
 // through the model helpers.
 import {
   bracketCardModel,
+  bracketOverview,
   drillCardModel,
   eventCardModel,
   finishCardModel,
@@ -147,5 +148,40 @@ export function labSamples(): LabSample[] {
         },
       }),
     },
+    // PKL-065: the Bracket layout at each point of a pool play tournament (built by the real bracketOverview)
+    ...labStages().map(([id, label, ov, rec]) => ({
+      id, group: 'Bracket', label, title: 'Share my bracket',
+      model: bracketCardModel({ title: 'Fall Open (pools + playoff)', rank: null, of: null, wins: rec[0], losses: rec[1], steps: [], overview: ov }),
+    })),
+  ];
+}
+
+/** PKL-065: one pool play tournament (2 pools, top 2 per pool, third place) at three points, for the Bracket layout. */
+function labStages(): [string, string, ReturnType<typeof bracketOverview>, [number, number]][] {
+  const R = [
+    { id: 'pa', label: 'Pool A', round_type: 'pool', round_number: 1 },
+    { id: 'pb', label: 'Pool B', round_type: 'pool', round_number: 2 },
+    { id: 'sf', label: 'Semifinals', round_type: 'semifinals', round_number: 1000 },
+    { id: 'f', label: 'Finals', round_type: 'finals', round_number: 1100 },
+  ];
+  const m = (id: string, round_id: string, t1: [string, string], t2: [string, string], s1: number | null, s2: number | null) => ({
+    id, round_id, status: s1 == null ? 'scheduled' : 'completed',
+    winner_team: (s1 == null ? null : s1 > (s2 ?? 0) ? 'team1' : 'team2') as 'team1' | 'team2' | null,
+    team1_player1: t1[0], team1_player2: t1[1], team2_player1: t2[0], team2_player2: t2[1], team1_score: s1, team2_score: s2,
+  });
+  const pools = (s: (number | null)[]) => [
+    m('1', 'pa', ['me', 'p'], ['a', 'b'], s[0], s[0] == null ? null : 7),
+    m('2', 'pa', ['me', 'p'], ['g', 'h'], s[1], s[1] == null ? null : 9),
+    m('3', 'pa', ['me', 'p'], ['i', 'j'], s[2], s[2] == null ? null : 4),
+    m('4', 'pa', ['a', 'b'], ['g', 'h'], s[3], s[3] == null ? null : 5),
+    m('5', 'pb', ['c', 'd'], ['e', 'f'], s[4], s[4] == null ? null : 3),
+  ];
+  const expected = ['Semifinals', 'Finals', 'Third Place Match'];
+  const o = { groupLabel: 'Pool play', expected };
+  return [
+    ['bracket-drawn', 'Bracket layout: just drawn', bracketOverview(R, pools([null, null, null, null, null]), 'me', o), [0, 0]],
+    ['bracket-midpools', 'Bracket layout: mid-pools', bracketOverview(R, pools([11, 8, null, 11, 11]), 'me', o), [1, 1]],
+    ['bracket-midplayoff', 'Bracket layout: mid-playoff', bracketOverview(R, [...pools([11, 11, 11, 11, 11]),
+      m('6', 'sf', ['me', 'p'], ['e', 'f'], 11, 8), m('7', 'sf', ['c', 'd'], ['a', 'b'], null, null)], 'me', o), [4, 0]],
   ];
 }

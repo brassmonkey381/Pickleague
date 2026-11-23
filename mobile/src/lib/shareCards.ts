@@ -722,8 +722,10 @@ export type OverviewStage = {
   state: 'done' | 'now' | 'next';
   /** Where the sharer stands in it: played and won / lost, still in it, knocked out before it, or not in the field. */
   mine: 'won' | 'lost' | 'in' | 'out' | null;
-  /** A short line: "2-1, 3rd in Pool A", "W 11–8", "Round 4 of 9". */
+  /** A short line: "2-1 · 3rd now", "W 11–8", "still to play". */
   note: string | null;
+  /** A second, smaller line: "3 of 5 played · 2 to go" (PKL-065). */
+  sub?: string | null;
 };
 export type BracketOverview = { stages: OverviewStage[]; here: number };
 
@@ -733,64 +735,122 @@ export type OverviewMatchIn = BracketMatchIn & { round_id?: string | null; play_
 const GROUP_TYPES = new Set(['winners', 'pool']);
 const STAGE_ORDER: Record<string, number> = { quarterfinals: 1, semifinals: 2, third_place_match: 3, finals: 4, grand_final: 5 };
 
-/**
- * The tournament's stages with the sharer marked. `groupLabel`: "Pool play", "Round robin", "Rotating partners".
- * `groupPlace`: my place in the group stage ("3rd in Pool A"), when known. `playoffAhead`: a playoff is set up but
- * not drawn yet (it shows as one "Playoff" stage still to come).
- */
+/** The tournament's stages with the sharer marked, right at any point: the group stage (W-L, standing, played / to
+ *  go), each playoff stage drawn or still to come, and the final place (PKL-063, PKL-065). */
 export function bracketOverview(
   rounds: readonly OverviewRoundIn[], matches: readonly OverviewMatchIn[], me: string,
-  o: { groupLabel: string; groupPlace?: string | null; playoffAhead?: boolean; final?: { rank: number; of: number | null } | null },
+  o: {
+    groupLabel: string;
+    /** Rotating partners / MLP rank people, not pairs: standings are per player. */
+    perPlayer?: boolean;
+    /** PKL-065: every playoff stage the settings will create, in order (lib/tournamentFlow predictFlow). Stages not
+     *  drawn yet show as "still to play". null: unknown, so one "Playoff" placeholder when `playoffAhead`. */
+    expected?: readonly string[] | null;
+    playoffAhead?: boolean;
+    final?: { rank: number; of: number | null } | null;
+  },
 ): BracketOverview {
   const typeOf = new Map(rounds.map((r) => [r.id, r]));
-  const roundOf = (m: OverviewMatchIn) => (m.round_id ? typeOf.get(m.round_id) : undefined);
+  const roundOf = (m: OverviewMatchIn | undefined) => (m?.round_id ? typeOf.get(m.round_id) : undefined);
   const real = matches.filter((m) => m.team1_player1 && m.team2_player1 && m.status !== 'cancelled');
   const inIt = (m: OverviewMatchIn) => [m.team1_player1, m.team1_player2, m.team2_player1, m.team2_player2].includes(me);
+  const onT1 = (m: OverviewMatchIn, p: string) => m.team1_player1 === p || m.team1_player2 === p;
   const done = (ms: OverviewMatchIn[]) => ms.length > 0 && ms.every((m) => m.status === 'completed');
   const stages: OverviewStage[] = [];
 
-  // the group stage
+  // ── the group stage: my W-L, my standing now, my matches played / to go ──
   const group = real.filter((m) => { const r = roundOf(m); return !r || GROUP_TYPES.has(r.round_type); });
+  const iWasIn = group.some(inIt);
   if (group.length) {
     const mine = group.filter(inIt);
-    const won = mine.filter((m) => m.status === 'completed' && m.winner_team != null
-      && (m.winner_team === 'team1') === (m.team1_player1 === me || m.team1_player2 === me)).length;
-    const lost = mine.filter((m) => m.status === 'completed').length - won;
-    const rounds2 = [...new Set(group.map((m) => m.play_round).filter((x): x is number => x != null))];
-    const openRounds = group.filter((m) => m.status !== 'completed').map((m) => m.play_round).filter((x): x is number => x != null);
+    const played = mine.filter((m) => m.status === 'completed' && m.winner_team != null);
+    const won = played.filter((m) => (m.winner_team === 'team1') === onT1(m, me)).length;
     const isDone = done(group);
-    const note = [`${won}-${lost}`, isDone ? o.groupPlace ?? null
-      : rounds2.length && openRounds.length ? `round ${Math.min(...openRounds)} of ${Math.max(...rounds2)}` : null].filter(Boolean).join(', ');
-    stages.push({ label: o.groupLabel, state: isDone ? 'done' : 'now', mine: mine.length ? (isDone ? null : 'in') : null, note: note || null });
+    // my table: my pool in pool play (the matches of my round), else the whole group stage
+    const pool = roundOf(mine[0] ?? group[0]);
+    const inPool = pool?.round_type === 'pool';
+    const table = inPool ? group.filter((m) => m.round_id === mine[0]?.round_id) : group;
+    type Row = { w: number; l: number; d: number };
+    const rows = new Map<string, Row>();
+    const sideKeys = (ps: string[]): string[] => (o.perPlayer ? ps : [ps.slice().sort().join(':')]);
+    for (const m of table) {
+      const t1 = [m.team1_player1, m.team1_player2].filter(Boolean) as string[];
+      const t2 = [m.team2_player1, m.team2_player2].filter(Boolean) as string[];
+      for (const [ps, isT1] of [[t1, true], [t2, false]] as [string[], boolean][]) {
+        for (const k of sideKeys(ps)) {
+          const r = rows.get(k) ?? { w: 0, l: 0, d: 0 }; rows.set(k, r);
+          if (m.status !== 'completed' || !m.winner_team) continue;
+          const a = (isT1 ? m.team1_score : m.team2_score) ?? 0, b = (isT1 ? m.team2_score : m.team1_score) ?? 0;
+          r.d += a - b; if ((m.winner_team === 'team1') === isT1) r.w++; else r.l++;
+        }
+      }
+    }
+    let myKey: string | null = null;
+    if (mine[0]) {
+      const side = (onT1(mine[0], me) ? [mine[0].team1_player1, mine[0].team1_player2] : [mine[0].team2_player1, mine[0].team2_player2])
+        .filter(Boolean) as string[];
+      myKey = o.perPlayer ? me : side.slice().sort().join(':');
+    }
+    let standing: string | null = null;
+    if (myKey && rows.has(myKey) && played.length) {
+      const my = rows.get(myKey)!;
+      const better = (r: Row) => r.w > my.w || (r.w === my.w && (r.l < my.l || (r.l === my.l && r.d > my.d)));
+      const level = (r: Row) => r.w === my.w && r.l === my.l && r.d === my.d;
+      const vals = [...rows.values()];
+      const place = 1 + vals.filter(better).length;
+      const tied = vals.filter(level).length > 1;
+      const where = inPool && pool?.label ? ` in ${pool.label.trim()}` : '';
+      standing = `${tied ? 'T-' : ''}${ordinal(place)}${isDone ? where : ' now'}`;
+    }
+    const left = mine.length - played.length;
+    stages.push({
+      label: o.groupLabel,
+      state: isDone ? 'done' : 'now',
+      mine: mine.length ? (isDone ? null : 'in') : null,
+      note: [mine.length ? `${won}-${played.length - won}` : null, standing].filter(Boolean).join(' · ') || null,
+      sub: mine.length && !isDone ? `${played.length} of ${mine.length} played · ${left} to go` : null,
+    });
   }
 
-  // each playoff round, in bracket order (the Final last)
-  const playoff = rounds.filter((r) => !GROUP_TYPES.has(r.round_type))
-    .sort((a, b) => (STAGE_ORDER[a.round_type] ?? 0) - (STAGE_ORDER[b.round_type] ?? 0) || a.round_number - b.round_number);
-  for (const r of playoff) {
-    const ms = real.filter((m) => m.round_id === r.id);
-    if (!ms.length) continue;   // a round with nothing drawn in it yet
+  // ── the playoff: each stage, drawn or still to come, in bracket order (the Final last) ──
+  const norm = (s: string) => s.trim().toLowerCase().replace(/^final$/, 'finals');
+  const LABEL_ORDER: Record<string, number> = { quarterfinals: 1, semifinals: 2, 'third place match': 3, finals: 4 };
+  const drawn = rounds.filter((r) => !GROUP_TYPES.has(r.round_type) && real.some((m) => m.round_id === r.id));
+  type Item = { label: string; order: number; r: OverviewRoundIn | null };
+  const items: Item[] = drawn.map((r) => {
+    const label = r.label?.trim() || r.round_type.replace(/_/g, ' ');
+    return { label, order: STAGE_ORDER[r.round_type] ?? LABEL_ORDER[norm(label)] ?? 0, r };
+  });
+  for (const l of o.expected ?? []) {
+    if (items.some((x) => norm(x.label) === norm(l))) continue;
+    items.push({ label: l, order: LABEL_ORDER[norm(l)] ?? 9, r: null });
+  }
+  items.sort((a, b) => a.order - b.order || (a.r?.round_number ?? 0) - (b.r?.round_number ?? 0));
+  for (const it of items) {
+    if (!it.r) { stages.push({ label: it.label, state: 'next', mine: null, note: 'still to play', sub: null }); continue; }
+    const rid = it.r.id;
+    const ms = real.filter((m) => m.round_id === rid);
     const mine = ms.find(inIt) ?? null;
     let state: OverviewStage['mine'] = null; let note: string | null = null;
     if (mine) {
       if (mine.status === 'completed' && mine.winner_team) {
-        const t1 = mine.team1_player1 === me || mine.team1_player2 === me;
+        const t1 = onT1(mine, me);
         const w = (mine.winner_team === 'team1') === t1;
         const a = t1 ? mine.team1_score : mine.team2_score, b = t1 ? mine.team2_score : mine.team1_score;
         state = w ? 'won' : 'lost'; note = a != null && b != null ? `${w ? 'W' : 'L'} ${a}–${b}` : w ? 'Won' : 'Lost';
       } else { state = 'in'; note = 'Playing'; }
-    } else if (stages.some((x) => x.mine != null) || group.some(inIt)) {
-      state = r.round_type === 'third_place_match' ? null : 'out';
+    } else if (iWasIn) {
+      state = it.r.round_type === 'third_place_match' ? null : 'out';
     }
-    stages.push({ label: r.label?.trim() || r.round_type.replace(/_/g, ' '), state: done(ms) ? 'done' : 'now', mine: state, note });
+    stages.push({ label: it.label, state: done(ms) ? 'done' : 'now', mine: state, note, sub: null });
   }
-  if (!playoff.length && o.playoffAhead) stages.push({ label: 'Playoff', state: 'next', mine: null, note: null });
+  if (!items.length && o.playoffAhead) stages.push({ label: 'Playoff', state: 'next', mine: null, note: 'still to play', sub: null });
 
   // "you are here": the stage I'm in now, else the last one I played
   let here = stages.findIndex((x) => x.mine === 'in');
   if (here < 0) { for (let i = stages.length - 1; i >= 0; i--) if (stages[i].mine === 'won' || stages[i].mine === 'lost') { here = i; break; } }
-  if (here < 0) here = stages.findIndex((x) => x.state !== 'next' && group.some(inIt)) >= 0 ? 0 : -1;
-  if (o.final && stages.length) stages.push({ label: 'Final place', state: 'done', mine: null, note: `${ordinal(o.final.rank)}${o.final.of ? ` of ${o.final.of}` : ''}` });
+  if (here < 0 && iWasIn) here = 0;
+  if (o.final && stages.length) stages.push({ label: 'Final place', state: 'done', mine: null, note: `${ordinal(o.final.rank)}${o.final.of ? ` of ${o.final.of}` : ''}`, sub: null });
   return { stages, here };
 }
 

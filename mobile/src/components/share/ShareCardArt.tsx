@@ -176,7 +176,7 @@ export default function ShareCardArt({ s, model }: Props) {
       // PKL-063: the whole tournament at a glance, the sharer's stage lit up.
       const ov = model.overview;
       if (!ov || !ov.stages.length) return frame(<Body model={model} s={s} c={lookInk} u={u * k} align="center" width={lineW} />);
-      const kk = u * (story ? 1.35 : 1);   // a story has 9:16 to fill: the ladder a size up, centred
+      const kk = u * (story ? 1.25 : 1);   // a story has 9:16 to fill: the ladder a size up, centred
       return frame(
         <View style={{ gap: 10 * kk }}>
           <Text style={[cs.title, { color: look.ink, fontSize: 17 * kk }]} numberOfLines={2}>{model.title}</Text>
@@ -193,10 +193,14 @@ export default function ShareCardArt({ s, model }: Props) {
                   <View style={[cs.row, { gap: 8 * kk, paddingVertical: 7 * kk, paddingHorizontal: 8 * kk, borderRadius: 10 * kk,
                     backgroundColor: here ? look.accent : look.chip }]}>
                     <Text style={[cs.chipText, { color: ink, fontSize: 12 * kk, width: 12 * kk, textAlign: 'center' }]}>{mark}</Text>
-                    <Text style={[cs.title, { color: ink, fontSize: 13 * kk, flexShrink: 0, textDecorationLine: out ? 'line-through' : 'none' }]} numberOfLines={1}>
-                      {st.label}
-                    </Text>
-                    <Text style={[cs.sub, { color: ink, fontSize: 12 * kk, flex: 1, textAlign: 'right' }]} numberOfLines={2}>{st.note ?? ''}</Text>
+                    <View style={{ flex: 1, minWidth: 0 }}>
+                      <Text style={[cs.title, { color: ink, fontSize: 13 * kk, textDecorationLine: out ? 'line-through' : 'none' }]} numberOfLines={1}>
+                        {stageShort(st.label)}
+                      </Text>
+                      {/* PKL-065: "3 of 5 played · 2 to go" under the group stage */}
+                      {st.sub ? <Text style={[cs.sub, { color: ink, fontSize: 10 * kk, opacity: 0.85 }]} numberOfLines={2}>{st.sub}</Text> : null}
+                    </View>
+                    <Text style={[cs.sub, { color: ink, fontSize: 12 * kk, flexShrink: 0, textAlign: 'right', fontStyle: st.state === 'next' ? 'italic' : 'normal' }]} numberOfLines={1}>{st.note ?? ''}</Text>
                     {here ? <Text style={[cs.chipText, { color: ink, fontSize: 9 * kk, letterSpacing: 1 * u }]}>YOU</Text> : null}
                   </View>
                 </View>
@@ -211,6 +215,14 @@ export default function ShareCardArt({ s, model }: Props) {
     default:
       return frame(<Body model={model} s={s} c={lookInk} u={u * k} align="center" width={lineW} />);
   }
+}
+
+/** PKL-065: the Bracket layout's stage names, short enough for a story row ("Third Place Match" -> "Third place"). */
+function stageShort(label: string): string {
+  const l = label.trim();
+  if (/^third place( match)?$/i.test(l)) return 'Third place';
+  if (/^finals?$/i.test(l)) return 'Final';
+  return l;
 }
 
 /** How much a photo layout leaves for text, by its height (in 300-wide units). */
