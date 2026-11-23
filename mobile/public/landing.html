@@ -1298,7 +1298,7 @@ html.js .finale.pre .btn.start { scale: .4; opacity: 0; }
         mLbl.textContent = 'Final'; mTag.textContent = 'R' + s.n + ' · game ' + (gi + 1) + ' of 5';
         team(mT1, names(g[0]), g[2], true); team(mT2, names(g[1]), g[3], false); mOk.hidden = false;
         lgCap.innerHTML = s.k === 'game'
-          ? '<b>' + names(g[0]) + ' win ' + g[2] + '&ndash;' + g[3] + '.</b> Both +' + f2(g[4]) + ', the table re-sorts.'
+          ? '<b>Round ' + s.n + ': 5 games.</b> Every score re-sorts the table.'
           : '<b>Round ' + s.n + ' locked in.</b> ' + s.top.n.split(' ')[0] + ' takes the round' + (s.n === 8 ? '. Now the season.' : '.');
         stampT.textContent = 'Round ' + s.n + ' locked in';
       } else {
@@ -1368,6 +1368,13 @@ html.js .finale.pre .btn.start { scale: .4; opacity: 0; }
     var scrub = document.getElementById('scrub'), plTime = document.getElementById('plTime'), plFast = document.getElementById('plFast'), plSkip = document.getElementById('plSkip');
     var plSay = document.getElementById('plSay'), chapsEl = document.getElementById('plChaps'), ticks = document.getElementById('plTicks');
     var ICON = { play: 'M2 1l9 5-9 5z', pause: 'M2 1h3v10H2zM7 1h3v10H7z', replay: 'M6 2a4 4 0 1 1-3.8 2.8l1.5.5A2.4 2.4 0 1 0 6 3.6v1.6L3 2.8 6 .4z' };
+    // PKL-082 (Brian 2026-11-23: "about 3-5x the current speed"): each kind of step plays in a set wall time, so the
+    // whole finale runs in about 23 s (was 0:49; Brian: slower cut, games twice as long). Key screens keep time to read; the 10 games are a quick run with one
+    // caption per round. The timeline (t, scrubber, chips) keeps its original units; only the playback speed changes.
+    var WALL = { start: 2300, game: 840, lock: 2300, final: 2600, pay: 2700 };
+    var segRate = function (i) { return SEG[i].dur / WALL[SEG[i].k]; };
+    var wallAt = function (tt) { var w = 0; for (var i = 0; i < SEG.length; i++) { var s = SEG[i]; if (tt >= s.start + s.dur) { w += WALL[s.k]; continue; } if (tt > s.start) w += (tt - s.start) / segRate(i); break; } return w; };
+    var WT = 0; SEG.forEach(function (s) { WT += WALL[s.k]; });
     var t = 0, playing = false, rate = 1, inView = false, started = false, dragging = false, raf = 0, last = 0, lastChap = -1, lastSay = -1;
     var mmss = function (ms) { var x = Math.floor(ms / 1000); return Math.floor(x / 60) + ':' + ('0' + x % 60).slice(-2); };
     var segAt = function (tt) { for (var i = SEG.length - 1; i > 0; i--) if (tt >= SEG[i].start) return i; return 0; };
@@ -1387,8 +1394,8 @@ html.js .finale.pre .btn.start { scale: .4; opacity: 0; }
       scrub.value = Math.round(t); scrub.style.setProperty('--k', (t / T).toFixed(4));
       // the scrubber's spoken value: refreshed when the step changes, or on every move the viewer makes, never per frame
       var si = segAt(t);
-      if (si !== lastSay || !playing || dragging) { scrub.setAttribute('aria-valuetext', says(SEG[si]) + ', ' + mmss(t) + ' of ' + mmss(T)); lastSay = si; }
-      plTime.textContent = mmss(t) + ' / ' + mmss(T);
+      if (si !== lastSay || !playing || dragging) { scrub.setAttribute('aria-valuetext', says(SEG[si]) + ', ' + mmss(wallAt(t)) + ' of ' + mmss(WT)); lastSay = si; }
+      plTime.textContent = mmss(wallAt(t)) + ' / ' + mmss(WT);
       var st2 = playing ? 'pause' : end ? 'replay' : 'play';
       plIco.setAttribute('d', ICON[st2]);
       plPlayT.textContent = st2 === 'pause' ? 'Pause' : st2 === 'replay' ? 'Replay' : 'Play';
@@ -1406,7 +1413,7 @@ html.js .finale.pre .btn.start { scale: .4; opacity: 0; }
     var frame = function (now) {
       raf = 0;
       if (!playing || !inView || dragging || document.hidden) { last = 0; return; }
-      if (last) t += Math.min(100, now - last) * rate;
+      if (last) t += Math.min(100, now - last) * rate * segRate(segAt(t));
       last = now;
       if (t >= T) { t = T; playing = false; say('Season over. Final standings and payout.'); }
       render(t);
