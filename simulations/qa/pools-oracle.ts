@@ -142,3 +142,24 @@ export function potShares(pot: number, structure: number[], ranks: Map<string, n
   });
   return out;
 }
+
+/** PKL-060 R7: compute_tournament_final_ranks, per-player branch (rotating partners, no playoff): over completed
+ *  matches with a winner, wins desc, losses asc, point diff desc, the admin's tie order (key "u:u"), seed, user id.
+ *  Ranks are dense 1..N over every approved player. Also returns the level groups (same W, L, diff). */
+export function playerRanks(ms: PM[], players: string[], seedOf: Map<string, number>, tieRank: (k: string) => number | null) {
+  const rows = new Map(players.map((u) => [u, { u, wins: 0, losses: 0, diff: 0 }]));
+  for (const m of ms.filter(decided)) {
+    const t1 = [m.team1_player1, m.team1_player2 ?? null].filter((x): x is string => !!x);
+    const t2 = [m.team2_player1, m.team2_player2 ?? null].filter((x): x is string => !!x);
+    const s1 = m.team1_score ?? 0, s2 = m.team2_score ?? 0;
+    for (const u of t1) { const r = rows.get(u); if (!r) continue; r.diff += s1 - s2; if (m.winner_team === 'team1') r.wins++; else r.losses++; }
+    for (const u of t2) { const r = rows.get(u); if (!r) continue; r.diff += s2 - s1; if (m.winner_team === 'team2') r.wins++; else r.losses++; }
+  }
+  const order = [...rows.values()].sort((a, b) => b.wins - a.wins || a.losses - b.losses || b.diff - a.diff
+    || (tieRank(keyOf(a.u)) ?? MAX) - (tieRank(keyOf(b.u)) ?? MAX) || (seedOf.get(a.u) ?? 999) - (seedOf.get(b.u) ?? 999)
+    || (a.u < b.u ? -1 : a.u > b.u ? 1 : 0));
+  const ranks = new Map(order.map((r, i) => [r.u, i + 1]));
+  const lv = new Map<string, string[]>();
+  for (const r of order) { const k = `${r.wins}|${r.losses}|${r.diff}`; lv.set(k, [...(lv.get(k) ?? []), r.u]); }
+  return { ranks, order, levels: [...lv.values()].filter((g) => g.length > 1) };
+}

@@ -50,19 +50,24 @@ const BRIAN = val('--brian', '252a36e1-5d89-4ad2-8a3e-b786579f019a'); // Brian S
 //   --pool-count 2  --playoff top_2_per_pool  --players 16  --ante 50  --courts 2  --variant <name>
 //   --tie-order team:4,team:8,team:1   who the host puts first when it orders a waiting tie (rehearsal / "host")
 const POOLS = has('--pools');
+// PKL-060 R7: rotating partners doubles, odd count (9: one bye per round), courts, an ante pot that Brian (co-admin)
+// pays out, then `cancel-check`: a second tournament with antes is cancelled and every pickle must come back.
+const R7 = has('--r7');
 const POOL_COUNT = Number(val('--pool-count', '2'));
 const PLAYOFF = val('--playoff', 'top_2_per_pool');
-const ANTE = POOLS ? Number(val('--ante', '50')) : 0;
+const ANTE = POOLS || R7 ? Number(val('--ante', '50')) : 0;
 const VARIANT = val('--variant', '').replace(/[^a-z0-9]/gi, '').toLowerCase();
-const DOUBLES = has('--doubles') || POOLS;
-const TAG = POOLS ? 'pkl050' : DOUBLES ? 'pkl043' : 'pkl034';
-const ITEM = POOLS ? 'PKL-050' : DOUBLES ? 'PKL-043' : 'PKL-034';
-const N_PLAYERS = POOLS ? Number(val('--players', '16')) : DOUBLES ? 10 : 8;
+const DOUBLES = has('--doubles') || POOLS || R7;
+const TAG = POOLS ? 'pkl050' : R7 ? 'pkl060r7' : DOUBLES ? 'pkl043' : 'pkl034';
+const ITEM = POOLS ? 'PKL-050' : R7 ? 'PKL-060' : DOUBLES ? 'PKL-043' : 'PKL-034';
+const N_PLAYERS = POOLS ? Number(val('--players', '16')) : R7 ? Number(val('--players', '9')) : DOUBLES ? 10 : 8;
 const N_BOTS = REHEARSAL ? N_PLAYERS : N_PLAYERS - 1;
 const T_NAME = POOLS ? `[SIM] PKL-050 pool play QA${VARIANT ? ' ' + VARIANT : ''}${REHEARSAL ? ' rehearsal' : ''}`
+  : R7 ? `[SIM] PKL-060 R7 rotating partners QA${REHEARSAL ? ' rehearsal' : ''}`
   : DOUBLES ? (REHEARSAL ? '[SIM] PKL-043 doubles QA rehearsal' : '[SIM] PKL-043 doubles QA')
   : REHEARSAL ? '[SIM] PKL-034 rehearsal' : '[SIM] PKL-034 live QA';
 const L_NAME = POOLS ? `[SIM] PKL-050 QA league${VARIANT ? ' ' + VARIANT : ''}${REHEARSAL ? ' rehearsal' : ''}`
+  : R7 ? `[SIM] PKL-060 R7 QA league${REHEARSAL ? ' rehearsal' : ''}`
   : DOUBLES ? (REHEARSAL ? '[SIM] PKL-043 rehearsal league' : '[SIM] PKL-043 QA league')
   : REHEARSAL ? '[SIM] PKL-034 rehearsal league' : '[SIM] PKL-034 QA league';
 const BOT_TAG = `${TAG}${REHEARSAL ? 'r' : ''}${VARIANT}`;
@@ -87,7 +92,9 @@ const FAST_MS = 2500;
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const repo = path.resolve(here, '..');
-const STATE_DIR = path.join(repo, 'state', POOLS ? 'pkl-050' : DOUBLES ? 'pkl-043' : 'pkl-034');
+const STATE_DIR = path.join(repo, 'state', POOLS ? 'pkl-050' : R7 ? 'pkl-060-r7' : DOUBLES ? 'pkl-043' : 'pkl-034');
+/** R7: the second tournament, created only to be cancelled (cancel-check). */
+const T2_NAME = `${T_NAME} (cancel check)`;
 const RUN = `${MODE}${VARIANT ? '-' + VARIANT : ''}`; // file stem: live, rehearsal, rehearsal-p3, ...
 fs.mkdirSync(STATE_DIR, { recursive: true });
 const STATE_FILE = path.join(STATE_DIR, `${RUN}.json`);
@@ -141,7 +148,7 @@ type M = {
   court?: string | null; called_at?: string | null;
 };
 /** PKL-039: the doubles QA tournament reserves two courts unless --no-courts (then players pick any court, as before). */
-const COURTS: string[] | null = (has('--doubles') || POOLS) && !has('--no-courts')
+const COURTS: string[] | null = DOUBLES && !has('--no-courts')
   ? Array.from({ length: Number(val('--courts', '2')) }, (_, i) => String(i + 1)) : null;
 /** The four (or two, in singles) players of a match, nulls dropped. */
 const four = (m: M) => [m.team1_player1, m.team1_player2, m.team2_player1, m.team2_player2].filter((x): x is string => !!x);
@@ -324,6 +331,7 @@ type State = {
   brian_badges_before?: string[];
   bots: { n: number; id: string; email: string; name: string }[];
   password: string; brian?: string; brian_before?: Record<string, unknown>;
+  cancel_tournament_id?: string; cancel_before?: Record<string, number>;
 };
 const readState = (): State | null => { try { return JSON.parse(fs.readFileSync(STATE_FILE, 'utf8')); } catch { return null; } };
 const writeState = (s: State) => fs.writeFileSync(STATE_FILE, JSON.stringify(s, null, 2));
@@ -395,7 +403,7 @@ async function setup() {
     const email = EMAIL(n), name = `QA Bot ${n}`;
     const { data, error } = await admin.auth.admin.createUser({
       email, password: st.password, email_confirm: true,
-      user_metadata: { full_name: name, username: POOLS ? `qa${BOT_TAG}${n}` : `qabot${n}${REHEARSAL ? 'r' : ''}` },
+      user_metadata: { full_name: name, username: POOLS || R7 ? `qa${BOT_TAG}${n}` : `qabot${n}${REHEARSAL ? 'r' : ''}` },
     });
     if (error) die(`create ${email}: ${error.message} (run cleanup, then setup again)`);
     const id = data.user!.id;
@@ -457,7 +465,7 @@ async function setup() {
     partner_rotation: null, courts: COURTS, team_creation: 'fixed', registration_mode: 'invite_only', registration_closes_at: null,
     min_players: N_PLAYERS, max_players: N_PLAYERS, start_time: start.toISOString(), expected_length_hours: 2,
     location_name: 'QA test (online)', location_lat: null, location_lng: null,
-    pickle_ante: 0, payout_structure: [60, 25, 15], status: 'registration',
+    pickle_ante: ANTE, payout_structure: [60, 25, 15], status: 'registration',
   } : {
     league_id: lg!.id, name: T_NAME,
     description: 'QA test (PKL-034). Private, invite only. 7 QA bots post scores automatically; this is not a real event.',
@@ -562,17 +570,19 @@ const teamsOf = (st: State) => { const o = fixedSeedOrder(st); return Array.from
  * (create_doubles_pair) and invites the second (pair_invite); a bot partner accepts (pair_respond_to_join), Brian
  * accepts on his phone. Also makes Brian a tournament co-admin, as TournamentMembersScreen does. True when all set.
  */
+/** The host makes Brian a tournament co-admin, as TournamentMembersScreen does (Players -> Make co-admin). */
+async function ensureCoAdmin(st: State, regs: any[]) {
+  if (!st.brian) return;
+  const mine = regs.find((r) => r.user_id === st.brian);
+  if (mine?.status !== 'approved' || mine.role === 'co-admin') return;
+  const hc = await asBot(st, st.bots[0].id);
+  const { data: reg } = await admin.from('tournament_registrations').select('id').eq('tournament_id', st.tournament_id!).eq('user_id', st.brian).single();
+  const { error } = await hc.from('tournament_registrations').update({ role: 'co-admin' }).eq('id', reg!.id);
+  log(error ? `CO-ADMIN ERROR: ${error.message}` : `host ${st.bots[0].name} made you a co-admin of the tournament (Players -> Make co-admin)`);
+}
 async function ensurePools(st: State, regs: any[]): Promise<boolean> {
   const tId = st.tournament_id!;
-  const hc = await asBot(st, st.bots[0].id);
-  if (st.brian) {
-    const mine = regs.find((r) => r.user_id === st.brian);
-    if (mine?.status === 'approved' && mine.role !== 'co-admin') {
-      const { data: reg } = await admin.from('tournament_registrations').select('id').eq('tournament_id', tId).eq('user_id', st.brian).single();
-      const { error } = await hc.from('tournament_registrations').update({ role: 'co-admin' }).eq('id', reg!.id);
-      log(error ? `CO-ADMIN ERROR: ${error.message}` : `host ${st.bots[0].name} made you a co-admin of the tournament (Players -> Make co-admin)`);
-    }
-  }
+  await ensureCoAdmin(st, regs);
   const { data: pairs0 } = await admin.from('doubles_pairs').select('id, name, captain_id, partner_1_id, partner_2_id').eq('tournament_id', tId);
   const pairs = (pairs0 ?? []) as any[];
   let ready = true;
@@ -801,7 +811,7 @@ async function run() {
     if (c === 'pause') { if (lastWaitMsg !== 'pause') log('PAUSED (write "run" into control.txt to resume)'); lastWaitMsg = 'pause'; await sleep(3000); continue; }
 
     const { data: t } = await admin.from('tournaments').select(POOLS ? 'status, playoff_format, format, match_type, pool_count, playoff_third_place, pickle_ante, prize_pool'
-      : DOUBLES ? 'status, playoff_format, format, match_type' : 'status, playoff_format').eq('id', tId).single() as { data: any };
+      : DOUBLES ? 'status, playoff_format, format, match_type, pickle_ante, prize_pool' : 'status, playoff_format').eq('id', tId).single() as { data: any };
     if (!t) return die('tournament is gone');
     const { data: regs } = await admin.from('tournament_registrations').select('user_id, status, seed, role').eq('tournament_id', tId);
     const approved = (regs ?? []).filter((r: any) => r.status === 'approved').map((r: any) => r.user_id as string);
@@ -838,9 +848,9 @@ async function run() {
       }
       if (DOUBLES && !POOLS && !formatChecked) {
         formatChecked = true;
-        check('doubles tournament is rotating_partners / doubles / playoff_format none',
-          t.format === 'rotating_partners' && t.match_type === 'doubles' && t.playoff_format === 'none',
-          `format ${t.format}, match_type ${t.match_type}, playoff_format ${t.playoff_format}`);
+        check(`doubles tournament is rotating_partners / doubles / playoff_format none${R7 ? ` / ante ${ANTE}` : ''}`,
+          t.format === 'rotating_partners' && t.match_type === 'doubles' && t.playoff_format === 'none' && (!R7 || t.pickle_ante === ANTE),
+          `format ${t.format}, match_type ${t.match_type}, playoff_format ${t.playoff_format}, ante ${t.pickle_ante}`);
       }
       if (approved.length < N_PLAYERS) {
         const msg = `waiting: ${approved.length}/${N_PLAYERS} approved` + (st.brian && !approved.includes(st.brian) ? ' (Brian has not accepted the invite yet)' : '');
@@ -851,6 +861,7 @@ async function run() {
           : 'waiting: pairs forming';
         if (msg !== lastWaitMsg) log(msg); lastWaitMsg = msg; await sleep(fast ? FAST_MS : 5000); continue;
       }
+      if (R7) await ensureCoAdmin(st, regs ?? []);
       await lockIn(st, approved); await sleep(fast ? FAST_MS : 5000); continue;
     }
 
@@ -1095,18 +1106,15 @@ async function finishDoubles(st: State, nm: Map<string, string>, completeAsked: 
   if (!POOLS) check(`${N_PLAYERS} final ranks stored, 1..${N_PLAYERS} with no gaps`, rk.length === N_PLAYERS && rk.every((r: number, i: number) => r === i + 1), `got ${rk.join(',')}`);
   if (POOLS) await finishPools(st, N, players, ranks ?? []);
   else check('no playoff rounds on a rotating tournament', !(rounds ?? []).some((r: any) => ['finals', 'third_place_match'].includes(r.round_type)));
-  const oracleFile = path.join(repo, 'state', 'pkl-034', 'oracle.mjs');
-  if (POOLS) { /* finishPools checked the order */ }
-  else if (!fs.existsSync(oracleFile)) { log(`oracle.mjs not found (${oracleFile}); final-rank order not checked`); }
-  else {
-    const o = await import(new URL('file:///' + oracleFile.replace(/\\/g, '/')).href);
-    const typeOf = new Map((rounds ?? []).map((r: any) => [r.id, r.round_type]));
-    const results = ((full ?? []) as any[]).filter((m) => m.status === 'completed').map((m) => o.doublesResultFromRow(m, typeOf.get(m.round_id)));
-    const expected = o.finalRanksDoubles(players, results, { ratings });
-    const problems: string[] = o.compareFinalRanks(expected, ranks ?? []);
-    const named = (s: string) => s.replace(/[0-9a-f]{8}-[0-9a-f-]{27}/g, (id) => N(id));
-    check('final ranks = per-player standings (wins, fewer losses, head-to-head, point diff, PLUPR; ties in any order)', problems.length === 0, named(problems.join('; ')));
-    if (expected.tieGroups?.length) log('ties the code leaves to chance: ' + expected.tieGroups.map((g: any) => `ranks ${g.ranks[0]}-${g.ranks[1]}: ${g.players.map(N).join(', ')}`).join(' ; '));
+  if (!POOLS) {
+    // PKL-052 rule (no head-to-head, no rating), ported from compute_tournament_final_ranks' per-player branch.
+    const seedOf = new Map((regs ?? []).map((r: any) => [r.user_id, r.seed ?? 999]));
+    const pr = PO.playerRanks((full ?? []) as PO.PM[], players, seedOf, await tieRanks(tId));
+    const got = new Map((ranks ?? []).map((r: any) => [r.user_id, r.final_rank]));
+    const badR = players.filter((u) => got.get(u) !== pr.ranks.get(u)).map((u) => `${N(u)} rank ${got.get(u) ?? '-'}, want ${pr.ranks.get(u)}`);
+    check('final ranks = per-player standings (wins, fewer losses, point diff, then the admin tie order; no head-to-head)', badR.length === 0, badR.slice(0, 4).join(' ; '));
+    if (pr.levels.length) log('level players (same W, L, diff; the admin tie order or seed decides): ' + pr.levels.map((g) => g.map(N).join(' = ')).join(' ; '));
+    if (R7) await finishPot(st, N, players, pr.ranks);
   }
   if (st.brian) {
     const { data: notes } = await admin.from('notifications').select('type, title, created_at').eq('user_id', st.brian)
@@ -1136,8 +1144,12 @@ async function finishPools(st: State, N: (id: string) => string, players: string
   const bad = players.filter((u) => got.get(u) !== want.get(u)).map((u) => `${N(u)} rank ${got.get(u) ?? '-'}, want ${want.get(u)}`);
   check(`final ranks: Final 1-2, Third Place 3-4, then group order across pools (W-L, ±, admin tie order); partners share a rank`,
     bad.length === 0 && ranks.length === players.length, `${ranks.length} rows; ${bad.slice(0, 4).join(' ; ')}`);
-
-  // the ante pot
+  await finishPot(st, N, players, want);
+}
+/** The ante pot (PKL-050, PKL-060): every ante paid in, then the payout (Brian presses Pay out as co-admin; PKL-056
+ *  lets him) matches preview_tournament_payout: floor(floor(pot x pct / 100) / people at that place). */
+async function finishPot(st: State, N: (id: string) => string, players: string[], want: Map<string, number>) {
+  const tId = st.tournament_id!;
   const { data: t0 } = await admin.from('tournaments').select('prize_pool, pickle_ante, payout_structure, champion_payout_applied_at').eq('id', tId).single() as { data: any };
   const { data: contrib } = await admin.from('pickle_pot_contributions').select('user_id, amount_paid, kind').eq('scope_type', 'tournament').eq('scope_id', tId);
   const paidAnte = (contrib ?? []).filter((c: any) => c.kind === 'ante');
@@ -1155,8 +1167,8 @@ async function finishPools(st: State, N: (id: string) => string, players: string
       log(error ? `PAYOUT ERROR: ${error.message}` : `PAYOUT by host ${st.bots[0].name} (the app's "Pay out" button): ${JSON.stringify(data)}`);
       break;
     }
-    if (w === 0) log('PRESS "Pay out" on your phone (tournament page, prize pot card). Note: the server lets only the creator or a league admin pay out, '
-      + 'so as a tournament co-admin you may be refused; write "host" into control.txt and the host pays out.');
+    if (w === 0) log('PRESS "Pay out" on your phone (tournament page, prize pot card) and confirm. As a tournament co-admin you may '
+      + '(PKL-056). If it refuses, write "host" into control.txt and the host pays out.');
     await sleep(5000);
   }
   const { data: pays } = await admin.from('pickle_pot_payouts').select('user_id, amount').eq('scope_type', 'tournament').eq('scope_id', tId);
@@ -1164,7 +1176,7 @@ async function finishPools(st: State, N: (id: string) => string, players: string
   const paidOf = new Map<string, number>(); for (const p of pays ?? []) paidOf.set(p.user_id, (paidOf.get(p.user_id) ?? 0) + Number(p.amount));
   const badP = [...new Set([...expected.keys(), ...paidOf.keys()])].filter((u) => (paidOf.get(u) ?? 0) !== (expected.get(u) ?? 0))
     .map((u) => `${N(u)} paid ${paidOf.get(u) ?? 0}, want ${expected.get(u) ?? 0}`);
-  check(`prize pot paid: places 1-3 get ${(t0.payout_structure ?? [60, 25, 15]).join('/')}% of ${pot}, split between partners`, badP.length === 0 && (pays ?? []).length > 0, badP.slice(0, 4).join(' ; '));
+  check(`prize pot paid: places 1-3 get ${(t0.payout_structure ?? [60, 25, 15]).join('/')}% of ${pot}${POOLS ? ', split between partners' : ''}`, badP.length === 0 && (pays ?? []).length > 0, badP.slice(0, 4).join(' ; '));
 }
 
 /**
@@ -1575,8 +1587,9 @@ async function cleanup() {
   // Find everything by state file AND by name/email pattern, so a half-finished setup is also caught.
   const tIds = new Set<string>();
   if (st?.tournament_id) tIds.add(st.tournament_id);
-  const { data: byName } = await admin.from('tournaments').select('id').eq('name', T_NAME);
+  const { data: byName } = await admin.from('tournaments').select('id').in('name', R7 ? [T_NAME, T2_NAME] : [T_NAME]);
   for (const t of byName ?? []) tIds.add(t.id);
+  if (st?.cancel_tournament_id) tIds.add(st.cancel_tournament_id);
   const bots = new Map<string, string>();
   for (const b of st?.bots ?? []) bots.set(b.id, b.email);
   for (let page = 1; page <= 20; page++) {
@@ -1677,8 +1690,113 @@ async function replay() {
   await saveRunReplay(st.tournament_id);
 }
 
+// ── cancel-check (PKL-060 R7) ─────────────────────────────────────────────────
+/**
+ * After the R7 tournament: the host creates a second tournament with the same ante, QA Bots 2-5 join (each pays the
+ * ante), Brian is invited too (live), then the host cancels it the way the app does (cancel_tournament). Checks:
+ * the pot held every ante; afterwards every player's pickles are back where they were, the host also gets the
+ * create fee back (cancelled during registration), the pot is empty and refunded, and each player got the
+ * "Pot refunded" and "Tournament cancelled" alerts. Write "skip" into control.txt to go on without Brian.
+ */
+async function cancelCheck() {
+  log('=== cancel-check (PKL-060 R7: ante refunds) ===');
+  const st = readState(); if (!st?.league_id) return die(`no ${MODE} setup found; run setup first`);
+  const host = st.bots[0]; const hc = await asBot(st, host.id);
+  const joiners = st.bots.slice(1, 5);
+  const pick = async (ids: string[]) => new Map(((await admin.from('profiles').select('id, pickles').in('id', ids)).data ?? [])
+    .map((p: any) => [p.id as string, Number(p.pickles)]));
+  let tId = st.cancel_tournament_id;
+  if (tId) {
+    const { data: t0 } = await admin.from('tournaments').select('status').eq('id', tId).maybeSingle();
+    if (t0?.status === 'cancelled') { log('the cancel-check tournament is already cancelled; nothing to do (cleanup removes it)'); return; }
+  }
+  const people = [host.id, ...joiners.map((b) => b.id), ...(st.brian ? [st.brian] : [])];
+  if (!tId) {
+    // fund: the create fee + ante for the host, the ante for each joiner (on top of what they hold now)
+    const now0 = await pick([host.id, ...joiners.map((b) => b.id)]);
+    await admin.from('profiles').update({ pickles: (now0.get(host.id) ?? 0) + 2500 + ANTE }).eq('id', host.id);
+    for (const b of joiners) await admin.from('profiles').update({ pickles: (now0.get(b.id) ?? 0) + ANTE }).eq('id', b.id);
+    st.cancel_before = Object.fromEntries(await pick(people)); writeState(st);
+  }
+  const before = new Map<string, number>(Object.entries(st.cancel_before ?? {}).map(([k, v]) => [k, Number(v)]));
+  if (!tId) {
+    const start = new Date(Date.now() + 24 * 3600_000);
+    const { data: t, error } = await hc.from('tournaments').insert({
+      league_id: st.league_id, name: T2_NAME, created_by: host.id,
+      description: `QA test (${ITEM}). Created only to be cancelled: every ante must come back.`,
+      format: 'rotating_partners', match_type: 'doubles', seeding: 'random', pool_count: 1, team_creation: 'fixed',
+      registration_mode: 'invite_only', min_players: 4, max_players: 8, start_time: start.toISOString(), expected_length_hours: 1,
+      location_name: 'QA test (online)', pickle_ante: ANTE, payout_structure: [60, 25, 15], status: 'registration',
+    }).select('id').single();
+    if (error) return die('create the cancel-check tournament: ' + error.message);
+    tId = t!.id as string; st.cancel_tournament_id = tId; writeState(st);
+    log(`tournament "${T2_NAME}"  ${tId}  (host ${host.name}, ante ${ANTE})`);
+    const { error: re } = await hc.from('tournament_registrations').insert({ tournament_id: tId, user_id: host.id, status: 'approved', role: 'admin' });
+    if (re) return die('host registration: ' + re.message);
+    for (const b of joiners) {
+      const { error: ie } = await hc.rpc('tournament_invite_player', { p_tournament_id: tId, p_user_id: b.id });
+      if (ie) return die(`invite ${b.name}: ${ie.message}`);
+      const { data: reg } = await admin.from('tournament_registrations').select('id').eq('tournament_id', tId).eq('user_id', b.id).single();
+      const { error: ae } = await (await asBot(st, b.id)).rpc('tournament_respond_to_invite', { p_registration_id: reg!.id, p_accept: true });
+      if (ae) return die(`${b.name} accept: ${ae.message}`);
+      log(`  ${b.name} invited + accepted`);
+    }
+    if (st.brian) {
+      const { error: ie } = await hc.rpc('tournament_invite_player', { p_tournament_id: tId, p_user_id: st.brian });
+      if (ie) return die('invite Brian: ' + ie.message);
+    }
+  }
+  const tid = tId as string;
+  if (st.brian && !REHEARSAL) {
+    for (let w = 0; ; w++) {
+      const { data: r } = await admin.from('tournament_registrations').select('status').eq('tournament_id', tid).eq('user_id', st.brian).maybeSingle();
+      if (r?.status === 'approved') { log('Brian accepted (paid the ante)'); break; }
+      if (control() === 'skip') { log('control "skip": going on without Brian'); break; }
+      if (w === 0) log(`WAITING FOR YOU: accept the invite to "${T2_NAME}" (it charges the ${ANTE} ante; the cancel gives it back). Write "skip" into control.txt to go on without you.`);
+      await sleep(5000);
+    }
+  }
+  const N = (u: string) => (u === st.brian ? 'Brian' : st.bots.find((b) => b.id === u)?.name ?? u.slice(0, 8));
+  const { data: regs } = await admin.from('tournament_registrations').select('user_id, status').eq('tournament_id', tid);
+  const paidIn = (regs ?? []).filter((r: any) => r.status === 'approved').map((r: any) => r.user_id as string);
+  const mid = await pick(paidIn);
+  const { data: tm } = await admin.from('tournaments').select('prize_pool').eq('id', tid).single() as { data: any };
+  const { data: c0 } = await admin.from('pickle_pot_contributions').select('user_id, amount_paid, kind').eq('scope_type', 'tournament').eq('scope_id', tid);
+  check(`cancel-check: ${paidIn.length} players each paid the ${ANTE} ante into the pot (${paidIn.length * ANTE})`,
+    Number(tm?.prize_pool) === paidIn.length * ANTE && (c0 ?? []).filter((c: any) => c.kind === 'ante').length === paidIn.length,
+    `prize_pool ${tm?.prize_pool}, ${(c0 ?? []).length} contributions`);
+  const notCharged = paidIn.filter((u) => u !== host.id && (before.get(u) ?? 0) - (mid.get(u) ?? 0) !== ANTE)
+    .map((u) => `${N(u)} ${before.get(u)} -> ${mid.get(u)}`);
+  check(`cancel-check: each joining player is ${ANTE} pickles down before the cancel`, notCharged.length === 0, notCharged.join(' ; '));
+
+  // the cancel, as the app's "Cancel tournament" (useTournamentDetail.confirmCancelTournament)
+  const T = new Date(Date.now() - 2000).toISOString();
+  const { data: msg, error: ce } = await hc.rpc('cancel_tournament', { p_tournament_id: tid });
+  log(ce ? `CANCEL ERROR: ${ce.message}` : `CANCEL by host ${host.name}: ${msg}`);
+  check('cancel-check: cancel_tournament ran', !ce, ce?.message);
+  await sleep(1500);
+  const after = await pick(people);
+  const { data: t1 } = await admin.from('tournaments').select('status, prize_pool').eq('id', tid).single() as { data: any };
+  check('cancel-check: tournament is cancelled and its pot is empty', t1?.status === 'cancelled' && Number(t1?.prize_pool) === 0,
+    `status ${t1?.status}, prize_pool ${t1?.prize_pool}`);
+  const { data: c1 } = await admin.from('pickle_pot_contributions').select('refunded_at').eq('scope_type', 'tournament').eq('scope_id', tid);
+  check('cancel-check: every pot contribution is marked refunded', (c1 ?? []).length > 0 && (c1 ?? []).every((c: any) => !!c.refunded_at));
+  // before = after funding; the host paid the create fee + ante, everyone else the ante: all of it comes back
+  const off = people.filter((u) => (after.get(u) ?? 0) !== (before.get(u) ?? 0)).map((u) => `${N(u)} ${before.get(u)} -> ${after.get(u)}`);
+  check('cancel-check: every player has exactly the pickles they had before (ante back; the host also gets the create fee back)', off.length === 0, off.join(' ; '));
+  const { data: notes } = await admin.from('notifications').select('user_id, title').eq('entity_id', tid).gte('created_at', T);
+  const lack = paidIn.flatMap((u) => [
+    ...((notes ?? []).some((n: any) => n.user_id === u && n.title === '🥒 Pot refunded') ? [] : [`${N(u)}: no "Pot refunded"`]),
+    ...(u === host.id || (notes ?? []).some((n: any) => n.user_id === u && n.title === '🚫 Tournament cancelled') ? [] : [`${N(u)}: no "Tournament cancelled"`]),
+  ]);
+  check('cancel-check: each player got "Pot refunded" and (all but the host) "Tournament cancelled"', lack.length === 0, lack.join(' ; '));
+  if (st.brian && paidIn.includes(st.brian)) log('PHONE: two pushes should arrive now: "🥒 Pot refunded" and "🚫 Tournament cancelled"');
+  log(`=== cancel-check done; ${failures} problem(s) ===`);
+  process.exitCode = failures ? 1 : 0;
+}
+
 // ── main ──────────────────────────────────────────────────────────────────────
 process.on('SIGINT', () => { log('Ctrl+C: stopped. Run again to resume from the database state.'); process.exit(130); });
-const main: Record<string, () => unknown> = { setup, run, status, audit, replay, cleanup, plan };
+const main: Record<string, () => unknown> = { setup, run, status, audit, replay, cleanup, plan, 'cancel-check': cancelCheck };
 if (!main[CMD]) { console.log('usage: npx tsx live-qa-pkl034.ts setup|run|status|audit|replay|cleanup|plan [--doubles] [--rehearsal] [--fast] [--interval 60] [--restore-brian]'); process.exit(2); }
 Promise.resolve(main[CMD]()).catch((e) => die(String(e?.stack ?? e)));
