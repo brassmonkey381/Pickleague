@@ -79,6 +79,8 @@ export type TournamentSlides = {
   standings: SlideStandings | null;
   /** The slides there are, in order (1-3). */
   pages: SlidePageId[];
+  /** The sharer's path, one line: "Pool A 1st (3-0) > Semifinal W 11-7 > Final L 9-11 > 2nd place". Null if not in it. */
+  journey: string | null;
 };
 
 export type SlideRoundIn = { id: string; label: string | null; round_type: string; round_number: number };
@@ -244,8 +246,20 @@ export function buildTournamentSlides(i: SlidesInput): TournamentSlides {
         if (p1 && !sides.has(keyOf(p1, p2))) sides.set(keyOf(p1, p2), side(p1, p2)!);
       }
     }
-    // In seed order, the way the draw lists the pool.
-    const order = [...sides.entries()].sort((a, b) => (a[1].seed ?? 1e9) - (b[1].seed ?? 1e9));
+    // In finishing order (wins, fewer losses, point diff, then seed), so row 1 is 1st in the pool (PKL-070).
+    const rec = new Map<string, { w: number; l: number; d: number }>();
+    for (const m of ms) {
+      if (!played(m)) continue;
+      for (const [k1, a, b, won] of [[keyOf(m.team1_player1, m.team1_player2), m.team1_score ?? 0, m.team2_score ?? 0, m.winner_team === 'team1'],
+        [keyOf(m.team2_player1, m.team2_player2), m.team2_score ?? 0, m.team1_score ?? 0, m.winner_team === 'team2']] as [string, number, number, boolean][]) {
+        const r = rec.get(k1) ?? { w: 0, l: 0, d: 0 }; rec.set(k1, r); if (won) r.w++; else r.l++; r.d += a - b;
+      }
+    }
+    const z = { w: 0, l: 0, d: 0 };
+    const order = [...sides.entries()].sort((a, b) => {
+      const ra = rec.get(a[0]) ?? z, rb = rec.get(b[0]) ?? z;
+      return rb.w - ra.w || ra.l - rb.l || rb.d - ra.d || (a[1].seed ?? 1e9) - (b[1].seed ?? 1e9);
+    });
     const n = order.length;
     if (n < 3 || n > GRID_MAX) return null;
     const at = new Map(order.map(([k], idx) => [k, idx]));
@@ -370,13 +384,54 @@ export function buildTournamentSlides(i: SlidesInput): TournamentSlides {
     }, groupSections.length);
   }
 
+  // ── how each place was decided (PKL-070): the playoff match that settled it, else the group place ──
+  const teamKey = (p1: string | null, p2: string | null) => [p1, p2].filter(Boolean).sort().join('|');
+  const STAGE_WORD: Record<string, string> = { quarterfinals: 'quarterfinal', semifinals: 'semifinal', finals: 'Final', third_place_match: '3rd place match', grand_final: 'Grand Final' };
+  const decided = new Map<string, string>();
+  const myPath: string[] = [];
+  const groupPlace = new Map<string, string>();
+  for (const t of i.standings?.tables ?? []) {
+    t.rows.forEach((r, k) => groupPlace.set(r.key.split('|').sort().join('|'), `${t.label ?? GROUP_LABEL[format] ?? 'Group stage'}, ${ordinal(k + 1)}`));
+  }
+  const myGroup = [...groupPlace.entries()].find(([k]) => k.split('|').includes(me));
+  if (myGroup && !elim) {
+    const mine = groupSections.flatMap((s) => s.matches).filter((m) => m.me && m.win);
+    const w = mine.filter((m) => (m.win === 'a' ? m.a?.me : m.b?.me)).length;
+    const groupDone = groupSections.every((s) => s.state === 'done');
+    myPath.push(`${myGroup[1].replace(/, /, ' ')}${groupDone ? '' : ' now'} (${w}-${mine.length - w})`);
+  }
+  const playoffRounds = drawnRounds.filter((r) => !GROUP_TYPES.has(r.round_type) || elim)
+    .sort((a, b) => a.round_number - b.round_number);
+  for (const r of playoffRounds) {
+    const word = STAGE_WORD[r.round_type] ?? slideStageLabel(r.label?.trim() || 'Round');
+    for (const m of matchesOf(r.id).filter(played)) {
+      const kw = m.winner_team === 'team1' ? teamKey(m.team1_player1, m.team1_player2) : teamKey(m.team2_player1, m.team2_player2);
+      const kl = m.winner_team === 'team1' ? teamKey(m.team2_player1, m.team2_player2) : teamKey(m.team1_player1, m.team1_player2);
+      const big = word[0] === word[0].toUpperCase() ? word : word;
+      decided.set(kw, `Won ${big}`); decided.set(kl, `Lost ${big}`);
+      const t1 = m.team1_player1 === me || m.team1_player2 === me, t2 = m.team2_player1 === me || m.team2_player2 === me;
+      if (t1 || t2) {
+        const won = (m.winner_team === 'team1') === t1;
+        const a = t1 ? m.team1_score : m.team2_score, b = t1 ? m.team2_score : m.team1_score;
+        myPath.push(`${word[0].toUpperCase()}${word.slice(1)} ${won ? 'W' : 'L'} ${a ?? ''}-${b ?? ''}`.trim());
+      }
+    }
+  }
+  const myPlace = i.standings?.placement?.rows.find((r) => r.isMe);
+  if (finished && myPlace) myPath.push(`${ordinal(Number(myPlace.place) || 0) || myPlace.place} place`);
+  const journey = myPath.length > 1 || (myPath.length === 1 && finished) ? myPath.join(' > ') : null;
+  const placeNote = (key: string) => {
+    const k = key.split('|').sort().join('|');
+    return decided.get(k) ?? groupPlace.get(k) ?? null;
+  };
+
   // ── slide 3: standings ──
-  const standings = playedCount > 0 ? standingsSlide(i, { finished, elim, double, visible, played, isBye, roundIdOf, roundById, side }) : null;
+  const standings = playedCount > 0 ? standingsSlide(i, { finished, elim, double, visible, played, isBye, roundIdOf, roundById, side, placeNote }) : null;
 
   const pages: SlidePageId[] = ['draw'];
   if (results) pages.push('results');
   if (standings && standings.tables.some((t) => t.rows.length > 0)) pages.push('standings');
-  return { title: i.title, formatLine, fieldLine, statusLine, finished, draw, results, standings: pages.includes('standings') ? standings : null, pages };
+  return { title: i.title, formatLine, fieldLine, statusLine, finished, draw, results, standings: pages.includes('standings') ? standings : null, pages, journey };
 }
 
 /** How many boxes a results slide draws (a pool sheet counts as half a box per team). */
@@ -436,6 +491,8 @@ type StandCtx = {
   roundIdOf: (m: SlideMatchIn) => string | null;
   roundById: Map<string, SlideRoundIn>;
   side: (p1: string | null, p2: string | null) => SlideSide | null;
+  /** How a place was decided: "Won Final", "Lost 3rd place match", "Pool A, 3rd" (PKL-070). */
+  placeNote: (key: string) => string | null;
 };
 
 function standingsSlide(i: SlidesInput, c: StandCtx): SlideStandings | null {
@@ -450,7 +507,7 @@ function standingsSlide(i: SlidesInput, c: StandCtx): SlideStandings | null {
 
   if (sd?.placement && sd.placement.rows.length && (c.finished || sd.placement.rows.some((r) => r.decided))) {
     const rows = sd.placement.rows.map((r) => ({
-      place: r.place, name: nameOfKey(r.key, r.name), record: `${r.wins}-${r.losses}`, me: r.isMe, note: null,
+      place: r.place, name: nameOfKey(r.key, r.name), record: `${r.wins}-${r.losses}`, me: r.isMe, note: c.placeNote(r.key),
     }));
     return {
       title: c.finished ? 'Final standings' : 'Places so far',

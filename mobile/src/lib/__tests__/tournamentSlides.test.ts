@@ -118,6 +118,17 @@ describe('pool play', () => {
     ]);
     expect(t.rank).toBe(2);
   });
+
+  it('PKL-070: the journey (pool place, each playoff match, final place) and how every place was decided', () => {
+    const s = get('pool-done').slides;
+    expect(s.journey).toBe('Pool A 1st (3-0) > Semifinal W 11-7 > Final L 9-11 > 2nd place');
+    const notes = s.standings!.tables[0].rows.map((r) => [r.place, r.note]);
+    expect(notes.slice(0, 4)).toEqual([['1', 'Won Final'], ['2', 'Lost Final'], ['3', 'Won 3rd place match'], ['4', 'Lost 3rd place match']]);
+    expect(notes[4][1]).toMatch(/^Pool [AB], 3rd$/);
+    // the pool sheet lists Pool A in finishing order: the sharer's pair (3-0) is row 1
+    const poolA = s.results!.main[0].grid!;
+    expect(poolA.teams[0].me).toBe(true);
+  });
 });
 
 describe('single elimination', () => {

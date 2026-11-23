@@ -46,6 +46,7 @@ export default function TournamentSlideArt({ slides, page, you, look, k }: P & {
           </View>
         </View>
       </View>
+      {page === 'standings' ? <Journey slides={slides} look={look} k={k} /> : null}
       {page === 'draw' ? <Draw slides={slides} look={look} k={k} />
         : page === 'results' ? <Results slides={slides} look={look} k={k} />
         : <Standings slides={slides} look={look} k={k} />}
@@ -254,6 +255,16 @@ function Standings({ slides, look, k }: P & { slides: TournamentSlides }) {
       </View>
       {s.note ? <Text style={[st.sub, { color: look.muted, fontSize: 9.5 * k }]}>{s.note}</Text> : null}
     </View>
+  );
+}
+
+/** PKL-070: the sharer's path through the tournament, one line under the slide's heading. */
+function Journey({ slides, look, k }: P & { slides: TournamentSlides }) {
+  if (!slides.journey) return null;
+  return (
+    <Text style={[st.bold, { color: look.accent, fontSize: 10.5 * k }]} numberOfLines={2}>
+      {slides.journey.split(' > ').join('  →  ')}
+    </Text>
   );
 }
 
