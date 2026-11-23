@@ -111,8 +111,9 @@ export default function PickleShareStudio({ visible, onClose, title, model, trac
   const defaultDetails = React.useMemo(() => shareDefaultDetails(model), [model]);
   const details = shareDetailOptions(model);
   const templatesFor = React.useCallback(
-    (n: number) => shareTemplatesFor(n, model.kind).map((id) => ({ id, label: SHARE_TEMPLATE_LABEL[id] })),
-    [model.kind],
+    (n: number) => shareTemplatesFor(n, model.kind).filter((id) => id !== 'overview' || !!model.overview?.stages.length)
+      .map((id) => ({ id, label: SHARE_TEMPLATE_LABEL[id] })),
+    [model.kind, model.overview],
   );
 
   const prepareShare = async (s: { template: string; aspect: string; photos: string[] }) => {

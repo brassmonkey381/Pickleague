@@ -13,7 +13,7 @@ import { isImageShareAvailable } from '@just-messin-around/expo-foundation/platf
 import FinishShareStudio from '../components/share/FinishShareStudio';
 import PickleShareStudio from '../components/share/PickleShareStudio';
 import ShareCallout from '../components/share/ShareCallout';
-import { bracketCardModel, bracketSteps, type BracketMatchIn, type ShareCardModel } from '../lib/shareCards';
+import { bracketCardModel, bracketOverview, bracketSteps, type BracketMatchIn, type OverviewMatchIn, type OverviewRoundIn, type ShareCardModel } from '../lib/shareCards';
 import { cardPlayer, cardPodium, ordinal, shortName, type FinishShareData } from '../lib/finishShare';
 import { useBlockedIds } from '../lib/moderation';
 import { SPACE, SMALL_TEXT_MAX_SCALE } from '@just-messin-around/expo-foundation/styles';
@@ -558,7 +558,19 @@ export default function TournamentDetailScreen({ navigation, route }: Props) {
       return cardPlayer({ id, fullName: prof?.full_name ?? td.profileNames[id] ?? null, deleted: !!prof?.deleted_at }, blocked);
     });
     if (steps.length > 0) {
+      // PKL-063: the "Bracket" layout, for formats with a group stage (elimination brackets have no pools to show).
+      const groupLabel = ({ pool_play: 'Pool play', round_robin: 'Round robin', rotating_partners: 'Rotating partners',
+        mlp: 'Team play', mlp_random: 'Team play' } as Record<string, string>)[tournament.format];
+      const placesOf = new Set(td.finalRanks.map(r => r.final_rank)).size || null;
+      const overview = groupLabel
+        ? bracketOverview(td.savedRounds as OverviewRoundIn[], td.savedMatches as OverviewMatchIn[], myUserId, {
+            groupLabel,
+            playoffAhead: !!tournament.playoff_format && tournament.playoff_format !== 'none' && status !== 'completed',
+            final: status === 'completed' && myRank != null ? { rank: myRank, of: placesOf } : null,
+          })
+        : null;
       bracketModel = bracketCardModel({
+        overview,
         title: tournament.name,
         rank: status === 'completed' ? myRank : null,
         of: status === 'completed' ? (new Set(td.finalRanks.map(r => r.final_rank)).size || null) : null,

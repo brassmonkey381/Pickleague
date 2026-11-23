@@ -12,6 +12,7 @@
 // photos; blocked and deleted players are "a player". A card that shows other
 // players' scores (a match, a bracket) carries SCORE_DISCLAIMER above Share.
 import {
+  ordinal,
   placeHeadline,
   recordLabel,
   type FinishPlayer,
@@ -49,6 +50,7 @@ export const SHARE_LOOKS: Record<ShareLookId, ShareLookDef> = {
 // ── Layouts, by how many photos there are ───────────────────────────────
 export type ShareTemplateId =
   | 'grind'
+  | 'overview'
   | 'poster'
   | 'big'
   | 'scorecard'
@@ -60,6 +62,7 @@ export type ShareTemplateId =
   | 'duo';
 export const SHARE_TEMPLATE_LABEL: Record<ShareTemplateId, string> = {
   grind: 'Put in the work',
+  overview: 'Bracket',
   poster: 'Poster',
   big: 'Big number',
   scorecard: 'Scorecard',
@@ -72,7 +75,8 @@ export const SHARE_TEMPLATE_LABEL: Record<ShareTemplateId, string> = {
 };
 /** A drill leads with its own photo-less layout: the hours, the weeks, the work. */
 export function shareTemplatesFor(n: number, kind?: ShareKind): ShareTemplateId[] {
-  if (n <= 0) return kind === 'drill' ? ['grind', 'poster', 'big', 'scorecard'] : ['poster', 'big', 'scorecard'];
+  if (n <= 0) return kind === 'drill' ? ['grind', 'poster', 'big', 'scorecard']
+    : kind === 'bracket' ? ['poster', 'overview', 'big', 'scorecard'] : ['poster', 'big', 'scorecard'];
   if (n === 1) return ['photo-full', 'photo-panel', 'polaroid'];
   return ['strip', 'grid', 'duo', 'polaroid', 'photo-full'];
 }
@@ -163,6 +167,8 @@ export type ShareCardModel = {
   quote?: ShareQuote | null;
   /** SHOW toggle: a bar chart (null: none). */
   bars?: ShareBars | null;
+  /** PKL-063: the whole tournament at a glance, for the 'overview' layout (bracket cards only). */
+  overview?: BracketOverview | null;
   /** The SHOW toggles that start off. */
   offByDefault: string[];
   /** The look a card opens on. */
@@ -656,6 +662,8 @@ export type BracketShareData = {
   wins: number;
   losses: number;
   steps: BracketStep[];
+  /** PKL-063: the whole tournament, for the 'overview' layout. */
+  overview?: BracketOverview | null;
 };
 
 /** The tournament matches a bracket card reads (tournament_matches + its round). */
@@ -706,11 +714,92 @@ export function bracketStepText(s: Pick<BracketStep, 'partner' | 'opponents'>): 
   return s.partner ? `w/ ${s.partner.name} ${v}` : v;
 }
 
+// ── Tournament bracket: the whole tournament at a glance (PKL-063) ───────
+/** One stage of the tournament: the group stage (pools / round robin / rotating partners), then each playoff round. */
+export type OverviewStage = {
+  label: string;
+  /** done: every match scored; now: being played; next: not drawn yet. */
+  state: 'done' | 'now' | 'next';
+  /** Where the sharer stands in it: played and won / lost, still in it, knocked out before it, or not in the field. */
+  mine: 'won' | 'lost' | 'in' | 'out' | null;
+  /** A short line: "2-1, 3rd in Pool A", "W 11–8", "Round 4 of 9". */
+  note: string | null;
+};
+export type BracketOverview = { stages: OverviewStage[]; here: number };
+
+export type OverviewRoundIn = { id: string; label: string | null; round_type: string; round_number: number };
+export type OverviewMatchIn = BracketMatchIn & { round_id?: string | null; play_round?: number | null };
+
+const GROUP_TYPES = new Set(['winners', 'pool']);
+const STAGE_ORDER: Record<string, number> = { quarterfinals: 1, semifinals: 2, third_place_match: 3, finals: 4, grand_final: 5 };
+
+/**
+ * The tournament's stages with the sharer marked. `groupLabel`: "Pool play", "Round robin", "Rotating partners".
+ * `groupPlace`: my place in the group stage ("3rd in Pool A"), when known. `playoffAhead`: a playoff is set up but
+ * not drawn yet (it shows as one "Playoff" stage still to come).
+ */
+export function bracketOverview(
+  rounds: readonly OverviewRoundIn[], matches: readonly OverviewMatchIn[], me: string,
+  o: { groupLabel: string; groupPlace?: string | null; playoffAhead?: boolean; final?: { rank: number; of: number | null } | null },
+): BracketOverview {
+  const typeOf = new Map(rounds.map((r) => [r.id, r]));
+  const roundOf = (m: OverviewMatchIn) => (m.round_id ? typeOf.get(m.round_id) : undefined);
+  const real = matches.filter((m) => m.team1_player1 && m.team2_player1 && m.status !== 'cancelled');
+  const inIt = (m: OverviewMatchIn) => [m.team1_player1, m.team1_player2, m.team2_player1, m.team2_player2].includes(me);
+  const done = (ms: OverviewMatchIn[]) => ms.length > 0 && ms.every((m) => m.status === 'completed');
+  const stages: OverviewStage[] = [];
+
+  // the group stage
+  const group = real.filter((m) => { const r = roundOf(m); return !r || GROUP_TYPES.has(r.round_type); });
+  if (group.length) {
+    const mine = group.filter(inIt);
+    const won = mine.filter((m) => m.status === 'completed' && m.winner_team != null
+      && (m.winner_team === 'team1') === (m.team1_player1 === me || m.team1_player2 === me)).length;
+    const lost = mine.filter((m) => m.status === 'completed').length - won;
+    const rounds2 = [...new Set(group.map((m) => m.play_round).filter((x): x is number => x != null))];
+    const openRounds = group.filter((m) => m.status !== 'completed').map((m) => m.play_round).filter((x): x is number => x != null);
+    const isDone = done(group);
+    const note = [`${won}-${lost}`, isDone ? o.groupPlace ?? null
+      : rounds2.length && openRounds.length ? `round ${Math.min(...openRounds)} of ${Math.max(...rounds2)}` : null].filter(Boolean).join(', ');
+    stages.push({ label: o.groupLabel, state: isDone ? 'done' : 'now', mine: mine.length ? (isDone ? null : 'in') : null, note: note || null });
+  }
+
+  // each playoff round, in bracket order (the Final last)
+  const playoff = rounds.filter((r) => !GROUP_TYPES.has(r.round_type))
+    .sort((a, b) => (STAGE_ORDER[a.round_type] ?? 0) - (STAGE_ORDER[b.round_type] ?? 0) || a.round_number - b.round_number);
+  for (const r of playoff) {
+    const ms = real.filter((m) => m.round_id === r.id);
+    if (!ms.length) continue;   // a round with nothing drawn in it yet
+    const mine = ms.find(inIt) ?? null;
+    let state: OverviewStage['mine'] = null; let note: string | null = null;
+    if (mine) {
+      if (mine.status === 'completed' && mine.winner_team) {
+        const t1 = mine.team1_player1 === me || mine.team1_player2 === me;
+        const w = (mine.winner_team === 'team1') === t1;
+        const a = t1 ? mine.team1_score : mine.team2_score, b = t1 ? mine.team2_score : mine.team1_score;
+        state = w ? 'won' : 'lost'; note = a != null && b != null ? `${w ? 'W' : 'L'} ${a}–${b}` : w ? 'Won' : 'Lost';
+      } else { state = 'in'; note = 'Playing'; }
+    } else if (stages.some((x) => x.mine != null) || group.some(inIt)) {
+      state = r.round_type === 'third_place_match' ? null : 'out';
+    }
+    stages.push({ label: r.label?.trim() || r.round_type.replace(/_/g, ' '), state: done(ms) ? 'done' : 'now', mine: state, note });
+  }
+  if (!playoff.length && o.playoffAhead) stages.push({ label: 'Playoff', state: 'next', mine: null, note: null });
+
+  // "you are here": the stage I'm in now, else the last one I played
+  let here = stages.findIndex((x) => x.mine === 'in');
+  if (here < 0) { for (let i = stages.length - 1; i >= 0; i--) if (stages[i].mine === 'won' || stages[i].mine === 'lost') { here = i; break; } }
+  if (here < 0) here = stages.findIndex((x) => x.state !== 'next' && group.some(inIt)) >= 0 ? 0 : -1;
+  if (o.final && stages.length) stages.push({ label: 'Final place', state: 'done', mine: null, note: `${ordinal(o.final.rank)}${o.final.of ? ` of ${o.final.of}` : ''}` });
+  return { stages, here };
+}
+
 export function bracketCardModel(d: BracketShareData): ShareCardModel {
   const record = `${d.wins}-${d.losses}`;
   const headline = d.rank != null ? placeHeadline(d.rank, d.of) : `Record ${record}`;
   return {
     kind: 'bracket',
+    overview: d.overview ?? null,
     eyebrow: 'MY BRACKET',
     title: d.title,
     over: null,

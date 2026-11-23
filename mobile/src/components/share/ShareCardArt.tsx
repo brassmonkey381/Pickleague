@@ -172,6 +172,41 @@ export default function ShareCardArt({ s, model }: Props) {
         </View>,
       );
     }
+    case 'overview': {
+      // PKL-063: the whole tournament at a glance, the sharer's stage lit up.
+      const ov = model.overview;
+      if (!ov || !ov.stages.length) return frame(<Body model={model} s={s} c={lookInk} u={u * k} align="center" width={lineW} />);
+      const kk = u * (story ? 1.35 : 1);   // a story has 9:16 to fill: the ladder a size up, centred
+      return frame(
+        <View style={{ gap: 10 * kk }}>
+          <Text style={[cs.title, { color: look.ink, fontSize: 17 * kk }]} numberOfLines={2}>{model.title}</Text>
+          <Text style={[cs.sub, { color: look.accent, fontSize: 14 * kk }]} numberOfLines={1}>{model.hero.big}</Text>
+          <View style={{ gap: 0 }}>
+            {ov.stages.map((st, i) => {
+              const here = i === ov.here;
+              const out = st.mine === 'out';
+              const ink = here ? look.ground : out ? look.muted : look.ink;
+              const mark = st.state === 'done' ? '✓' : st.state === 'now' ? '●' : '○';
+              return (
+                <View key={i}>
+                  {i > 0 ? <View style={{ width: 2 * kk, height: 8 * kk, marginLeft: 13 * kk, backgroundColor: look.chip }} /> : null}
+                  <View style={[cs.row, { gap: 8 * kk, paddingVertical: 7 * kk, paddingHorizontal: 8 * kk, borderRadius: 10 * kk,
+                    backgroundColor: here ? look.accent : look.chip }]}>
+                    <Text style={[cs.chipText, { color: ink, fontSize: 12 * kk, width: 12 * kk, textAlign: 'center' }]}>{mark}</Text>
+                    <Text style={[cs.title, { color: ink, fontSize: 13 * kk, flexShrink: 0, textDecorationLine: out ? 'line-through' : 'none' }]} numberOfLines={1}>
+                      {st.label}
+                    </Text>
+                    <Text style={[cs.sub, { color: ink, fontSize: 12 * kk, flex: 1, textAlign: 'right' }]} numberOfLines={2}>{st.note ?? ''}</Text>
+                    {here ? <Text style={[cs.chipText, { color: ink, fontSize: 9 * kk, letterSpacing: 1 * u }]}>YOU</Text> : null}
+                  </View>
+                </View>
+              );
+            })}
+          </View>
+        </View>,
+        story ? 'center' : 'top',
+      );
+    }
     case 'poster':
     default:
       return frame(<Body model={model} s={s} c={lookInk} u={u * k} align="center" width={lineW} />);

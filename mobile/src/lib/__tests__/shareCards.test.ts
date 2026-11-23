@@ -7,6 +7,7 @@ import {
   bannerColors,
   bracketCardModel,
   bracketSteps,
+  bracketOverview,
   eventCardModel,
   finishCardModel,
   initialsFromShort,
@@ -172,5 +173,49 @@ describe('bracket card', () => {
     expect(m.hero.big).toBe('2nd place');
     expect(m.showsScores).toBe(true);
     expect(m.rows[0].items[1]).toEqual({ lead: { won: false }, text: 'v Pat D.', trailing: '9–11', wrap: true });
+  });
+});
+
+describe('bracket overview (PKL-063)', () => {
+  const R = [
+    { id: 'pa', label: 'Pool A', round_type: 'pool', round_number: 1 },
+    { id: 'pb', label: 'Pool B', round_type: 'pool', round_number: 2 },
+    { id: 'sf', label: 'Semifinals', round_type: 'semifinals', round_number: 1000 },
+    { id: 'f', label: 'Finals', round_type: 'finals', round_number: 1100 },
+    { id: 'tp', label: 'Third Place Match', round_type: 'third_place_match', round_number: 1150 },
+  ];
+  const m = (id: string, round_id: string, t1: [string, string], t2: [string, string], s1: number | null, s2: number | null) => ({
+    id, round_id, status: s1 == null ? 'scheduled' : 'completed', winner_team: s1 == null ? null : (s1 > (s2 ?? 0) ? 'team1' : 'team2') as 'team1' | 'team2' | null,
+    team1_player1: t1[0], team1_player2: t1[1], team2_player1: t2[0], team2_player2: t2[1], team1_score: s1, team2_score: s2,
+  });
+  it('pool play into a playoff: group stage, then semis / third place / final, the sharer lit where they are', () => {
+    const ms = [
+      m('1', 'pa', ['me', 'p'], ['a', 'b'], 11, 7), m('2', 'pb', ['c', 'd'], ['e', 'f'], 11, 3),
+      m('3', 'sf', ['me', 'p'], ['c', 'd'], 11, 8), m('4', 'sf', ['a', 'b'], ['e', 'f'], 4, 11),
+      m('5', 'f', ['me', 'p'], ['e', 'f'], null, null),
+    ];
+    const ov = bracketOverview(R, ms, 'me', { groupLabel: 'Pool play' });
+    expect(ov.stages.map((x) => x.label)).toEqual(['Pool play', 'Semifinals', 'Finals']);
+    expect(ov.stages[0]).toMatchObject({ state: 'done', note: '1-0' });
+    expect(ov.stages[1]).toMatchObject({ state: 'done', mine: 'won', note: 'W 11–8' });
+    expect(ov.stages[2]).toMatchObject({ state: 'now', mine: 'in', note: 'Playing' });
+    expect(ov.here).toBe(2);
+  });
+  it('rotating partners mid-run: one stage, the round being played, a playoff still to come', () => {
+    const ms = [
+      { ...m('1', 'w', ['me', 'p'], ['a', 'b'], 11, 4), play_round: 1 },
+      { ...m('2', 'w', ['me', 'a'], ['p', 'b'], null, null), play_round: 2 },
+    ];
+    const ov = bracketOverview([{ id: 'w', label: 'Rotating Partners Schedule', round_type: 'winners', round_number: 1 }], ms, 'me',
+      { groupLabel: 'Rotating partners', playoffAhead: true });
+    expect(ov.stages).toEqual([
+      { label: 'Rotating partners', state: 'now', mine: 'in', note: '1-0, round 2 of 2' },
+      { label: 'Playoff', state: 'next', mine: null, note: null },
+    ]);
+    expect(ov.here).toBe(0);
+  });
+  it('the Bracket layout is offered for bracket cards only', () => {
+    expect(shareTemplatesFor(0, 'bracket')).toContain('overview');
+    expect(shareTemplatesFor(0, 'match')).not.toContain('overview');
   });
 });
