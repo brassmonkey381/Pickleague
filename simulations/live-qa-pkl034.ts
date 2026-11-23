@@ -766,9 +766,9 @@ async function lockInElim(st: State, players: string[]) {
   }
   const avg = (t: [string, string]) => ((ratings[t[0]] ?? 3.25) + (ratings[t[1]] ?? 3.25)) / 2;
   const sorted = seeded.every((t, i) => i === 0 || avg(seeded[i - 1]) >= avg(t));
-  const shape = rows.length === 4 && [[0, 7], [1, 6], [2, 5], [3, 4]].every(([a, b], i) =>
+  const shape = rows.length === 4 && [[0, 7], [3, 4], [1, 6], [2, 5]].every(([a, b], i) =>
     sameSet([rows[i].team1_player1, rows[i].team1_player2], seeded[a]) && sameSet([rows[i].team2_player1, rows[i].team2_player2], seeded[b]));
-  check('R4 draw: pairs seeded by average PLUPR, round 1 = 1v8, 2v7, 3v6, 4v5', sorted && shape,
+  check('R4 draw: pairs seeded by average PLUPR, round 1 in bracket order 1v8, 4v5, 2v7, 3v6 (PKL-068)', sorted && shape,
     seeded.map((t, i) => `${i + 1}: ${avg(t).toFixed(2)}`).join(' '));
   log(`LOCK IN (single elim doubles): 4 quarterfinals, seeds ${seeded.map((t, i) => `${i + 1}=${t.map((u) => st.bots.find((b) => b.id === u)?.name ?? 'Brian').join('+')}`).join(' ; ')}`);
 }
@@ -1282,7 +1282,7 @@ async function finishElim(st: State, N: (id: string) => string, players: string[
   const sides = (m: any) => [key(m.team1_player1, m.team1_player2), key(m.team2_player1, m.team2_player2)].sort().join('|');
   log('ROUNDS: ' + rs.map((r, i) => `${r.label ?? r.round_type} (${r.round_type}, ${byRound[i].length})`).join(' -> '));
   const qf = byRound[0] ?? [], sf = byRound[1] ?? [], fin = byRound[2] ?? [];
-  const wantSf = [[0, 3], [1, 2]].map(([a, b]) => [winner(qf[a]), winner(qf[b])].sort().join('|'));
+  const wantSf = [[0, 1], [2, 3]].map(([a, b]) => [winner(qf[a]), winner(qf[b])].sort().join('|'));
   check('R4 bracket: 4 quarterfinals, 2 semifinals, 1 Final, in that order', rs.length === 3 && qf.length === 4 && sf.length === 2 && fin.length === 1,
     rs.map((r, i) => `${r.round_type}:${byRound[i].length}`).join(' '));
   check('R4 fold: semifinal 1 = winners of 1v8 and 4v5, semifinal 2 = winners of 2v7 and 3v6 (seeds 1 and 2 only meet in the Final)',
