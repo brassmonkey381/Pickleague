@@ -377,7 +377,7 @@ function Rows({ model, s, c, u, max, center, people = 8 }: { model: ShareCardMod
                     <Text style={[cs.sub, { color: c.ink, fontSize: 11 * u, flexShrink: 1 }]} numberOfLines={1}>{p.name}</Text>
                   </View>
                 ))}
-                {it.text ? <Text style={[cs.sub, { color: c.ink, fontSize: 11 * u, flexShrink: 1 }]} numberOfLines={1}>{it.text}</Text> : null}
+                {it.text ? <Text style={[cs.sub, { color: c.ink, fontSize: 11 * u, flexShrink: 1 }]} numberOfLines={it.wrap ? 2 : 1}>{it.text}</Text> : null}
               </View>
               {it.trailing ? <Trailing text={it.trailing} c={c} u={u} /> : null}
             </View>

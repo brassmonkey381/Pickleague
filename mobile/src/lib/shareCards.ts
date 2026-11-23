@@ -137,7 +137,8 @@ export type ShareKind = 'finish' | 'match' | 'session' | 'drill' | 'event' | 'br
 
 /** A row's lead mark: a medal for a podium place, W / L for a result. */
 export type ShareRowLead = { medal: number } | { won: boolean | null } | null;
-export type ShareRowItem = { lead: ShareRowLead; people?: FinishPlayer[]; text?: string; trailing?: string };
+/** `wrap`: the text may take two lines rather than be cut off (PKL-062: bracket path rows). */
+export type ShareRowItem = { lead: ShareRowLead; people?: FinishPlayer[]; text?: string; trailing?: string; wrap?: boolean };
 export type ShareRows = { id: string; label: string; heading?: string; items: ShareRowItem[] };
 export type ShareStat = { id: string; label: string; value: string };
 /** A SHOW toggle that puts a quote on the card (my drill notes). */
@@ -252,7 +253,7 @@ export type MatchShareData = {
   oppScore: number;
   /** "First L." */
   me: string;
-  partner: FinishPlayer | null;
+  partner?: FinishPlayer | null;
   opponents: FinishPlayer[];
   pluprDelta: number | null;
   court: string | null;
@@ -498,7 +499,7 @@ export function clipText(s: string, max: number): string {
 
 export type DrillShareData = {
   /** My drill partner ("First L."), or null. */
-  partner: FinishPlayer | null;
+  partner?: FinishPlayer | null;
   court: string | null;
   /** "Oct 27". */
   date: string;
@@ -643,6 +644,8 @@ export type BracketStep = {
   won: boolean | null;
   /** "11–7" (mine first), null when not played. */
   score: string | null;
+  /** My partner in a doubles match, else null. */
+  partner?: FinishPlayer | null;
   opponents: FinishPlayer[];
 };
 export type BracketShareData = {
@@ -684,15 +687,23 @@ export function bracketSteps(
   return mine.map((m) => {
     const onTeam1 = m.team1_player1 === me || m.team1_player2 === me;
     const opp = (onTeam1 ? [m.team2_player1, m.team2_player2] : [m.team1_player1, m.team1_player2]).filter(Boolean) as string[];
+    const mate = (onTeam1 ? [m.team1_player1, m.team1_player2] : [m.team2_player1, m.team2_player2]).find((p) => !!p && p !== me) ?? null;
     const my = onTeam1 ? m.team1_score : m.team2_score;
     const their = onTeam1 ? m.team2_score : m.team1_score;
     return {
       round: m.round?.label?.trim() || (m.round ? `Round ${m.round.round_number}` : 'Match'),
       won: m.winner_team == null ? null : (m.winner_team === 'team1') === onTeam1,
       score: my != null && their != null ? `${my}–${their}` : null,
+      partner: mate ? player(mate) : null,
       opponents: opp.map(player),
     };
   });
+}
+
+/** A path row's words: my partner (doubles) and the opponents, short names only (PKL-062). */
+export function bracketStepText(s: Pick<BracketStep, 'partner' | 'opponents'>): string {
+  const v = `v ${joinPeople(s.opponents)}`;
+  return s.partner ? `w/ ${s.partner.name} ${v}` : v;
 }
 
 export function bracketCardModel(d: BracketShareData): ShareCardModel {
@@ -716,8 +727,10 @@ export function bracketCardModel(d: BracketShareData): ShareCardModel {
           heading: 'My path',
           items: d.steps.slice(-6).map((s) => ({
             lead: { won: s.won },
-            text: `${s.round}, vs ${joinPeople(s.opponents)}`,
+            // PKL-062: names only ("w/ QA 2 v QA 3 & QA 8"; singles "v Sam L."), no round or tournament title.
+            text: bracketStepText(s),
             trailing: s.score ?? undefined,
+            wrap: true,
           })),
         }]
       : [],

@@ -143,6 +143,16 @@ describe('event card', () => {
 });
 
 describe('bracket card', () => {
+  it('PKL-062: a doubles path row is just the short names, no round or tournament title', () => {
+    const name = (id: string) => ({ name: ({ p: 'QA 2', a: 'QA 3', b: 'QA 8' } as Record<string, string>)[id] ?? id, initials: '?' });
+    const steps = bracketSteps([{ id: 'd', status: 'completed', winner_team: 'team1', team1_player1: 'me', team1_player2: 'p',
+      team2_player1: 'a', team2_player2: 'b', team1_score: 11, team2_score: 4, round: { label: 'Rotating Partners Schedule', round_number: 1 } }], 'me', name);
+    const row = bracketCardModel({ title: 'R7', rank: null, of: null, wins: 1, losses: 0, steps }).rows[0].items[0];
+    expect(row.text).toBe('w/ QA 2 v QA 3 & QA 8');
+    expect(row.text).not.toMatch(/Rotating|Schedule|R7/);
+    expect(row.wrap).toBe(true);
+  });
+
   const mk = (over: Partial<BracketMatchIn>): BracketMatchIn => ({
     id: 'm', status: 'completed', winner_team: 'team1', team1_player1: 'me', team1_player2: null,
     team2_player1: 'o', team2_player2: null, team1_score: 11, team2_score: 5, round: { label: 'Pool A', round_number: 1 }, ...over,
@@ -155,12 +165,12 @@ describe('bracket card', () => {
       mk({ id: '4', team1_player1: 'x' }),
     ], 'me', () => pat);
     expect(steps).toEqual([
-      { round: 'Pool A', won: true, score: '11–5', opponents: [pat] },
-      { round: 'Final', won: false, score: '9–11', opponents: [pat] },
+      { round: 'Pool A', won: true, score: '11–5', partner: null, opponents: [pat] },
+      { round: 'Final', won: false, score: '9–11', partner: null, opponents: [pat] },
     ]);
     const m = bracketCardModel({ title: 'Fall Open', rank: 2, of: 8, wins: 1, losses: 1, steps });
     expect(m.hero.big).toBe('2nd place');
     expect(m.showsScores).toBe(true);
-    expect(m.rows[0].items[1]).toEqual({ lead: { won: false }, text: 'Final, vs Pat D.', trailing: '9–11' });
+    expect(m.rows[0].items[1]).toEqual({ lead: { won: false }, text: 'v Pat D.', trailing: '9–11', wrap: true });
   });
 });
