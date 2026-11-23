@@ -32,13 +32,40 @@ export type FinishShareData = {
 
 export const ANONYMOUS_PLAYER = 'a player';
 
-/** "Taylor Jordan Smith" -> "Taylor S."; one word stays as is; blank -> "a player". */
-export function shortName(full: string | null | undefined): string {
+/** "Taylor Jordan Smith" -> "Taylor S."; one word stays as is; blank -> "a player".
+ *  A last word that is a number stays whole ("Bot 15" never becomes "Bot 1."). `letters` keeps more of the last
+ *  name ("Sam Le."), which shortNamer uses to tell two names apart. */
+export function shortName(full: string | null | undefined, letters = 1): string {
   const parts = (full ?? '').trim().split(/\s+/).filter(Boolean);
   if (parts.length === 0) return ANONYMOUS_PLAYER;
   if (parts.length === 1) return parts[0];
   const last = parts[parts.length - 1];
-  return `${parts[0]} ${last.charAt(0).toUpperCase()}.`;
+  if (/^\d+$/.test(last)) return `${parts[0]} ${last}`;
+  if (letters > 1 && letters >= last.length) return `${parts[0]} ${last}`;
+  return `${parts[0]} ${last.charAt(0).toUpperCase()}${last.slice(1, letters)}.`;
+}
+
+/** PKL-059: a shortener for one screen. Names that would shorten alike keep more of the last name until they differ
+ *  ("Sam Lee", "Sam Long" -> "Sam Le.", "Sam Lo."; then the whole last name). Only identical full names stay alike. */
+export function shortNamer(fullNames: Iterable<string | null | undefined>): (full: string | null | undefined) => string {
+  const names = [...new Set([...fullNames].map((n) => (n ?? '').trim().replace(/\s+/g, ' ')).filter(Boolean))];
+  const out = new Map<string, string>();
+  let pending = names.map((n) => ({ n, k: 1 }));
+  for (let round = 0; pending.length && round < 64; round++) {
+    const by = new Map<string, { n: string; k: number }[]>();
+    for (const p of pending) { const s = shortName(p.n, p.k); by.set(s, [...(by.get(s) ?? []), p]); }
+    const next: { n: string; k: number }[] = [];
+    for (const [s, group] of by) {
+      const clash = group.length > 1 || names.some((o) => !group.some((g) => g.n === o) && out.get(o) === s);
+      if (!clash) { for (const g of group) out.set(g.n, s); continue; }
+      for (const g of group) {
+        const grown = shortName(g.n, g.k + 1);
+        if (grown === s) out.set(g.n, s); else next.push({ n: g.n, k: g.k + 1 });
+      }
+    }
+    pending = next;
+  }
+  return (full) => { const key = (full ?? '').trim().replace(/\s+/g, ' '); return out.get(key) ?? shortName(full); };
 }
 
 /** "Taylor Smith" -> "TS"; one word -> its first letter; blank -> "?". */
@@ -101,7 +128,7 @@ export function finishShareMessage(d: Pick<FinishShareData, 'kind' | 'title' | '
 
 /** "Alexandrina Montgomery-Vasquez & Sam Lee" -> "Alexandrina M. & Sam L." (crowded rows: brackets,
  *  schedules). Blank stays blank, so an empty slot still reads as TBD. */
-export function shortTeam(label: string | null | undefined): string | undefined {
+export function shortTeam(label: string | null | undefined, short: (full: string) => string = (n) => shortName(n)): string | undefined {
   if (!label || !label.trim()) return undefined;
-  return label.split(' & ').map((n) => shortName(n)).join(' & ');
+  return label.split(' & ').map((n) => short(n)).join(' & ');
 }

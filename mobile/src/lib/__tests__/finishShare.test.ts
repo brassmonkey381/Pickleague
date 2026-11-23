@@ -4,6 +4,7 @@ import {
   cardPlayer,
   cardPodium,
   shortTeam,
+  shortNamer,
   finishShareMessage,
   initialsOf,
   medalFor,
@@ -99,5 +100,32 @@ describe('shortTeam', () => {
   it('keeps a blank slot blank', () => {
     expect(shortTeam(undefined)).toBeUndefined();
     expect(shortTeam('  ')).toBeUndefined();
+  });
+  it('uses a screen shortener when given one', () => {
+    const s = shortNamer(['QA Bot 1', 'QA Bot 15', 'Brian Stockman']);
+    expect(shortTeam('Brian Stockman & QA Bot 15', s)).toBe('Brian S. & QA 15');
+  });
+});
+
+describe('shortNamer (PKL-059)', () => {
+  it('keeps a number whole, so bots never collide', () => {
+    const s = shortNamer(['QA Bot 1', 'QA Bot 15']);
+    expect(s('QA Bot 1')).toBe('QA 1');
+    expect(s('QA Bot 15')).toBe('QA 15');
+  });
+  it('keeps more of the last name until two names differ', () => {
+    const s = shortNamer(['Sam Lee', 'Sam Long', 'Sam Lewis', 'Taylor Smith']);
+    expect(s('Sam Long')).toBe('Sam Lo.');
+    expect(s('Sam Lee')).toBe('Sam Lee');
+    expect(s('Sam Lewis')).toBe('Sam Lew.');
+    expect(s('Taylor Smith')).toBe('Taylor S.');
+  });
+  it('never gives two different names the same text', () => {
+    const names = ['Sam Lee', 'Sam Long', 'Sam Lewis', 'Sam L', 'QA Bot 1', 'QA Bot 15', 'Ana Ruiz', 'Ana Rios', 'Cher'];
+    const s = shortNamer(names);
+    expect(new Set(names.map(s)).size).toBe(names.length);
+  });
+  it('falls back to shortName for a name it was not given', () => {
+    expect(shortNamer([])('Taylor Smith')).toBe('Taylor S.');
   });
 });

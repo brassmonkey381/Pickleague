@@ -23,6 +23,9 @@ export type BracketSlot = {
   label: string;            // "1st Pool A", "Winner Semi 1", etc.
   team?: string;            // player1 & player2 display name (or null = TBD)
   highlight?: boolean;      // this user is in this slot
+  // PKL-058: a drawn, unplayed match shows both sides: `team` is one side, `sub` the other ("v QA 5 & QA 6"),
+  // both a size smaller so the card keeps its size.
+  sub?: string;
   // Optional tournament_matches.id for the match this slot represents (e.g.,
   // semi-final 1, final). Pre-bracket seed slots leave this undefined.
   tournamentMatchId?: string;
@@ -73,15 +76,21 @@ function SlotCard({
   ];
   const inner = (
     <>
-      <Text style={[styles.cardLabel, isFinal && styles.cardLabelFinal]}>{slot.label}</Text>
+      <Text style={[styles.cardLabel, isFinal && styles.cardLabelFinal]} numberOfLines={1}>{slot.label}</Text>
       <Text style={[
         styles.cardTeam,
         !hasteam && styles.cardTbd,
         slot.highlight && styles.cardTeamHighlight,
         isFinal && styles.cardTeamFinal,
+        !!slot.sub && styles.cardTeamPair,
       ]} numberOfLines={1}>
         {slot.team ?? 'TBD'}
       </Text>
+      {!!slot.sub && (
+        <Text style={[styles.cardTeamPair, styles.cardSub]} numberOfLines={1}>
+          {slot.sub}
+        </Text>
+      )}
     </>
   );
 
@@ -228,6 +237,8 @@ function makeStyles(c: ReturnType<typeof useTheme>['colors']) {
     cardTbd: { color: c.textMuted, fontStyle: 'italic' },
     cardTeamHighlight: { color: c.primary },
     cardTeamFinal: { fontSize: FONT.size.base },
+    cardTeamPair: { fontSize: FONT.size.xs },
+    cardSub: { fontWeight: FONT.weight.regular, color: c.textMuted },
 
     roundLabel: {
       fontSize: FONT.size.xxs, color: c.textMuted, fontWeight: FONT.weight.bold,

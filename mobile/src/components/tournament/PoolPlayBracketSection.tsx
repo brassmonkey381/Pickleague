@@ -8,7 +8,7 @@ import { computeTeamStandings, type TeamStanding } from '../../lib/tournamentSta
 import { useTournamentDetailStyles } from './styles';
 import SectionCard from './SectionCard';
 import type { TournamentDetailState } from './useTournamentDetail';
-import { shortTeam } from '../../lib/finishShare';
+import { shortNamer, shortTeam } from '../../lib/finishShare';
 
 type Props = {
   tournament: Tournament;
@@ -98,9 +98,29 @@ export default function PoolPlayBracketSection({
   const a1 = standA[0]; const a2 = standA[1];
   const b1 = standB[0]; const b2 = standB[1];
 
-  const semi1Winner = winnerOfMatch(semi1Match);
-  const semi2Winner = winnerOfMatch(semi2Match);
-  const finalWinner = winnerOfMatch(finalMatch);
+  // PKL-059: one shortener for every name on this bracket, so two players never read alike ("QA 1" v "QA 15").
+  const short = shortNamer(Object.values(profileNames ?? {}));
+  const shortT = (label?: string) => shortTeam(label, short);
+
+  const isMeIn = (m: any) => !!myUserId && [m.team1_player1, m.team1_player2, m.team2_player1, m.team2_player2].includes(myUserId);
+  const courtName = (c: string) => (/^[0-9]+$/.test(c.trim()) ? `Court ${c.trim()}` : c.trim());
+  /** PKL-058: a playoff card. Before the draw: TBD. Drawn: both teams, and the court once called ("Court 1 · now").
+   *  Scored: the score and the winner. */
+  function matchSlot(m: any | null, short1: string, long1: string) {
+    if (!m || !m.team1_player1 || !m.team2_player1) return { label: long1, team: undefined, tournamentMatchId: m?.id };
+    if (m.status === 'completed') {
+      const w = winnerOfMatch(m);
+      return { label: `${short1}: ${m.team1_score}–${m.team2_score}`, team: shortT(w?.name), highlight: w?.isMe, tournamentMatchId: m.id };
+    }
+    const label = m.called_at && m.court ? `${courtName(m.court)} · now` : (tournament.courts ?? []).some((c: string) => !!c?.trim()) ? `${short1} · next` : long1;
+    return {
+      label,
+      team: shortT(teamDisplayName(m.team1_player1, m.team1_player2)),
+      sub: `v ${shortT(teamDisplayName(m.team2_player1, m.team2_player2))}`,
+      highlight: isMeIn(m),
+      tournamentMatchId: m.id,
+    };
+  }
 
   // The visual tree below is hardcoded to the classic 2-pool shape
   // (A1 vs B2, B1 vs A2 → final). Rendering it for other pool/playoff
@@ -138,34 +158,13 @@ export default function PoolPlayBracketSection({
 
       {/* Visual bracket — populated with actual team names + winners where available */}
       <TournamentBracket
-        slotA1={{ label: 'Pool A, 1st Place', team: shortTeam(a1?.name), highlight: a1?.isMe }}
-        slotB2={{ label: 'Pool B, 2nd Place', team: shortTeam(b2?.name), highlight: b2?.isMe }}
-        slotB1={{ label: 'Pool B, 1st Place', team: shortTeam(b1?.name), highlight: b1?.isMe }}
-        slotA2={{ label: 'Pool A, 2nd Place', team: shortTeam(a2?.name), highlight: a2?.isMe }}
-        semi1={{
-          label: semi1Match?.status === 'completed'
-            ? `Semi 1: ${semi1Match.team1_score}–${semi1Match.team2_score}`
-            : 'Semi-Final 1',
-          team: shortTeam(semi1Winner?.name),
-          highlight: semi1Winner?.isMe,
-          tournamentMatchId: semi1Match?.id,
-        }}
-        semi2={{
-          label: semi2Match?.status === 'completed'
-            ? `Semi 2: ${semi2Match.team1_score}–${semi2Match.team2_score}`
-            : 'Semi-Final 2',
-          team: shortTeam(semi2Winner?.name),
-          highlight: semi2Winner?.isMe,
-          tournamentMatchId: semi2Match?.id,
-        }}
-        final={{
-          label: finalMatch?.status === 'completed'
-            ? `Final: ${finalMatch.team1_score}–${finalMatch.team2_score}`
-            : 'Grand Final',
-          team: shortTeam(finalWinner?.name),
-          highlight: finalWinner?.isMe,
-          tournamentMatchId: finalMatch?.id,
-        }}
+        slotA1={{ label: 'Pool A, 1st Place', team: shortT(a1?.name), highlight: a1?.isMe }}
+        slotB2={{ label: 'Pool B, 2nd Place', team: shortT(b2?.name), highlight: b2?.isMe }}
+        slotB1={{ label: 'Pool B, 1st Place', team: shortT(b1?.name), highlight: b1?.isMe }}
+        slotA2={{ label: 'Pool A, 2nd Place', team: shortT(a2?.name), highlight: a2?.isMe }}
+        semi1={matchSlot(semi1Match, 'Semi 1', 'Semi-Final 1')}
+        semi2={matchSlot(semi2Match, 'Semi 2', 'Semi-Final 2')}
+        final={matchSlot(finalMatch, 'Final', 'Grand Final')}
         onPressMatch={openMatchActionSheetById}
       />
     </SectionCard>
