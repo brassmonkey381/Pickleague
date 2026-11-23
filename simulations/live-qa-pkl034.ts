@@ -842,7 +842,8 @@ async function finishR3(st: State, nm: Map<string, string>, completeAsked: boole
   check('tournament auto-completed after the Grand Final', !completeAsked);
   const types = new Set(rs.map((r) => r.round_type));
   check('R3 bracket has winners rounds, losers rounds and a Grand Final', types.has('winners') && types.has('losers') && types.has('grand_final'), [...types].join(', '));
-  const r1 = ((ms0 ?? []) as any[]).filter((m) => m.round_id === rs[0]?.id).sort((a, b) => a.match_order - b.match_order)
+  const r1Round = rs.filter((r) => r.round_type === 'winners').sort((a, b) => a.round_number - b.round_number)[0];
+  const r1 = ((ms0 ?? []) as any[]).filter((m) => m.round_id === r1Round?.id).sort((a, b) => a.match_order - b.match_order)
     .map((m) => [seedOf.get(m.team1_player1), seedOf.get(m.team2_player1)].sort((a, b) => a - b).join('v'));
   check('R3 round 1 in bracket order by seed: 1v8, 4v5, 2v7, 3v6 (PKL-068)', r1.join(' ') === '1v8 4v5 2v7 3v6', r1.join(' '));
   const won = (m: any) => (m.winner_team === 'team1' ? m.team1_player1 : m.team2_player1);
