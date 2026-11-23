@@ -37,7 +37,7 @@ import {
   KIND_FILTERS,
   type OutsideEventKind,
 } from '../lib/outsideEvents';
-import { outsideSeen, useOutsideEvents } from '../data/outsideEvents';
+import { outsideSeen, useOutsideEvents, useOutsideEventsVisible } from '../data/outsideEvents';
 import { useMyHomeLocation } from '../data/homeLocation';
 import { useNearbyCourtSchedules } from '../data/courtSchedules';
 import type { RootStackParamList } from '../types';
@@ -48,6 +48,8 @@ export default function PublicEventsScreen({ navigation }: Props) {
   const { colors: c } = useTheme();
   const t = textStyles(c);
   const q = useOutsideEvents();
+  // PKL-081: events switched off (an old link or notification still lands here): say so, show nothing else.
+  const eventsOn = useOutsideEventsVisible();
   const home = useMyHomeLocation();
   const nearby = useNearbyCourtSchedules();
   // No home location: every event shows, so say how to narrow it.
@@ -135,6 +137,9 @@ export default function PublicEventsScreen({ navigation }: Props) {
     </View>
   );
 
+  if (!eventsOn && !q.loading && (q.data ?? []).length === 0) {
+    return <EmptyState iconName="calendar-event" title="Events are paused" subtitle="Events near you are switched off for now." />;
+  }
   return (
     <View style={[S.fill, { backgroundColor: c.bg }]}>
       <FlatList

@@ -39,6 +39,14 @@ export async function listOutsideEvents(opts: { mine?: boolean } = {}): Promise<
   );
 }
 
+/** PKL-081: are outside events shown at all (the launch switch; godmode always)? False until known, so the Events
+ *  tile never flashes in and out. */
+export function useOutsideEventsVisible(): boolean {
+  const q = useCachedQuery<boolean>(`${PREFIX}:visible`, async () => !!(await sbCall(() => supabase.rpc('outside_events_visible'), BOUND)),
+    { ttlMs: LIST_TTL_MS });
+  return q.data === true;
+}
+
 /** Every listed event near me (all kinds), soonest first. */
 export function useOutsideEvents(enabled = true) {
   return useCachedQuery<OutsideEvent[]>(LIST_KEY, () => listOutsideEvents(), { ttlMs: LIST_TTL_MS, enabled });

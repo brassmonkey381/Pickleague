@@ -109,7 +109,7 @@ import JoinLeagueSection from '../components/home/JoinLeagueSection';
 import JoinCodeModal from '../components/home/JoinCodeModal';
 import QuickRow, { type QuickTarget } from '../components/home/QuickRow';
 import { useOutsideEventsNewCount } from '@just-messin-around/expo-foundation/outsideEvents';
-import { listOutsideEvents, outsideSeen } from '../data/outsideEvents';
+import { listOutsideEvents, outsideSeen, useOutsideEventsVisible } from '../data/outsideEvents';
 import MyOutsideEventsCard from '../components/home/MyOutsideEventsCard';
 import AlwaysLocationCard from '../components/home/AlwaysLocationCard';
 import OpenNearYouSection, { type OpenItem } from '../components/home/OpenNearYouSection';
@@ -179,6 +179,8 @@ export default function HomeScreen({ navigation }: Props) {
   const spotlight = useLeagueSpotlight(HOME_FEED_ENABLED ? NO_LEAGUES : myLeagues, profile?.id ?? null, now);
   const { revalidate: revalidateSpotlight, refresh: refreshSpotlight } = spotlight;
   useFocusEffect(useCallback(() => { void revalidateSpotlight(); }, [revalidateSpotlight]));
+  // PKL-081: outside events can be switched off; then there is no Events tile.
+  const eventsVisible = useOutsideEventsVisible();
   // Events near me I haven't seen: the Events tile's dot.
   const newEvents = useOutsideEventsNewCount({
     fetch: listOutsideEvents,
@@ -739,7 +741,7 @@ export default function HomeScreen({ navigation }: Props) {
   );
 
   // Quick tiles, one row of 5, right under the numbers.
-  sections.push(<QuickRow key="quick" showRecord={isMember} newEvents={newEvents.count} onPress={onQuick} />);
+  sections.push(<QuickRow key="quick" showRecord={isMember} newEvents={newEvents.count} showEvents={eventsVisible} onPress={onQuick} />);
   // Background check-ins need Always location; phones without it (iOS asks once).
   sections.push(<AlwaysLocationCard key="always-location" />);
 

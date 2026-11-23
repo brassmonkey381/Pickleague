@@ -21,12 +21,14 @@ type Props = {
   showRecord: boolean;
   /** Events I haven't seen yet: a dot on the Events tile. */
   newEvents?: number;
+  /** PKL-081: outside events are off, so no Events tile. */
+  showEvents?: boolean;
   onPress: (target: QuickTarget, position: number) => void;
 };
 
-export default function QuickRow({ showRecord, newEvents = 0, onPress }: Props) {
+export default function QuickRow({ showRecord, newEvents = 0, showEvents = true, onPress }: Props) {
   const { colors: c } = useTheme();
-  const tiles: Tile[] = [
+  const all: Tile[] = [
     showRecord
       ? { key: 'record', label: 'Record', a11y: 'Record a match', iconName: 'edit' }
       : { key: 'join', label: 'Join', a11y: 'Join with a code', iconName: 'key' },
@@ -41,6 +43,7 @@ export default function QuickRow({ showRecord, newEvents = 0, onPress }: Props) 
     { key: 'standings', label: 'Standings', iconName: 'chart' },
     { key: 'history', label: 'History', a11y: 'Match history', iconName: 'clipboard' },
   ];
+  const tiles = all.filter((t) => showEvents || t.key !== 'events');
 
   const items: ShortcutItem[] = tiles.map((tile, i) => ({
     key: tile.key,
