@@ -32,7 +32,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import crypto from 'node:crypto';
 import { fileURLToPath } from 'node:url';
-import { seedPlayers, generateRoundRobin, generateRotatingPartners, rotatingPartnersRounds, generateDoublesPoolPlay, validatePools, FORMAT_META, type MatchPairing } from '../mobile/src/lib/tournament';
+import { seedPlayers, seedTeams, generateDoublesSingleElim, generateRoundRobin, generateRotatingPartners, rotatingPartnersRounds, generateDoublesPoolPlay, validatePools, FORMAT_META, type MatchPairing } from '../mobile/src/lib/tournament';
 import * as PO from './qa/pools-oracle';
 import { buildStandingsComparator } from '../mobile/src/lib/tournamentTiebreakers';
 import { collectReplay } from './replay/collect';
@@ -53,21 +53,28 @@ const POOLS = has('--pools');
 // PKL-060 R7: rotating partners doubles, odd count (9: one bye per round), courts, an ante pot that Brian (co-admin)
 // pays out, then `cancel-check`: a second tournament with antes is cancelled and every pickle must come back.
 const R7 = has('--r7');
+// PKL-060 R4: single elimination doubles, 8 random pairs (16 players), PLUPR seeding, join by request with a deadline,
+// max 16 (two extra "latecomer" bots check the waitlist and the deadline), Courts 1+2.
+const R4 = has('--r4');
 const POOL_COUNT = Number(val('--pool-count', '2'));
 const PLAYOFF = val('--playoff', 'top_2_per_pool');
 const ANTE = POOLS || R7 ? Number(val('--ante', '50')) : 0;
 const VARIANT = val('--variant', '').replace(/[^a-z0-9]/gi, '').toLowerCase();
-const DOUBLES = has('--doubles') || POOLS || R7;
-const TAG = POOLS ? 'pkl050' : R7 ? 'pkl060r7' : DOUBLES ? 'pkl043' : 'pkl034';
-const ITEM = POOLS ? 'PKL-050' : R7 ? 'PKL-060' : DOUBLES ? 'PKL-043' : 'PKL-034';
-const N_PLAYERS = POOLS ? Number(val('--players', '16')) : R7 ? Number(val('--players', '9')) : DOUBLES ? 10 : 8;
+const DOUBLES = has('--doubles') || POOLS || R7 || R4;
+const TAG = POOLS ? 'pkl050' : R7 ? 'pkl060r7' : R4 ? 'pkl060r4' : DOUBLES ? 'pkl043' : 'pkl034';
+const ITEM = POOLS ? 'PKL-050' : R7 || R4 ? 'PKL-060' : DOUBLES ? 'PKL-043' : 'PKL-034';
+const N_PLAYERS = POOLS ? Number(val('--players', '16')) : R7 ? Number(val('--players', '9')) : R4 ? 16 : DOUBLES ? 10 : 8;
 const N_BOTS = REHEARSAL ? N_PLAYERS : N_PLAYERS - 1;
+/** R4: two more bots that only try to join late (one when the field is full: waitlisted; one after the deadline: refused). */
+const LATE_BOTS = R4 ? 2 : 0;
 const T_NAME = POOLS ? `[SIM] PKL-050 pool play QA${VARIANT ? ' ' + VARIANT : ''}${REHEARSAL ? ' rehearsal' : ''}`
   : R7 ? `[SIM] PKL-060 R7 rotating partners QA${REHEARSAL ? ' rehearsal' : ''}`
+  : R4 ? `[SIM] PKL-060 R4 single elim doubles QA${REHEARSAL ? ' rehearsal' : ''}`
   : DOUBLES ? (REHEARSAL ? '[SIM] PKL-043 doubles QA rehearsal' : '[SIM] PKL-043 doubles QA')
   : REHEARSAL ? '[SIM] PKL-034 rehearsal' : '[SIM] PKL-034 live QA';
 const L_NAME = POOLS ? `[SIM] PKL-050 QA league${VARIANT ? ' ' + VARIANT : ''}${REHEARSAL ? ' rehearsal' : ''}`
   : R7 ? `[SIM] PKL-060 R7 QA league${REHEARSAL ? ' rehearsal' : ''}`
+  : R4 ? `[SIM] PKL-060 R4 QA league${REHEARSAL ? ' rehearsal' : ''}`
   : DOUBLES ? (REHEARSAL ? '[SIM] PKL-043 rehearsal league' : '[SIM] PKL-043 QA league')
   : REHEARSAL ? '[SIM] PKL-034 rehearsal league' : '[SIM] PKL-034 QA league';
 const BOT_TAG = `${TAG}${REHEARSAL ? 'r' : ''}${VARIANT}`;
@@ -92,7 +99,7 @@ const FAST_MS = 2500;
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const repo = path.resolve(here, '..');
-const STATE_DIR = path.join(repo, 'state', POOLS ? 'pkl-050' : R7 ? 'pkl-060-r7' : DOUBLES ? 'pkl-043' : 'pkl-034');
+const STATE_DIR = path.join(repo, 'state', POOLS ? 'pkl-050' : R7 ? 'pkl-060-r7' : R4 ? 'pkl-060-r4' : DOUBLES ? 'pkl-043' : 'pkl-034');
 /** R7: the second tournament, created only to be cancelled (cancel-check). */
 const T2_NAME = `${T_NAME} (cancel check)`;
 const RUN = `${MODE}${VARIANT ? '-' + VARIANT : ''}`; // file stem: live, rehearsal, rehearsal-p3, ...
@@ -399,11 +406,11 @@ async function setup() {
   writeState(st); // password saved before any account exists, so cleanup can always find them
 
   // 1. bot accounts
-  for (let n = 1; n <= N_BOTS; n++) {
+  for (let n = 1; n <= N_BOTS + LATE_BOTS; n++) {
     const email = EMAIL(n), name = `QA Bot ${n}`;
     const { data, error } = await admin.auth.admin.createUser({
       email, password: st.password, email_confirm: true,
-      user_metadata: { full_name: name, username: POOLS || R7 ? `qa${BOT_TAG}${n}` : `qabot${n}${REHEARSAL ? 'r' : ''}` },
+      user_metadata: { full_name: name, username: POOLS || R7 || R4 ? `qa${BOT_TAG}${n}` : `qabot${n}${REHEARSAL ? 'r' : ''}` },
     });
     if (error) die(`create ${email}: ${error.message} (run cleanup, then setup again)`);
     const id = data.user!.id;
@@ -443,7 +450,17 @@ async function setup() {
 
   // 3. tournament, as the app's CreateTournament writes it
   const start = new Date(Date.now() + 15 * 60_000);
-  const payload = POOLS ? {
+  const payload = R4 ? {
+    // R4: single elimination doubles, random pairs, PLUPR seeding, join by request until a deadline, exactly 16.
+    league_id: lg!.id, name: T_NAME,
+    description: `QA test (${ITEM}). Private test event: ask to join; QA bots post scores automatically. Not a real event.`,
+    created_by: host.id, format: 'single_elimination', match_type: 'doubles', seeding: 'elo', pool_count: 1,
+    partner_rotation: null, courts: COURTS, team_creation: 'random', registration_mode: 'request',
+    registration_closes_at: new Date(Date.now() + 45 * 60_000).toISOString(),
+    min_players: N_PLAYERS, max_players: N_PLAYERS, start_time: start.toISOString(), expected_length_hours: 2,
+    location_name: 'QA test (online)', location_lat: null, location_lng: null,
+    pickle_ante: 0, payout_structure: [60, 25, 15], status: 'registration',
+  } : POOLS ? {
     // PKL-050 R1: the Create screen for pool play doubles sends pool_count, team_creation (fixed pairs) and the
     // playoff settings (it sends playoff_format / playoff_third_place for round_robin and pool_play).
     league_id: lg!.id, name: T_NAME,
@@ -485,6 +502,26 @@ async function setup() {
   const { error: re } = await hc.from('tournament_registrations').insert({ tournament_id: t!.id, user_id: host.id, status: 'approved', role: 'admin' });
   if (re) die('host registration: ' + re.message);
 
+  // 4. R4: the bots ask to join and the host approves them (the app's request + Approve). Brian asks on his phone.
+  if (R4) {
+    for (const b of st.bots.slice(1, N_BOTS)) {
+      const bc = await asBot(st, b.id);
+      const { data: reg, error: qe } = await bc.from('tournament_registrations').insert({ tournament_id: t!.id, user_id: b.id }).select('id, status').single();
+      if (qe) die(`${b.name} request: ${qe.message}`);
+      const { error: ae } = await hc.from('tournament_registrations').update({ status: 'approved' }).eq('id', reg!.id);
+      if (ae) die(`approve ${b.name}: ${ae.message}`);
+      log(`  ${b.name} asked to join (${reg!.status}) + host approved`);
+    }
+    if (!REHEARSAL) {
+      st.brian_before = await brianSnapshot(BRIAN);
+      const { data: pb } = await admin.from('player_badges').select('id').eq('user_id', BRIAN);
+      st.brian_badges_before = (pb ?? []).map((r: any) => String(r.id));
+      writeState(st);
+      log('Brian: open the tournament from the "New tournament" alert and tap Join (it sends a request; the host approves it).');
+    }
+    log(`setup done. ids in ${STATE_FILE}`);
+    return;
+  }
   // 4. invite the other bots (they accept) and Brian (he accepts on his phone)
   for (const b of st.bots.slice(1)) {
     const { error: ie } = await hc.rpc('tournament_invite_player', { p_tournament_id: t!.id, p_user_id: b.id });
@@ -670,7 +707,74 @@ async function lockInPools(st: State, players: string[]) {
     pools.map((p, i) => `Pool ${String.fromCharCode(65 + i)} = teams ${p.map(teamNo).join(', ')}`).join(' ; ') + `; tournament active, ${players.length} members notified`);
 }
 
+/**
+ * R4, once the field is full: (1) a late bot asks to join: the field is full, so it is waitlisted (_waitlist_if_full);
+ * (2) the deadline passes (the host moves it to a minute ago) and the second late bot is refused by the insert policy;
+ * (3) the host taps "Generate Random Pairs" (generate_random_pairs, mode random). Each step once.
+ */
+async function r4LateAndPairs(st: State) {
+  const tId = st.tournament_id!; const hc = await asBot(st, st.bots[0].id);
+  const [late1, late2] = st.bots.slice(N_BOTS, N_BOTS + 2);
+  const { data: r1 } = await admin.from('tournament_registrations').select('status').eq('tournament_id', tId).eq('user_id', late1.id).maybeSingle();
+  if (!r1) {
+    const { data, error } = await (await asBot(st, late1.id)).from('tournament_registrations').insert({ tournament_id: tId, user_id: late1.id }).select('status').single();
+    check('R4: a request when the field is full (16 of 16) is waitlisted', !error && data?.status === 'waitlisted', error?.message ?? `status ${data?.status}`);
+  }
+  const { data: t } = await admin.from('tournaments').select('registration_closes_at').eq('id', tId).single() as { data: any };
+  if (!t.registration_closes_at || Date.parse(t.registration_closes_at) > Date.now()) {
+    const { error: de } = await hc.from('tournaments').update({ registration_closes_at: new Date(Date.now() - 60_000).toISOString() }).eq('id', tId);
+    if (de) log('deadline move: ' + de.message);
+    const { error } = await (await asBot(st, late2.id)).from('tournament_registrations').insert({ tournament_id: tId, user_id: late2.id });
+    check('R4: a request after the deadline is refused', !!error, 'the insert went through');
+  }
+  const { data: pairs } = await admin.from('doubles_pairs').select('id').eq('tournament_id', tId);
+  if (!(pairs ?? []).length) {
+    const { data, error } = await hc.rpc('generate_random_pairs', { p_tournament_id: tId, p_mode: 'random' });
+    log(error ? `PAIRS ERROR: ${error.message}` : `host tapped "Generate Random Pairs": ${data} pairs`);
+  }
+}
+
+/**
+ * R4 lock-in, as useTournamentDetail.doLockIn for single elimination doubles: the pairs from doubles_pairs, seeded by
+ * PLUPR (seedTeams 'elo': the pair's average rating, unrated 3.25), generateDoublesSingleElim (round 1 only: 1v8, 2v7,
+ * 3v6, 4v5), one 'winners' round "Single Elimination Schedule", seeds = the seeded teams flattened.
+ */
+async function lockInElim(st: State, players: string[]) {
+  const hc = await asBot(st, st.bots[0].id); const tId = st.tournament_id!;
+  const { data: pairs } = await admin.from('doubles_pairs').select('partner_1_id, partner_2_id').eq('tournament_id', tId);
+  const teams = ((pairs ?? []) as any[]).filter((p) => p.partner_1_id && p.partner_2_id).map((p) => [p.partner_1_id, p.partner_2_id] as [string, string]);
+  if (teams.length !== N_PLAYERS / 2) die(`expected ${N_PLAYERS / 2} pairs, found ${teams.length}`);
+  const { data: profs } = await admin.from('profiles').select('id, rating').in('id', players);
+  const ratings = Object.fromEntries((profs ?? []).map((p: any) => [p.id, Number(p.rating)]));
+  const seeded = seedTeams(teams, ratings, 'elo');
+  const pairings = generateDoublesSingleElim(seeded);
+  const { data: round, error: rErr } = await hc.from('tournament_rounds')
+    .insert({ tournament_id: tId, round_number: 1, label: FORMAT_META.single_elimination.label + ' Schedule', round_type: 'winners' }).select('id').single();
+  if (rErr) die('create round: ' + rErr.message);
+  const rows = pairings.map((m, i) => ({ tournament_id: tId, round_id: round!.id, match_order: i, match_type: 'doubles', play_round: null,
+    team1_player1: m.team1[0], team1_player2: m.team1[1] ?? null, team2_player1: m.team2[0], team2_player2: m.team2[1] ?? null }));
+  const { error: mErr } = await hc.from('tournament_matches').insert(rows);
+  if (mErr) die('insert matches: ' + mErr.message);
+  const { error: sErr } = await hc.from('tournaments').update({ status: 'active' }).eq('id', tId);
+  if (sErr) die('set active: ' + sErr.message);
+  const order = seeded.flat();
+  for (let i = 0; i < order.length; i++) await hc.from('tournament_registrations').update({ seed: i + 1 }).eq('tournament_id', tId).eq('user_id', order[i]);
+  for (const uid of players) {
+    await hc.from('notifications').insert({ user_id: uid, title: `🏆 Bracket Set — ${T_NAME}`,
+      body: `The draw has been finalized! ${rows.length} matches scheduled. Open the tournament to see your matches.`,
+      type: 'tournament', entity_id: tId, entity_type: 'tournament' });
+  }
+  const avg = (t: [string, string]) => ((ratings[t[0]] ?? 3.25) + (ratings[t[1]] ?? 3.25)) / 2;
+  const sorted = seeded.every((t, i) => i === 0 || avg(seeded[i - 1]) >= avg(t));
+  const shape = rows.length === 4 && [[0, 7], [1, 6], [2, 5], [3, 4]].every(([a, b], i) =>
+    sameSet([rows[i].team1_player1, rows[i].team1_player2], seeded[a]) && sameSet([rows[i].team2_player1, rows[i].team2_player2], seeded[b]));
+  check('R4 draw: pairs seeded by average PLUPR, round 1 = 1v8, 2v7, 3v6, 4v5', sorted && shape,
+    seeded.map((t, i) => `${i + 1}: ${avg(t).toFixed(2)}`).join(' '));
+  log(`LOCK IN (single elim doubles): 4 quarterfinals, seeds ${seeded.map((t, i) => `${i + 1}=${t.map((u) => st.bots.find((b) => b.id === u)?.name ?? 'Brian').join('+')}`).join(' ; ')}`);
+}
+
 async function lockIn(st: State, players: string[]) {
+  if (R4) return lockInElim(st, players);
   if (POOLS) return lockInPools(st, players);
   if (DOUBLES) return lockInDoubles(st, players);
   const hc = await asBot(st, st.bots[0].id);
@@ -846,11 +950,24 @@ async function run() {
             && t.playoff_third_place === true && t.pickle_ante === ANTE,
           `format ${t.format}, match_type ${t.match_type}, pools ${t.pool_count}, playoff ${t.playoff_format}, third ${t.playoff_third_place}, ante ${t.pickle_ante}`);
       }
-      if (DOUBLES && !POOLS && !formatChecked) {
+      if (R4 && !formatChecked) {
+        formatChecked = true;
+        const { data: tt } = await admin.from('tournaments').select('format, match_type, team_creation, registration_mode, seeding, max_players').eq('id', tId).single() as { data: any };
+        check('R4 tournament is single_elimination / doubles / random pairs / join by request / PLUPR seeding / max 16',
+          tt.format === 'single_elimination' && tt.match_type === 'doubles' && tt.team_creation === 'random' && tt.registration_mode === 'request'
+            && tt.seeding === 'elo' && tt.max_players === N_PLAYERS, JSON.stringify(tt));
+      }
+      if (DOUBLES && !POOLS && !R4 && !formatChecked) {
         formatChecked = true;
         check(`doubles tournament is rotating_partners / doubles / playoff_format none${R7 ? ` / ante ${ANTE}` : ''}`,
           t.format === 'rotating_partners' && t.match_type === 'doubles' && t.playoff_format === 'none' && (!R7 || t.pickle_ante === ANTE),
           `format ${t.format}, match_type ${t.match_type}, playoff_format ${t.playoff_format}, ante ${t.pickle_ante}`);
+      }
+      if (R4 && st.brian && (regs ?? []).some((r: any) => r.user_id === st.brian && r.status === 'pending')) {
+        const hc = await asBot(st, st.bots[0].id);
+        const { error } = await hc.from('tournament_registrations').update({ status: 'approved' }).eq('tournament_id', tId).eq('user_id', st.brian);
+        log(error ? `APPROVE ERROR (Brian): ${error.message}` : `host ${st.bots[0].name} approved your request to join`);
+        await sleep(2000); continue;
       }
       if (approved.length < N_PLAYERS) {
         const msg = `waiting: ${approved.length}/${N_PLAYERS} approved` + (st.brian && !approved.includes(st.brian) ? ' (Brian has not accepted the invite yet)' : '');
@@ -862,6 +979,7 @@ async function run() {
         if (msg !== lastWaitMsg) log(msg); lastWaitMsg = msg; await sleep(fast ? FAST_MS : 5000); continue;
       }
       if (R7) await ensureCoAdmin(st, regs ?? []);
+      if (R4) await r4LateAndPairs(st);
       await lockIn(st, approved); await sleep(fast ? FAST_MS : 5000); continue;
     }
 
@@ -915,7 +1033,7 @@ async function run() {
           `${third.length} third-place match(es): ${keysOf(third[0]).split('|').map(teamLabel).join(' v ')}; semi losers ${losers.split('|').map(teamLabel).join(', ')}`);
       }
     }
-    if (!POOLS && !playoffChecked && (rounds ?? []).some((r: any) => playoffTypes.includes(r.round_type))) {
+    if (!POOLS && !R4 && !playoffChecked && (rounds ?? []).some((r: any) => playoffTypes.includes(r.round_type))) {
       playoffChecked = true;
       const groupMatches = ms.filter((m) => groupIds.has(m.round_id));
       const table = standings(groupMatches, approved, seedOf).map((e) => e.key);
@@ -1074,7 +1192,7 @@ async function run() {
       finalSeen++;
       if (finalSeen < (fast ? 2 : 4)) { log('all matches done; waiting for the tournament to complete itself'); await sleep(fast ? 3000 : 15000); continue; }
       completeAsked = true;
-      if (DOUBLES) check(POOLS ? 'tournament auto-completed after the Final and Third Place Match' : 'tournament auto-completed after the last match (rotating_partners, playoff none)',
+      if (DOUBLES) check(POOLS ? 'tournament auto-completed after the Final and Third Place Match' : R4 ? 'tournament auto-completed after the Final' : 'tournament auto-completed after the last match (rotating_partners, playoff none)',
         false, `status ${t.status} after all ${real.length} matches`);
       log('tournament did NOT complete on its own after the last match; host calls admin_complete_tournament (the app\'s "Complete tournament" button)');
       const hc = await asBot(st, st.bots[0].id);
@@ -1103,10 +1221,11 @@ async function finishDoubles(st: State, nm: Map<string, string>, completeAsked: 
   log('COMPLETED. Final ranks:\n' + (ranks ?? []).map((r: any) => `    ${r.final_rank}. ${N(r.user_id).padEnd(22)} ${r.wins ?? '?'}-${r.losses ?? '?'}  PLUPR ${ratings[r.user_id] ?? '?'}`).join('\n'));
   check('tournament auto-completed after the last match (no admin "Complete tournament")', !completeAsked);
   const rk = (ranks ?? []).map((r: any) => r.final_rank).sort((a: number, b: number) => a - b);
-  if (!POOLS) check(`${N_PLAYERS} final ranks stored, 1..${N_PLAYERS} with no gaps`, rk.length === N_PLAYERS && rk.every((r: number, i: number) => r === i + 1), `got ${rk.join(',')}`);
+  if (R4) await finishElim(st, N, players, ranks ?? []);
+  else if (!POOLS) check(`${N_PLAYERS} final ranks stored, 1..${N_PLAYERS} with no gaps`, rk.length === N_PLAYERS && rk.every((r: number, i: number) => r === i + 1), `got ${rk.join(',')}`);
   if (POOLS) await finishPools(st, N, players, ranks ?? []);
-  else check('no playoff rounds on a rotating tournament', !(rounds ?? []).some((r: any) => ['finals', 'third_place_match'].includes(r.round_type)));
-  if (!POOLS) {
+  else if (!R4) check('no playoff rounds on a rotating tournament', !(rounds ?? []).some((r: any) => ['finals', 'third_place_match'].includes(r.round_type)));
+  if (!POOLS && !R4) {
     // PKL-052 rule (no head-to-head, no rating), ported from compute_tournament_final_ranks' per-player branch.
     const seedOf = new Map((regs ?? []).map((r: any) => [r.user_id, r.seed ?? 999]));
     const pr = PO.playerRanks((full ?? []) as PO.PM[], players, seedOf, await tieRanks(tId));
@@ -1146,6 +1265,52 @@ async function finishPools(st: State, N: (id: string) => string, players: string
     bad.length === 0 && ranks.length === players.length, `${ranks.length} rows; ${bad.slice(0, 4).join(' ; ')}`);
   await finishPot(st, N, players, want);
 }
+/**
+ * R4 completion: the bracket folded the standard way (quarterfinal slot i meets slot 3-i in the semis, the semis winners
+ * meet in the Final) and the final ranks follow compute_tournament_final_ranks' elimination rule: the champion pair,
+ * the runner-up pair, then wins, fewer losses, point diff, the admin tie order, seed. Partners share a rank.
+ */
+async function finishElim(st: State, N: (id: string) => string, players: string[], ranks: any[]) {
+  const tId = st.tournament_id!;
+  const { data: rounds } = await admin.from('tournament_rounds').select('id, label, round_type, round_number').eq('tournament_id', tId).order('round_number');
+  const { data: ms0 } = await admin.from('tournament_matches').select('id, round_id, match_order, status, winner_team, team1_player1, team1_player2, team2_player1, team2_player2, team1_score, team2_score').eq('tournament_id', tId);
+  const ms = (ms0 ?? []) as any[];
+  const rs = (rounds ?? []) as any[];
+  const byRound = rs.map((r) => ms.filter((m) => m.round_id === r.id).sort((a, b) => a.match_order - b.match_order));
+  const key = (a: string | null, b: string | null) => [a, b].filter(Boolean).sort().join(':');
+  const winner = (m: any) => (m?.winner_team === 'team1' ? key(m.team1_player1, m.team1_player2) : m?.winner_team === 'team2' ? key(m.team2_player1, m.team2_player2) : '');
+  const sides = (m: any) => [key(m.team1_player1, m.team1_player2), key(m.team2_player1, m.team2_player2)].sort().join('|');
+  log('ROUNDS: ' + rs.map((r, i) => `${r.label ?? r.round_type} (${r.round_type}, ${byRound[i].length})`).join(' -> '));
+  const qf = byRound[0] ?? [], sf = byRound[1] ?? [], fin = byRound[2] ?? [];
+  const wantSf = [[0, 3], [1, 2]].map(([a, b]) => [winner(qf[a]), winner(qf[b])].sort().join('|'));
+  check('R4 bracket: 4 quarterfinals, 2 semifinals, 1 Final, in that order', rs.length === 3 && qf.length === 4 && sf.length === 2 && fin.length === 1,
+    rs.map((r, i) => `${r.round_type}:${byRound[i].length}`).join(' '));
+  check('R4 fold: semifinal 1 = winners of 1v8 and 4v5, semifinal 2 = winners of 2v7 and 3v6 (seeds 1 and 2 only meet in the Final)',
+    sf.length === 2 && sides(sf[0]) === wantSf[0] && sides(sf[1]) === wantSf[1], `got ${sf.map(sides).join(' ; ')}`);
+  check('R4 Final = the two semifinal winners', fin.length === 1 && sides(fin[0]) === [winner(sf[0]), winner(sf[1])].sort().join('|'));
+  // the rank rule
+  const { data: regs } = await admin.from('tournament_registrations').select('user_id, seed').eq('tournament_id', tId);
+  const seedOf = new Map((regs ?? []).map((r: any) => [r.user_id, r.seed ?? 999]));
+  const tie = await tieRanks(tId);
+  type T = { k: string; w: number; l: number; d: number; seed: number };
+  const tm = new Map<string, T>();
+  for (const m of ms.filter((x) => x.status === 'completed' && x.winner_team)) {
+    for (const [k, mine, their, won] of [[key(m.team1_player1, m.team1_player2), m.team1_score, m.team2_score, m.winner_team === 'team1'],
+      [key(m.team2_player1, m.team2_player2), m.team2_score, m.team1_score, m.winner_team === 'team2']] as [string, number, number, boolean][]) {
+      const t = tm.get(k) ?? { k, w: 0, l: 0, d: 0, seed: Math.min(...k.split(':').map((u) => seedOf.get(u) ?? 999)) }; tm.set(k, t);
+      if (won) t.w++; else t.l++; t.d += (mine ?? 0) - (their ?? 0);
+    }
+  }
+  const champ = winner(fin[0]), runner = fin[0] ? sides(fin[0]).split('|').find((x) => x !== champ) : '';
+  const order = [...tm.values()].sort((a, b) => Number(b.k === champ) - Number(a.k === champ) || Number(b.k === runner) - Number(a.k === runner)
+    || b.w - a.w || a.l - b.l || b.d - a.d || (tie(a.k) ?? 2147483647) - (tie(b.k) ?? 2147483647) || a.seed - b.seed || (a.k < b.k ? -1 : 1));
+  const want = new Map<string, number>(); order.forEach((t, i) => t.k.split(':').forEach((u) => want.set(u, i + 1)));
+  const got = new Map(ranks.map((r: any) => [r.user_id, r.final_rank]));
+  const bad = players.filter((u) => got.get(u) !== want.get(u)).map((u) => `${N(u)} ${got.get(u) ?? '-'}, want ${want.get(u)}`);
+  check('R4 final ranks: champion pair 1, runner-up 2, then wins, fewer losses, ±, admin tie order, seed; partners share a rank',
+    bad.length === 0 && ranks.length === players.length, `${ranks.length} rows; ${bad.slice(0, 4).join(' ; ')}`);
+}
+
 /** The ante pot (PKL-050, PKL-060): every ante paid in, then the payout (Brian presses Pay out as co-admin; PKL-056
  *  lets him) matches preview_tournament_payout: floor(floor(pot x pct / 100) / people at that place). */
 async function finishPot(st: State, N: (id: string) => string, players: string[], want: Map<string, number>) {

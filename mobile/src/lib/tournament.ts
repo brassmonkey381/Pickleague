@@ -213,6 +213,19 @@ export function generatePoolPlay(
 
 // ── Single elimination bracket ────────────────────────────────
 // Pads to next power of 2 with BYEs; top seed vs bottom seed.
+/**
+ * PKL-068: the standard bracket order of the round-1 slots, slot i being seed i+1 v seed (size - i). For 4 slots
+ * (8 entrants) [0, 3, 1, 2]: 1v8, 4v5, 2v7, 3v6. Each step splits every slot x into [x, n-1-x], so neighbours meet next.
+ */
+export function bracketSlotOrder(slots: number): number[] {
+  let order = [0];
+  while (order.length < slots) {
+    const n = order.length * 2;
+    order = order.flatMap(x => [x, n - 1 - x]);
+  }
+  return order;
+}
+
 export function generateSingleElim(seededPlayers: string[]): MatchPairing[] {
   if (seededPlayers.length < 2) {
     throw new Error(`generateSingleElim: need at least 2 entrants (got ${seededPlayers.length})`);
@@ -224,13 +237,15 @@ export function generateSingleElim(seededPlayers: string[]): MatchPairing[] {
   const padded = [...seededPlayers];
   while (padded.length < bracketSize) padded.push('BYE');
 
-  // Round 1 pairings: 1 vs N, 2 vs N-1, …
+  // Round 1 pairings: 1 vs N, 2 vs N-1, … written in standard bracket order (PKL-068): 1v8, 4v5, 2v7, 3v6 for 8.
+  // The server advances by pairing neighbouring winners (match_order 0 with 1, 2 with 3, …), so this order keeps the
+  // top seeds apart until the end: seeds 1 and 2 can only meet in the Final, 1-4 only in the semifinals, and so on.
   const round1: MatchPairing[] = [];
-  for (let i = 0; i < bracketSize / 2; i++) {
+  for (const i of bracketSlotOrder(bracketSize / 2)) {
     const p1 = padded[i];
     const p2 = padded[bracketSize - 1 - i];
     if (p1 !== 'BYE' && p2 !== 'BYE') {
-      round1.push({ round: 1, matchOrder: i, team1: [p1], team2: [p2] });
+      round1.push({ round: 1, matchOrder: round1.length, team1: [p1], team2: [p2] });
     }
   }
   return round1;

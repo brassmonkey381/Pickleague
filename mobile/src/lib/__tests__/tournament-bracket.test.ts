@@ -9,6 +9,7 @@ import {
   generateRoundRobin,
   generatePoolPlay,
   generateSingleElim,
+  bracketSlotOrder,
   generateRotatingPartners,
   rotatingPartnersRounds,
   generateMLPSchedule,
@@ -324,6 +325,35 @@ describe('generateSingleElim', () => {
   it('throws on N < 2', () => {
     expect(() => generateSingleElim([])).toThrow();
     expect(() => generateSingleElim(['only'])).toThrow();
+  });
+
+  // PKL-068: the server advances by pairing neighbouring winners (match_order 0 v 1, 2 v 3). With the better seed
+  // always winning, round 1 in bracket order must give the standard path: 1 meets 2 only in the Final.
+  it.each([4, 8, 16, 32])('N=%i: with chalk results the top seeds meet only as late as the bracket allows', (n) => {
+    const seed = (p: string) => parseInt(p.slice(1), 10);
+    let alive = generateSingleElim(players(n)).sort((a, b) => a.matchOrder - b.matchOrder)
+      .map(m => Math.min(seed(m.team1[0] as string), seed(m.team2[0] as string)));
+    const meetings: number[][] = [];
+    while (alive.length > 1) {
+      const next: number[] = [];
+      for (let i = 0; i < alive.length; i += 2) { meetings.push([alive[i], alive[i + 1]]); next.push(Math.min(alive[i], alive[i + 1])); }
+      alive = next;
+    }
+    const final = meetings[meetings.length - 1].sort((a, b) => a - b);
+    expect(final).toEqual([1, 2]);
+    if (n >= 8) {
+      const semis = meetings.slice(-3, -1).map(p => p.sort((a, b) => a - b).join('v')).sort();
+      expect(semis).toEqual(['1v4', '2v3']);
+    }
+    if (n >= 16) {
+      const qf = meetings.slice(-7, -3).map(p => p.sort((a, b) => a - b).join('v')).sort();
+      expect(qf).toEqual(['1v8', '2v7', '3v6', '4v5']);
+    }
+  });
+
+  it('bracketSlotOrder: 1v8, 4v5, 2v7, 3v6 for 8 entrants', () => {
+    expect(bracketSlotOrder(4)).toEqual([0, 3, 1, 2]);
+    expect(bracketSlotOrder(8)).toEqual([0, 7, 3, 4, 1, 6, 2, 5]);
   });
 });
 
