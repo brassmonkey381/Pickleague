@@ -117,4 +117,19 @@ describe('court queue state (PKL-039)', () => {
     expect(courtStateLine({ kind: 'waiting_court', ahead: 0 }, name)).toBe('Waiting for a free court. You\'re next.');
     expect(courtStateLine({ kind: 'waiting_court', ahead: 2 }, name)).toBe('Waiting for a free court, 2 matches ahead.');
   });
+
+  it('PKL-061: a later-round match waits for round order (own earlier match, or more than one round ahead)', () => {
+    // nothing called yet: every round-3 match has a player with a round-1 or round-2 match still to play
+    const fresh = ms.map(m => ({ ...m, called_at: null, court: null }));
+    const r3 = fresh.filter(m => rounds.get(m.id) === 3);
+    expect(r3.length).toBeGreaterThan(0);
+    for (const m of r3) {
+      const st = courtState(m, fresh, courts, rounds);
+      expect(st.kind).toBe('waiting_round');
+      if (st.kind === 'waiting_round') expect(st.round).toBeLessThanOrEqual(2);
+    }
+    expect(courtStateLine({ kind: 'waiting_round', round: 2 }, name)).toBe('Waiting for round 2 to finish. Matches go on court in round order.');
+    // a round-1 match is never held back for order
+    expect(courtState(fresh.find(m => rounds.get(m.id) === 1)!, fresh, courts, rounds).kind).toBe('waiting_court');
+  });
 });

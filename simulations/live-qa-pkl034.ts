@@ -1487,6 +1487,20 @@ async function auditDoubles(st: State, tId: string, players: string[]) {
       }
     }
     check('E2 each later call sends its 4 players "You\'re on Court N" naming the match', badE2.length === 0, badE2.slice(0, 4).join(' ; '));
+
+    // E3 (PKL-061): the queue keeps round order. At each call: no player of the match still had an earlier-round
+    // match of the same group to play, and its round was at most one ahead of the group's lowest open round.
+    const badE3: string[] = [];
+    const openAtT = (x: any, T: number) => !(ts(x.completed_at) <= T);
+    for (const m of called.filter((x: any) => x.play_round != null)) {
+      const T = ts(m.called_at);
+      const grp = ms.filter((x: any) => x.round_id === m.round_id && x.play_round != null && x.id !== m.id && openAtT(x, T));
+      const own = grp.filter((x: any) => x.play_round < m.play_round && four(x).some((p: string) => four(m).includes(p)));
+      if (own.length) badE3.push(`#${m.match_order} (round ${m.play_round}) called while ${[...new Set(own.flatMap((x: any) => four(x).filter((p: string) => four(m).includes(p))))].map(N).join(', ')} still had round ${Math.min(...own.map((x: any) => x.play_round))} to play`);
+      const low = Math.min(m.play_round, ...grp.map((x: any) => x.play_round));
+      if (m.play_round > low + 1) badE3.push(`#${m.match_order} (round ${m.play_round}) called while round ${low} was still open`);
+    }
+    check('E3 courts keep round order: no one skips their earlier match, no match more than one round ahead (PKL-061)', badE3.length === 0, badE3.slice(0, 4).join(' ; '));
   }
 
   // F. bye alerts (PKL-049): one "Bye this round" per run of byes after round 1, naming the next match.

@@ -37,6 +37,7 @@ import { getVenuesByIds } from '../data/venueCheckins';
 import { getCourtPresence } from '../data/courtPresence';
 import { hereChoices, hereFirst, nextEmptySlot } from '../lib/matchPlayersHere';
 import { badgeDisplayName } from '../lib/badgeDisplay';
+import ConfirmModal from '../components/ConfirmModal';
 
 type Props = {
   navigation: NativeStackNavigationProp<RootStackParamList, 'MatchEntry'>;
@@ -174,6 +175,9 @@ export default function MatchEntryScreen({ navigation, route }: Props) {
   // while the request is in flight.
   const [submitted, setSubmitted]   = useState(false);
   const inFlight                    = useRef(false);
+  // PKL-061: "This match isn't on a court yet. Score it anyway?" (host / co-admin only get this far)
+  const [earlyAsk, setEarlyAsk]     = useState(false);
+  const earlyOk                     = useRef(false);
   const navTimer                    = useRef<ReturnType<typeof setTimeout> | null>(null);
   const status = useStatusMessage();
 
@@ -590,6 +594,18 @@ export default function MatchEntryScreen({ navigation, route }: Props) {
     if (matchType === 'doubles' && pendingGenderSlots.length > 0) {
       return setError('Pick a gender for every player without one before recording.');
     }
+
+    // PKL-061: with courts reserved, only the host or a co-admin may score a match the queue hasn't called (the
+    // server refuses everyone else). Ask them first, since scoring early lets one group run ahead of the rest.
+    if (isTournamentMatch && tournamentMatchId && !earlyOk.current) {
+      const [{ data: tm }, { data: tt }] = await Promise.all([
+        supabase.from('tournament_matches').select('called_at, status').eq('id', tournamentMatchId).maybeSingle(),
+        supabase.from('tournaments').select('courts').eq('id', tournamentId ?? '').maybeSingle(),
+      ]);
+      const courtsOn = ((tt?.courts ?? []) as string[]).some((c) => !!c?.trim());
+      if (courtsOn && tm && !tm.called_at && tm.status !== 'completed') { setEarlyAsk(true); return; }
+    }
+    earlyOk.current = false;
 
     const winnerTeam = t1GamesWon > t2GamesWon ? 'team1' : 'team2';
     const winnerId   = winnerTeam === 'team1' ? p1 : p2;
@@ -1257,6 +1273,14 @@ export default function MatchEntryScreen({ navigation, route }: Props) {
         </>
       )}
 
+      <ConfirmModal
+        visible={earlyAsk}
+        title="Not on a court yet"
+        body="This match hasn't been called to a court. Scoring it now lets these players run ahead of the others. Score it anyway?"
+        primaryLabel="Score it anyway"
+        onConfirm={() => { earlyOk.current = true; setEarlyAsk(false); void submitMatch(); }}
+        onClose={() => setEarlyAsk(false)}
+      />
     </ScrollView>
   );
 }

@@ -113,6 +113,7 @@ export type CourtState =
   | { kind: 'free_play' }                                    // no courts reserved
   | { kind: 'on_court'; court: string }                      // called: go play
   | { kind: 'waiting_player'; busy: string[]; court: string | null } // a player of it is still on a court
+  | { kind: 'waiting_round'; round: number }               // PKL-061: an earlier round has to be played first
   | { kind: 'waiting_court'; ahead: number };               // everyone is free; courts are full
 
 /** Where a match stands in the court queue. */
@@ -125,6 +126,16 @@ export function courtState(match: CourtMatch, matches: CourtMatch[], courts: str
   for (const m of live) {
     const busy = players(m).filter(p => mine.includes(p));
     if (busy.length) return { kind: 'waiting_player', busy, court: m.court ?? null };
+  }
+  // PKL-061 (_pl_tm_call_next): a schedule match waits while one of its players has an earlier round left in its
+  // group, or while its round is more than one ahead of the group's lowest open round.
+  const r = rounds.get(match.id);
+  if (r != null) {
+    const group = matches.filter(m => rounds.has(m.id) && isOpen(m) && (m.round?.id ?? null) === (match.round?.id ?? null));
+    const mineEarlier = group.filter(m => rounds.get(m.id)! < r && players(m).some(p => mine.includes(p)));
+    if (mineEarlier.length) return { kind: 'waiting_round', round: Math.min(...mineEarlier.map(m => rounds.get(m.id)!)) };
+    const low = Math.min(...group.map(m => rounds.get(m.id)!));
+    if (r > low + 1) return { kind: 'waiting_round', round: r - 1 };
   }
   const key = (m: CourtMatch) => [m.round?.round_number ?? 0, rounds.get(m.id) ?? 0, m.match_order ?? 0];
   const before = (a: CourtMatch, b: CourtMatch) => {
@@ -146,6 +157,8 @@ export function courtStateLine(s: CourtState, name: (id: string) => string): str
       const who = s.busy.map(name).join(' & ');
       return `Waiting for ${who}'s match${s.court ? ` on ${courtLabel(s.court)}` : ''} to finish.`;
     }
+    case 'waiting_round':
+      return `Waiting for round ${s.round} to finish. Matches go on court in round order.`;
     case 'waiting_court':
       return s.ahead > 0
         ? `Waiting for a free court, ${s.ahead} match${s.ahead === 1 ? '' : 'es'} ahead.`
