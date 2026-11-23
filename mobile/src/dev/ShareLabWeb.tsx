@@ -14,10 +14,10 @@ import {
   SHARE_BANNER_DEFAULT,
   SHARE_BANNER_FALLBACK,
   SHARE_LOOK_IDS,
-  SHARE_TEMPLATE_LABEL,
   shareDefaultDetails,
   shareDetailOptions,
-  shareTemplatesFor,
+  shareTemplateLabel,
+  shareTemplatesForModel,
   type ShareTemplateId,
 } from '../lib/shareCards';
 
@@ -80,7 +80,7 @@ export default function ShareLabWeb() {
           detailsQ === 'all' ? Object.fromEntries(shareDetailOptions(smp.model).map((o) => [o.id, true]))
           : detailsQ === 'none' ? Object.fromEntries(Object.keys(base).map((k) => [k, false]))
           : base;
-        const templates = shareTemplatesFor(n, smp.model.kind).filter((t) => !templateQ || t === templateQ);
+        const templates = shareTemplatesForModel(n, smp.model).filter((t) => !templateQ || t === templateQ);
         return (
           <View key={smp.id} nativeID={`sample-${smp.id}`} style={{ gap: 6 }}>
             <Text style={{ color: '#fff', fontWeight: '800', fontSize: 14 }}>{smp.id}, {smp.label}, {n} photos, details {detailsQ}</Text>
@@ -93,8 +93,8 @@ export default function ShareLabWeb() {
                     const s = { template: t, aspect, look, banner, logo, details, photos, width: W, height };
                     return (
                       <View key={`${t}-${look}-${aspect}`} style={{ gap: 3 }}>
-                        <Text style={{ color: '#fff', fontSize: 10 }}>{SHARE_TEMPLATE_LABEL[t]}, {look}, {aspect}</Text>
-                        <View style={{ width: W, height, overflow: 'hidden' }}>
+                        <Text style={{ color: '#fff', fontSize: 10 }}>{shareTemplateLabel(t, smp.model)}, {look}, {aspect}</Text>
+                        <View nativeID={`card-${smp.id}-${t}-${look}-${aspect}`} style={{ width: W, height, overflow: 'hidden' }}>
                           <ShareCardArt s={s} model={smp.model} />
                         </View>
                       </View>

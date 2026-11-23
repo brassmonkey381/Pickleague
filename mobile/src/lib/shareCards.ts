@@ -18,6 +18,7 @@ import {
   type FinishPlayer,
   type FinishShareData,
 } from './finishShare';
+import { SLIDE_PAGE_NAME, slideIndexOf, type TournamentSlides } from './tournamentSlides';
 
 export const MAX_SHARE_PHOTOS = 4;
 
@@ -59,7 +60,11 @@ export type ShareTemplateId =
   | 'polaroid'
   | 'strip'
   | 'grid'
-  | 'duo';
+  | 'duo'
+  // PKL-070: the whole tournament as 1-3 slides (lib/tournamentSlides)
+  | 'slide-1'
+  | 'slide-2'
+  | 'slide-3';
 export const SHARE_TEMPLATE_LABEL: Record<ShareTemplateId, string> = {
   grind: 'Put in the work',
   overview: 'Bracket',
@@ -72,13 +77,49 @@ export const SHARE_TEMPLATE_LABEL: Record<ShareTemplateId, string> = {
   strip: 'Big + strip',
   grid: 'Grid',
   duo: 'Two + stats',
+  'slide-1': 'Slide 1',
+  'slide-2': 'Slide 2',
+  'slide-3': 'Slide 3',
 };
+export const SLIDE_TEMPLATES: ShareTemplateId[] = ['slide-1', 'slide-2', 'slide-3'];
 /** A drill leads with its own photo-less layout: the hours, the weeks, the work. */
 export function shareTemplatesFor(n: number, kind?: ShareKind): ShareTemplateId[] {
   if (n <= 0) return kind === 'drill' ? ['grind', 'poster', 'big', 'scorecard']
     : kind === 'bracket' ? ['poster', 'overview', 'big', 'scorecard'] : ['poster', 'big', 'scorecard'];
   if (n === 1) return ['photo-full', 'photo-panel', 'polaroid'];
   return ['strip', 'grid', 'duo', 'polaroid', 'photo-full'];
+}
+
+/** The layouts a card offers: shareTemplatesFor, less the Bracket layout with nothing to show, plus one layout
+ *  per tournament slide (PKL-070) right after the poster. */
+export function shareTemplatesForModel(n: number, m: Pick<ShareCardModel, 'kind' | 'overview' | 'slides'>): ShareTemplateId[] {
+  const base = shareTemplatesFor(n, m.kind).filter((id) => id !== 'overview' || !!m.overview?.stages.length);
+  const pages = n <= 0 ? m.slides?.pages.length ?? 0 : 0;
+  if (!pages) return base;
+  const at = base[0] === 'poster' ? 1 : 0;
+  return [...base.slice(0, at), ...SLIDE_TEMPLATES.slice(0, pages), ...base.slice(at)];
+}
+
+/** A layout's name in the studio: "Slide 2 of 3: Results" for a tournament slide. */
+export function shareTemplateLabel(id: ShareTemplateId, m: Pick<ShareCardModel, 'slides'>): string {
+  const k = slideIndexOf(id);
+  const pages = m.slides?.pages ?? [];
+  if (k >= 0 && k < pages.length) return `Slide ${k + 1} of ${pages.length}: ${SLIDE_PAGE_NAME[pages[k]]}`;
+  return SHARE_TEMPLATE_LABEL[id];
+}
+
+/** The line above Share on a tournament slide (PKL-070): one image per share, so save each, then post them together. */
+export function slideShareGuide(k: number, of: number): string {
+  if (of <= 1) return 'Tap Share, then Save Image (or pick the app to post to).';
+  return `Slide ${k + 1} of ${of}. Tap Share, then Save Image. Swipe the preview to the next slide and do the same. `
+    + `In Instagram, pick all ${of} from your photos for one carousel post, or add them to your Story one by one.`;
+}
+
+/** The toast after sharing slide k (0-based) of `of`; null: the usual one. */
+export function slideShareToast(k: number, of: number): string | null {
+  if (k < 0 || of <= 1) return null;
+  if (k < of - 1) return `Slide ${k + 1} of ${of} done. Swipe to slide ${k + 2} and share it the same way.`;
+  return `All ${of} slides done. In Instagram, pick all ${of} from your photos for one carousel post.`;
 }
 
 // ── Banner: what's behind the text where it sits over a photo ────────────
@@ -169,6 +210,8 @@ export type ShareCardModel = {
   bars?: ShareBars | null;
   /** PKL-063: the whole tournament at a glance, for the 'overview' layout (bracket cards only). */
   overview?: BracketOverview | null;
+  /** PKL-070: the whole tournament as 1-3 slides, for the 'slide-N' layouts (bracket cards only). */
+  slides?: TournamentSlides | null;
   /** The SHOW toggles that start off. */
   offByDefault: string[];
   /** The look a card opens on. */
@@ -664,6 +707,8 @@ export type BracketShareData = {
   steps: BracketStep[];
   /** PKL-063: the whole tournament, for the 'overview' layout. */
   overview?: BracketOverview | null;
+  /** PKL-070: the whole tournament as 1-3 slides. */
+  slides?: TournamentSlides | null;
 };
 
 /** The tournament matches a bracket card reads (tournament_matches + its round). */
@@ -860,6 +905,7 @@ export function bracketCardModel(d: BracketShareData): ShareCardModel {
   return {
     kind: 'bracket',
     overview: d.overview ?? null,
+    slides: d.slides ?? null,
     eyebrow: 'MY BRACKET',
     title: d.title,
     over: null,

@@ -14,6 +14,7 @@ import {
   sessionCardModel,
   type ShareCardModel,
 } from './shareCards';
+import { labTournaments } from './tournamentSlidesLab';
 
 const pat = { name: 'Pat D.', initials: 'PD' };
 const sam = { name: 'Sam L.', initials: 'SL' };
@@ -152,6 +153,11 @@ export function labSamples(): LabSample[] {
     ...labStages().map(([id, label, ov, rec]) => ({
       id, group: 'Bracket', label, title: 'Share my bracket',
       model: bracketCardModel({ title: 'Fall Open (pools + playoff)', rank: null, of: null, wins: rec[0], losses: rec[1], steps: [], overview: ov }),
+    })),
+    // PKL-070: the whole tournament as 1-3 slides (the 'Slide N' layouts), built by the real builders
+    ...labTournaments().map((t) => ({
+      id: `slides-${t.id}`, group: 'Slides', label: t.label, title: 'Share my bracket',
+      model: bracketCardModel({ title: t.input.title, rank: t.rank, of: t.of, wins: t.wins, losses: t.losses, steps: [], slides: t.slides }),
     })),
   ];
 }
