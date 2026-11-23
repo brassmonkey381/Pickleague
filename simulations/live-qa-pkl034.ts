@@ -32,7 +32,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import crypto from 'node:crypto';
 import { fileURLToPath } from 'node:url';
-import { seedPlayers, seedTeams, generateDoublesSingleElim, generateRoundRobin, generateRotatingPartners, rotatingPartnersRounds, generateDoublesPoolPlay, validatePools, FORMAT_META, type MatchPairing } from '../mobile/src/lib/tournament';
+import { seedPlayers, seedTeams, generateDoublesSingleElim, generateDoubleElim, generateRoundRobin, generateRotatingPartners, rotatingPartnersRounds, generateDoublesPoolPlay, validatePools, FORMAT_META, type MatchPairing } from '../mobile/src/lib/tournament';
 import * as PO from './qa/pools-oracle';
 import { buildStandingsComparator } from '../mobile/src/lib/tournamentTiebreakers';
 import { collectReplay } from './replay/collect';
@@ -60,13 +60,16 @@ const R4 = has('--r4');
 // everyone joins with an invite code, a bracket release time, one cancelled match, a settings edit mid-run (Court 3
 // taken away), two wagers on the winner (server level: WAGERS_ENABLED is off in the app).
 const R5 = has('--r5');
+// PKL-060 R3: double elimination singles, 8 players (the app needs a power of 2 for double elim), random seeding,
+// no courts, invite only. Nobody is out before a second loss; the Grand Final decides it.
+const R3 = has('--r3');
 const POOL_COUNT = Number(val('--pool-count', '2'));
 const PLAYOFF = val('--playoff', 'top_2_per_pool');
 const ANTE = POOLS || R7 || R5 ? Number(val('--ante', '50')) : 0;
 const VARIANT = val('--variant', '').replace(/[^a-z0-9]/gi, '').toLowerCase();
 const DOUBLES = has('--doubles') || POOLS || R7 || R4;
-const TAG = POOLS ? 'pkl050' : R7 ? 'pkl060r7' : R4 ? 'pkl060r4' : R5 ? 'pkl060r5' : DOUBLES ? 'pkl043' : 'pkl034';
-const ITEM = POOLS ? 'PKL-050' : R7 || R4 || R5 ? 'PKL-060' : DOUBLES ? 'PKL-043' : 'PKL-034';
+const TAG = POOLS ? 'pkl050' : R7 ? 'pkl060r7' : R4 ? 'pkl060r4' : R5 ? 'pkl060r5' : R3 ? 'pkl060r3' : DOUBLES ? 'pkl043' : 'pkl034';
+const ITEM = POOLS ? 'PKL-050' : R7 || R4 || R5 || R3 ? 'PKL-060' : DOUBLES ? 'PKL-043' : 'PKL-034';
 const N_PLAYERS = POOLS ? Number(val('--players', '16')) : R7 ? Number(val('--players', '9')) : R4 ? 16 : R5 ? 7 : DOUBLES ? 10 : 8;
 const N_BOTS = REHEARSAL ? N_PLAYERS : N_PLAYERS - 1;
 /** R4: two more bots that only try to join late (one when the field is full: waitlisted; one after the deadline: refused). */
@@ -75,12 +78,14 @@ const T_NAME = POOLS ? `[SIM] PKL-050 pool play QA${VARIANT ? ' ' + VARIANT : ''
   : R7 ? `[SIM] PKL-060 R7 rotating partners QA${REHEARSAL ? ' rehearsal' : ''}`
   : R4 ? `[SIM] PKL-060 R4 single elim doubles QA${REHEARSAL ? ' rehearsal' : ''}`
   : R5 ? `[SIM] PKL-060 R5 round robin singles QA${REHEARSAL ? ' rehearsal' : ''}`
+  : R3 ? `[SIM] PKL-060 R3 double elim singles QA${REHEARSAL ? ' rehearsal' : ''}`
   : DOUBLES ? (REHEARSAL ? '[SIM] PKL-043 doubles QA rehearsal' : '[SIM] PKL-043 doubles QA')
   : REHEARSAL ? '[SIM] PKL-034 rehearsal' : '[SIM] PKL-034 live QA';
 const L_NAME = POOLS ? `[SIM] PKL-050 QA league${VARIANT ? ' ' + VARIANT : ''}${REHEARSAL ? ' rehearsal' : ''}`
   : R7 ? `[SIM] PKL-060 R7 QA league${REHEARSAL ? ' rehearsal' : ''}`
   : R4 ? `[SIM] PKL-060 R4 QA league${REHEARSAL ? ' rehearsal' : ''}`
   : R5 ? `[SIM] PKL-060 R5 QA league${REHEARSAL ? ' rehearsal' : ''}`
+  : R3 ? `[SIM] PKL-060 R3 QA league${REHEARSAL ? ' rehearsal' : ''}`
   : DOUBLES ? (REHEARSAL ? '[SIM] PKL-043 rehearsal league' : '[SIM] PKL-043 QA league')
   : REHEARSAL ? '[SIM] PKL-034 rehearsal league' : '[SIM] PKL-034 QA league';
 const BOT_TAG = `${TAG}${REHEARSAL ? 'r' : ''}${VARIANT}`;
@@ -105,7 +110,7 @@ const FAST_MS = 2500;
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const repo = path.resolve(here, '..');
-const STATE_DIR = path.join(repo, 'state', POOLS ? 'pkl-050' : R7 ? 'pkl-060-r7' : R4 ? 'pkl-060-r4' : R5 ? 'pkl-060-r5' : DOUBLES ? 'pkl-043' : 'pkl-034');
+const STATE_DIR = path.join(repo, 'state', POOLS ? 'pkl-050' : R7 ? 'pkl-060-r7' : R4 ? 'pkl-060-r4' : R5 ? 'pkl-060-r5' : R3 ? 'pkl-060-r3' : DOUBLES ? 'pkl-043' : 'pkl-034');
 /** R7: the second tournament, created only to be cancelled (cancel-check). */
 const T2_NAME = `${T_NAME} (cancel check)`;
 const RUN = `${MODE}${VARIANT ? '-' + VARIANT : ''}`; // file stem: live, rehearsal, rehearsal-p3, ...
@@ -416,7 +421,7 @@ async function setup() {
     const email = EMAIL(n), name = `QA Bot ${n}`;
     const { data, error } = await admin.auth.admin.createUser({
       email, password: st.password, email_confirm: true,
-      user_metadata: { full_name: name, username: POOLS || R7 || R4 || R5 ? `qa${BOT_TAG}${n}` : `qabot${n}${REHEARSAL ? 'r' : ''}` },
+      user_metadata: { full_name: name, username: POOLS || R7 || R4 || R5 || R3 ? `qa${BOT_TAG}${n}` : `qabot${n}${REHEARSAL ? 'r' : ''}` },
     });
     if (error) die(`create ${email}: ${error.message} (run cleanup, then setup again)`);
     const id = data.user!.id;
@@ -456,7 +461,15 @@ async function setup() {
 
   // 3. tournament, as the app's CreateTournament writes it
   const start = new Date(Date.now() + 15 * 60_000);
-  const payload = R5 ? {
+  const payload = R3 ? {
+    league_id: lg!.id, name: T_NAME,
+    description: `QA test (${ITEM}). Private, invite only. ${N_BOTS} QA bots post scores automatically; this is not a real event.`,
+    created_by: host.id, format: 'double_elimination', match_type: 'singles', seeding: 'random', pool_count: 1,
+    partner_rotation: null, team_creation: 'fixed', registration_mode: 'invite_only', registration_closes_at: null,
+    min_players: N_PLAYERS, max_players: N_PLAYERS, start_time: start.toISOString(), expected_length_hours: 2,
+    location_name: 'QA test (online)', location_lat: null, location_lng: null,
+    pickle_ante: 0, payout_structure: [60, 25, 15], status: 'registration',
+  } : R5 ? {
     league_id: lg!.id, name: T_NAME,
     description: `QA test (${ITEM}). Private test event joined by invite code; QA bots post scores automatically.`,
     created_by: host.id, format: 'round_robin', match_type: 'singles', seeding: 'elo', pool_count: 1,
@@ -808,6 +821,56 @@ async function lockInElim(st: State, players: string[]) {
   log(`LOCK IN (single elim doubles): 4 quarterfinals, seeds ${seeded.map((t, i) => `${i + 1}=${t.map((u) => st.bots.find((b) => b.id === u)?.name ?? 'Brian').join('+')}`).join(' ; ')}`);
 }
 
+/**
+ * R3 completion: the bracket shape (winners rounds, losers rounds, a Grand Final), round 1 in bracket order by seed,
+ * nobody out before a second loss, the champion = the Grand Final winner, and the final ranks by the elimination rule
+ * (champion, runner-up, then wins, fewer losses, point diff, admin tie order, seed). Then the PKL-043 audit.
+ */
+async function finishR3(st: State, nm: Map<string, string>, completeAsked: boolean) {
+  const tId = st.tournament_id!; const N = (id: string) => nm.get(id) ?? id.slice(0, 8);
+  const { data: rounds } = await admin.from('tournament_rounds').select('id, label, round_type, round_number').eq('tournament_id', tId).order('round_number');
+  const { data: ms0 } = await admin.from('tournament_matches').select('*').eq('tournament_id', tId);
+  const { data: regs } = await admin.from('tournament_registrations').select('user_id, seed, status').eq('tournament_id', tId);
+  const { data: ranks } = await admin.from('tournament_final_ranks').select('user_id, final_rank, wins, losses').eq('tournament_id', tId).order('final_rank');
+  const ms = ((ms0 ?? []) as any[]).filter((m) => m.status === 'completed' && m.winner_team);
+  const rs = (rounds ?? []) as any[];
+  const typeOf = new Map(rs.map((r) => [r.id, r.round_type]));
+  const players = (regs ?? []).filter((r: any) => r.status === 'approved').map((r: any) => r.user_id as string);
+  const seedOf = new Map((regs ?? []).map((r: any) => [r.user_id, r.seed ?? 999]));
+  log('ROUNDS: ' + rs.map((r) => `${r.label} (${r.round_type})`).join(' -> '));
+  log('COMPLETED. Final ranks:\n' + (ranks ?? []).map((r: any) => `    ${r.final_rank}. ${N(r.user_id).padEnd(14)} ${r.wins}-${r.losses}`).join('\n'));
+  check('tournament auto-completed after the Grand Final', !completeAsked);
+  const types = new Set(rs.map((r) => r.round_type));
+  check('R3 bracket has winners rounds, losers rounds and a Grand Final', types.has('winners') && types.has('losers') && types.has('grand_final'), [...types].join(', '));
+  const r1 = ((ms0 ?? []) as any[]).filter((m) => m.round_id === rs[0]?.id).sort((a, b) => a.match_order - b.match_order)
+    .map((m) => [seedOf.get(m.team1_player1), seedOf.get(m.team2_player1)].sort((a, b) => a - b).join('v'));
+  check('R3 round 1 in bracket order by seed: 1v8, 4v5, 2v7, 3v6 (PKL-068)', r1.join(' ') === '1v8 4v5 2v7 3v6', r1.join(' '));
+  const won = (m: any) => (m.winner_team === 'team1' ? m.team1_player1 : m.team2_player1);
+  const lost = (m: any) => (m.winner_team === 'team1' ? m.team2_player1 : m.team1_player1);
+  const losses = new Map<string, number>(); for (const m of ms) losses.set(lost(m), (losses.get(lost(m)) ?? 0) + 1);
+  const gf = ms.filter((m) => typeOf.get(m.round_id) === 'grand_final').sort((a, b) => Date.parse(b.completed_at) - Date.parse(a.completed_at))[0];
+  const champ = gf ? won(gf) : null, runner = gf ? lost(gf) : null;
+  const early = players.filter((u) => u !== champ && u !== runner && (losses.get(u) ?? 0) !== 2).map((u) => `${N(u)} ${losses.get(u) ?? 0}`);
+  check('R3: nobody is out before a second loss (every player but the finalists has exactly 2 losses)', early.length === 0, early.join(' ; '));
+  check('R3: the champion lost at most once, the runner-up at most twice', !!champ && (losses.get(champ!) ?? 0) <= 1 && (losses.get(runner!) ?? 0) <= 2,
+    `${N(champ ?? '')} ${losses.get(champ ?? '') ?? 0} ; ${N(runner ?? '')} ${losses.get(runner ?? '') ?? 0}`);
+  // ranks: the elimination rule (compute_tournament_final_ranks)
+  const tie = await tieRanks(tId);
+  type T = { u: string; w: number; l: number; d: number };
+  const t = new Map<string, T>();
+  for (const m of ms) for (const [u, mine, their, w] of [[m.team1_player1, m.team1_score, m.team2_score, m.winner_team === 'team1'], [m.team2_player1, m.team2_score, m.team1_score, m.winner_team === 'team2']] as [string, number, number, boolean][]) {
+    const r = t.get(u) ?? { u, w: 0, l: 0, d: 0 }; t.set(u, r); if (w) r.w++; else r.l++; r.d += (mine ?? 0) - (their ?? 0);
+  }
+  const order = [...t.values()].sort((a, b) => Number(b.u === champ) - Number(a.u === champ) || Number(b.u === runner) - Number(a.u === runner)
+    || b.w - a.w || a.l - b.l || b.d - a.d || (tie(PO.keyOf(a.u)) ?? 2147483647) - (tie(PO.keyOf(b.u)) ?? 2147483647) || (seedOf.get(a.u) ?? 999) - (seedOf.get(b.u) ?? 999) || (a.u < b.u ? -1 : 1));
+  const want = new Map(order.map((r, i) => [r.u, i + 1]));
+  const got = new Map((ranks ?? []).map((r: any) => [r.user_id, r.final_rank]));
+  const bad = players.filter((u) => got.get(u) !== want.get(u)).map((u) => `${N(u)} ${got.get(u) ?? '-'}, want ${want.get(u)}`);
+  check('R3 final ranks: champion 1, runner-up 2, then wins, fewer losses, ±, admin tie order, seed', bad.length === 0 && (ranks ?? []).length === players.length, bad.slice(0, 4).join(' ; '));
+  try { await auditDoubles(st, tId, players); }
+  catch (e: any) { check('PKL-043 audit ran', false, 'audit threw: ' + (e?.message ?? e)); }
+}
+
 /** R5 state across loop passes. */
 const r5 = { cancelled: null as string | null, wagers: false, edited: null as string | null, semis: false, finals: false, reinstated: false };
 /**
@@ -912,12 +975,12 @@ async function lockIn(st: State, players: string[]) {
   const { data: profs } = await admin.from('profiles').select('id, rating').in('id', players);
   const ratings = Object.fromEntries((profs ?? []).map((p: any) => [p.id, Number(p.rating)]));
   const seeded = seedPlayers(players, ratings, R5 ? 'elo' : 'random');
-  const pairings: MatchPairing[] = generateRoundRobin(seeded);
+  const pairings: MatchPairing[] = R3 ? generateDoubleElim(seeded) : generateRoundRobin(seeded);
   const { data: round, error: rErr } = await hc.from('tournament_rounds')
-    .insert({ tournament_id: tId, round_number: 1, label: FORMAT_META.round_robin.label + ' Schedule', round_type: 'winners' }).select('id').single();
+    .insert({ tournament_id: tId, round_number: 1, label: FORMAT_META[R3 ? 'double_elimination' : 'round_robin'].label + ' Schedule', round_type: 'winners' }).select('id').single();
   if (rErr) die('create round: ' + rErr.message);
   const rows = pairings.map((m, i) => ({
-    tournament_id: tId, round_id: round!.id, match_order: i, match_type: 'singles', play_round: m.round ?? null,
+    tournament_id: tId, round_id: round!.id, match_order: i, match_type: 'singles', play_round: R3 ? null : m.round ?? null,
     team1_player1: m.team1[0] !== 'BYE' ? m.team1[0] : null, team1_player2: null,
     team2_player1: m.team2[0] !== 'BYE' ? m.team2[0] : null, team2_player2: null,
   }));
@@ -1079,6 +1142,12 @@ async function run() {
           t.format === 'pool_play' && t.match_type === 'doubles' && t.playoff_format === PLAYOFF && t.pool_count === POOL_COUNT
             && t.playoff_third_place === true && t.pickle_ante === ANTE,
           `format ${t.format}, match_type ${t.match_type}, pools ${t.pool_count}, playoff ${t.playoff_format}, third ${t.playoff_third_place}, ante ${t.pickle_ante}`);
+      }
+      if (R3 && !formatChecked) {
+        formatChecked = true;
+        const { data: tt } = await admin.from('tournaments').select('format, match_type, seeding, courts').eq('id', tId).single() as { data: any };
+        check('R3 tournament is double_elimination / singles / random seeding / no courts',
+          tt.format === 'double_elimination' && tt.match_type === 'singles' && tt.seeding === 'random' && !(tt.courts ?? []).some((c: string) => c?.trim()), JSON.stringify(tt));
       }
       if (R5 && !formatChecked) {
         formatChecked = true;
@@ -1306,7 +1375,7 @@ async function run() {
       log(error ? 'PLAYOFF ERROR generate_playoff_bracket: ' + error.message : `PLAYOFF generated by host ${st.bots[0].name} (the app's "Generate playoff" button)`);
       continue;
     }
-    if (playoffRounds.length === 0 && !DOUBLES) {
+    if (playoffRounds.length === 0 && !DOUBLES && !R3) {
       const groupMatches = ms.filter((m) => groupIds.has(m.round_id));
       const table = standings(groupMatches, approved, seedOf);
       if (!playoffAsked) check('tournament is still active after the last round-robin match (no early auto-close)', t.status === 'active', `status ${t.status}`);
@@ -1846,6 +1915,7 @@ async function auditDoubles(st: State, tId: string, players: string[]) {
 async function finish(st: State, nm: Map<string, string>, completeAsked = false) {
   if (DOUBLES) return finishDoubles(st, nm, completeAsked);
   if (R5) return finishR5(st, nm, completeAsked);
+  if (R3) return finishR3(st, nm, completeAsked);
   const tId = st.tournament_id!;
   const N = (id: string) => nm.get(id) ?? id.slice(0, 8);
   const { data: ranks } = await admin.from('tournament_final_ranks').select('user_id, final_rank').eq('tournament_id', tId).order('final_rank');
