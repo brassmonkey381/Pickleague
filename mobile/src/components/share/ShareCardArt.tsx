@@ -13,6 +13,8 @@ import Svg, { Circle, Line, Rect } from 'react-native-svg';
 import { PhotoCollage, ScaleToFit, layoutFor, type CollageLayoutId, type CollageRect } from '@just-messin-around/expo-foundation/ui';
 import { fitFontSize } from '@just-messin-around/expo-foundation/typography';
 import type { ShareStudioState } from '@just-messin-around/expo-foundation/share';
+import TournamentSlideArt from './TournamentSlideArt';
+import { SLIDE_PAGE_NAME, slideIndexOf } from '../../lib/tournamentSlides';
 import {
   SHARE_LOOKS,
   bannerColors,
@@ -44,10 +46,10 @@ export default function ShareCardArt({ s, model }: Props) {
   const lineW = s.width - 2 * padX;
 
   /** Header, the content scaled to fit between, the footer. */
-  const frame = (content: React.ReactNode, align: 'top' | 'center' = 'center') => (
+  const frame = (content: React.ReactNode, align: 'top' | 'center' = 'center', head: ShareCardModel = model) => (
     <Ground look={look} s={s}>
       <View style={[cs.fill, { paddingHorizontal: padX, paddingVertical: padY, gap: 12 * u }]}>
-        <Header model={model} logo={s.logo} c={lookInk} u={u} />
+        <Header model={head} logo={s.logo} c={lookInk} u={u} />
         <ScaleToFit align={align} minScale={0.55}>{content}</ScaleToFit>
         <Footer c={lookInk} u={u} />
       </View>
@@ -209,6 +211,21 @@ export default function ShareCardArt({ s, model }: Props) {
           </View>
         </View>,
         story ? 'center' : 'top',
+      );
+    }
+    case 'slide-1':
+    case 'slide-2':
+    case 'slide-3': {
+      // PKL-070: one slide of the whole tournament; the header says which ("2/3  RESULTS").
+      const sl = model.slides;
+      const idx = slideIndexOf(s.template);
+      const page = sl?.pages[idx];
+      if (!sl || !page) return frame(<Body model={model} s={s} c={lookInk} u={u * k} align="center" width={lineW} />);
+      const head = { ...model, eyebrow: `${idx + 1}/${sl.pages.length}  ${SLIDE_PAGE_NAME[page].toUpperCase()}` };
+      return frame(
+        <TournamentSlideArt slides={sl} page={page} you={model.hero.big} look={look} k={u * (story ? 1.12 : 1)} />,
+        story ? 'center' : 'top',
+        head,
       );
     }
     case 'poster':

@@ -47,16 +47,19 @@ import {
   SHARE_LOGOS,
   SHARE_LOOKS,
   SHARE_LOOK_IDS,
-  SHARE_TEMPLATE_LABEL,
   SHARE_TEXT_ONLY,
   shareCardMessage,
   shareDefaultDetails,
   shareDetailOptions,
   shareStudioKey,
-  shareTemplatesFor,
+  shareTemplateLabel,
+  shareTemplatesForModel,
   shareToastText,
+  slideShareGuide,
+  slideShareToast,
   type ShareCardModel,
 } from '../../lib/shareCards';
+import { slideIndexOf } from '../../lib/tournamentSlides';
 import ShareCardArt from './ShareCardArt';
 
 const LOOK_OPTIONS: ShareLook[] = SHARE_LOOK_IDS.map((id) => ({ id, label: SHARE_LOOKS[id].label, ground: SHARE_LOOKS[id].ground }));
@@ -111,17 +114,26 @@ export default function PickleShareStudio({ visible, onClose, title, model, trac
   const defaultDetails = React.useMemo(() => shareDefaultDetails(model), [model]);
   const details = shareDetailOptions(model);
   const templatesFor = React.useCallback(
-    (n: number) => shareTemplatesFor(n, model.kind).filter((id) => id !== 'overview' || !!model.overview?.stages.length)
-      .map((id) => ({ id, label: SHARE_TEMPLATE_LABEL[id] })),
-    [model.kind, model.overview],
+    (n: number) => shareTemplatesForModel(n, model).map((id) => ({ id, label: shareTemplateLabel(id, model) })),
+    [model],
   );
 
+  // PKL-070: a tournament slide shares one image at a time; after one that isn't the last, the sheet stays open
+  // for the next. (One-tap "save all" needs expo-media-library, a native build.)
+  const slideCount = model.slides?.pages.length ?? 0;
+  const sharedSlide = React.useRef(-1);
   const prepareShare = async (s: { template: string; aspect: string; photos: string[] }) => {
-    track(`share.${model.kind}`, { ...trackProps, invite, template: s.template, aspect: s.aspect, photos: s.photos.length });
+    sharedSlide.current = slideIndexOf(s.template);
+    track(`share.${model.kind}`, { ...trackProps, invite, template: s.template, aspect: s.aspect, photos: s.photos.length, slides: slideCount || undefined });
     return { message: shareCardMessage(model, link), clipboard: link };
   };
 
   const toastFor = ({ method, aspect }: { method: 'image' | 'text' | 'none'; aspect: 'post' | 'story' }): ShareToast => {
+    const slideText = method === 'image' ? slideShareToast(sharedSlide.current, slideCount) : null;
+    if (slideText) {
+      const last = sharedSlide.current >= slideCount - 1;
+      return { kind: 'success', text: last ? `${slideText} ${shareToastText({ invite, aspect, reward })}` : slideText, close: last };
+    }
     if (method === 'image') return { kind: 'success', text: shareToastText({ invite, aspect, reward }), close: true };
     if (method === 'text') return { kind: 'info', text: SHARE_TEXT_ONLY, close: false };
     return null;
@@ -181,12 +193,25 @@ export default function PickleShareStudio({ visible, onClose, title, model, trac
       toastFor={toastFor}
       errorText={SHARE_ERROR}
       guide={guide}
-      renderAboveShare={model.showsScores ? () => (
-        <View style={[S.note, { backgroundColor: c.warningLight, borderColor: c.warning }]} accessibilityRole="text">
-          <Icon name="info" size={16} color={c.text} />
-          <Text style={[t.sub, S.noteText, { color: c.text }]}>{SCORE_DISCLAIMER}</Text>
-        </View>
-      ) : undefined}
+      renderAboveShare={model.showsScores || slideCount ? (s) => {
+        const k = slideIndexOf(s.template);
+        return (
+          <>
+            {k >= 0 && k < slideCount ? (
+              <View style={[S.note, { backgroundColor: c.surface, borderColor: c.primary }]} accessibilityRole="text">
+                <Icon name="camera" size={16} color={c.text} />
+                <Text style={[t.sub, S.noteText, { color: c.text }]}>{slideShareGuide(k, slideCount)}</Text>
+              </View>
+            ) : null}
+            {model.showsScores ? (
+              <View style={[S.note, { backgroundColor: c.warningLight, borderColor: c.warning }]} accessibilityRole="text">
+                <Icon name="info" size={16} color={c.text} />
+                <Text style={[t.sub, S.noteText, { color: c.text }]}>{SCORE_DISCLAIMER}</Text>
+              </View>
+            ) : null}
+          </>
+        );
+      } : undefined}
       renderExtraCta={invite ? ({ openGuide }) => (
         <ShareCtaChip label={`Share and Earn ${reward} Pickles!`} onPress={openGuide} />
       ) : undefined}

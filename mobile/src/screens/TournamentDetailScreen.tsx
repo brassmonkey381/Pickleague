@@ -14,7 +14,8 @@ import FinishShareStudio from '../components/share/FinishShareStudio';
 import PickleShareStudio from '../components/share/PickleShareStudio';
 import ShareCallout from '../components/share/ShareCallout';
 import { bracketCardModel, bracketOverview, bracketSteps, type BracketMatchIn, type OverviewMatchIn, type OverviewRoundIn, type ShareCardModel } from '../lib/shareCards';
-import { cardPlayer, cardPodium, ordinal, shortName, type FinishShareData } from '../lib/finishShare';
+import { ANONYMOUS_PLAYER, cardPlayer, cardPodium, ordinal, shortName, shortNamer, type FinishShareData } from '../lib/finishShare';
+import { buildTournamentSlides, type SlideMatchIn, type SlideRoundIn } from '../lib/tournamentSlides';
 import { useBlockedIds } from '../lib/moderation';
 import { SPACE, SMALL_TEXT_MAX_SCALE } from '@just-messin-around/expo-foundation/styles';
 import { textStyles } from '@just-messin-around/expo-foundation/typography';
@@ -574,10 +575,38 @@ export default function TournamentDetailScreen({ navigation, route }: Props) {
           final: status === 'completed' && myRank != null ? { rank: myRank, of: placesOf } : null,
         })
       : null;
+    // PKL-070: the whole tournament as 1-3 slides (format & draw, results, standings), names short and masked.
+    const fullOf = (id: string) => registrations.find(r => r.user_id === id)?.profile?.full_name ?? td.profileNames[id] ?? null;
+    const ids = new Set<string>();
+    for (const m of td.savedMatches as SlideMatchIn[]) {
+      for (const p of [m.team1_player1, m.team1_player2, m.team2_player1, m.team2_player2]) if (p) ids.add(p);
+    }
+    const short = shortNamer([...ids].map(fullOf));
+    const slides = buildTournamentSlides({
+      title: tournament.name,
+      format: tournament.format,
+      matchType: tournament.match_type,
+      status,
+      playoffFormat: tournament.playoff_format,
+      playoffThirdPlace: tournament.playoff_third_place,
+      rounds: td.savedRounds as SlideRoundIn[],
+      matches: td.savedMatches as SlideMatchIn[],
+      me: myUserId,
+      nameOf: (id) => {
+        const prof = registrations.find(r => r.user_id === id)?.profile;
+        const full = fullOf(id);
+        return prof?.deleted_at || blocked.has(id) || !(full ?? '').trim() ? ANONYMOUS_PLAYER : short(full);
+      },
+      seedOf: (id) => registrations.find(r => r.user_id === id)?.seed ?? null,
+      standings,
+      expected,
+    });
+    const inTheDraw = ids.has(myUserId);
     // PKL-065: shareable from the draw on (the overview has something to show), not only after a first score.
-    if (steps.length > 0 || (overview && overview.here >= 0)) {
+    if (steps.length > 0 || (overview && overview.here >= 0) || inTheDraw) {
       bracketModel = bracketCardModel({
         overview,
+        slides: inTheDraw ? slides : null,
         title: tournament.name,
         rank: status === 'completed' ? myRank : null,
         of: status === 'completed' ? (new Set(td.finalRanks.map(r => r.final_rank)).size || null) : null,
