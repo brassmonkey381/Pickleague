@@ -370,6 +370,9 @@ async function setup() {
     const { data } = await admin.from('tournaments').select('id').eq('id', prior.tournament_id).maybeSingle();
     if (data) die(`a ${MODE} tournament already exists (${prior.tournament_id}); run cleanup first`);
   }
+  // A new tournament starts a new checks file (the replay must not show an earlier run's checks).
+  checkRows.length = 0;
+  try { fs.writeFileSync(CHECKS_FILE, '[]'); } catch { /* none */ }
   const { data: dup } = await admin.from('tournaments').select('id').eq('name', T_NAME);
   if (dup?.length) die(`"${T_NAME}" already exists (${dup.map((d) => d.id).join(', ')}); run cleanup first`);
 
@@ -1662,7 +1665,9 @@ async function cleanup() {
 /** Saves the run's replay (timeline + page) to state/replays before cleanup deletes the tournament. */
 async function saveRunReplay(tId: string) {
   try {
-    const data = await collectReplay(admin, tId, checkRows);
+    const { data: tc } = await admin.from('tournaments').select('created_at').eq('id', tId).maybeSingle();
+    const since = tc?.created_at ? Date.parse(tc.created_at) - 60_000 : 0;
+    const data = await collectReplay(admin, tId, checkRows.filter((c) => Date.parse(c.at) >= since));
     const out = saveReplay(data, path.join(repo, 'state', 'replays'), `${TAG}-${RUN}-${tId.slice(0, 8)}`);
     log(`replay saved: ${out} (${data.events.length} events, ${data.alerts.length} alerts, ${data.checks.length} checks)`);
   } catch (e: any) { log(`replay NOT saved for ${tId}: ${e?.message ?? e}`); }
