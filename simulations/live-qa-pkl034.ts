@@ -60,6 +60,8 @@ const R4 = has('--r4');
 // everyone joins with an invite code, a bracket release time, one cancelled match, a settings edit mid-run (Court 3
 // taken away), two wagers on the winner (server level: WAGERS_ENABLED is off in the app).
 const R5 = has('--r5');
+/** R5's playoff: top_4 (default) or top_8 (the bots-only variant, 9+ players: --variant top8 --playoff top_8 --players 10). */
+const R5_PO = val('--playoff', 'top_4');
 // PKL-060 R3: double elimination singles, 8 players (the app needs a power of 2 for double elim), random seeding,
 // no courts, invite only. Nobody is out before a second loss; the Grand Final decides it.
 const R3 = has('--r3');
@@ -70,21 +72,21 @@ const VARIANT = val('--variant', '').replace(/[^a-z0-9]/gi, '').toLowerCase();
 const DOUBLES = has('--doubles') || POOLS || R7 || R4;
 const TAG = POOLS ? 'pkl050' : R7 ? 'pkl060r7' : R4 ? 'pkl060r4' : R5 ? 'pkl060r5' : R3 ? 'pkl060r3' : DOUBLES ? 'pkl043' : 'pkl034';
 const ITEM = POOLS ? 'PKL-050' : R7 || R4 || R5 || R3 ? 'PKL-060' : DOUBLES ? 'PKL-043' : 'PKL-034';
-const N_PLAYERS = POOLS ? Number(val('--players', '16')) : R7 ? Number(val('--players', '9')) : R4 ? 16 : R5 ? 7 : DOUBLES ? 10 : 8;
+const N_PLAYERS = POOLS ? Number(val('--players', '16')) : R7 ? Number(val('--players', '9')) : R4 ? 16 : R5 ? Number(val('--players', '7')) : DOUBLES ? 10 : 8;
 const N_BOTS = REHEARSAL ? N_PLAYERS : N_PLAYERS - 1;
 /** R4: two more bots that only try to join late (one when the field is full: waitlisted; one after the deadline: refused). */
 const LATE_BOTS = R4 ? 2 : 0;
 const T_NAME = POOLS ? `[SIM] PKL-050 pool play QA${VARIANT ? ' ' + VARIANT : ''}${REHEARSAL ? ' rehearsal' : ''}`
   : R7 ? `[SIM] PKL-060 R7 rotating partners QA${REHEARSAL ? ' rehearsal' : ''}`
   : R4 ? `[SIM] PKL-060 R4 single elim doubles QA${REHEARSAL ? ' rehearsal' : ''}`
-  : R5 ? `[SIM] PKL-060 R5 round robin singles QA${REHEARSAL ? ' rehearsal' : ''}`
+  : R5 ? `[SIM] PKL-060 R5 round robin singles QA${VARIANT ? ' ' + VARIANT : ''}${REHEARSAL ? ' rehearsal' : ''}`
   : R3 ? `[SIM] PKL-060 R3 double elim singles QA${REHEARSAL ? ' rehearsal' : ''}`
   : DOUBLES ? (REHEARSAL ? '[SIM] PKL-043 doubles QA rehearsal' : '[SIM] PKL-043 doubles QA')
   : REHEARSAL ? '[SIM] PKL-034 rehearsal' : '[SIM] PKL-034 live QA';
 const L_NAME = POOLS ? `[SIM] PKL-050 QA league${VARIANT ? ' ' + VARIANT : ''}${REHEARSAL ? ' rehearsal' : ''}`
   : R7 ? `[SIM] PKL-060 R7 QA league${REHEARSAL ? ' rehearsal' : ''}`
   : R4 ? `[SIM] PKL-060 R4 QA league${REHEARSAL ? ' rehearsal' : ''}`
-  : R5 ? `[SIM] PKL-060 R5 QA league${REHEARSAL ? ' rehearsal' : ''}`
+  : R5 ? `[SIM] PKL-060 R5 QA league${VARIANT ? ' ' + VARIANT : ''}${REHEARSAL ? ' rehearsal' : ''}`
   : R3 ? `[SIM] PKL-060 R3 QA league${REHEARSAL ? ' rehearsal' : ''}`
   : DOUBLES ? (REHEARSAL ? '[SIM] PKL-043 rehearsal league' : '[SIM] PKL-043 QA league')
   : REHEARSAL ? '[SIM] PKL-034 rehearsal league' : '[SIM] PKL-034 QA league';
@@ -477,7 +479,7 @@ async function setup() {
     min_players: N_PLAYERS, max_players: N_PLAYERS, start_time: start.toISOString(), expected_length_hours: 2,
     location_name: 'QA test (online)', location_lat: null, location_lng: null,
     pickle_ante: ANTE, payout_structure: [60, 25, 15], status: 'registration',
-    playoff_format: 'top_4', playoff_third_place: true,
+    playoff_format: R5_PO, playoff_third_place: true,
   } : R4 ? {
     // R4: single elimination doubles, random pairs, PLUPR seeding, join by request until a deadline, exactly 16.
     league_id: lg!.id, name: T_NAME,
@@ -873,7 +875,7 @@ async function finishR3(st: State, nm: Map<string, string>, completeAsked: boole
 }
 
 /** R5 state across loop passes. */
-const r5 = { cancelled: null as string | null, wagers: false, edited: null as string | null, semis: false, finals: false, reinstated: false };
+const r5 = { cancelled: null as string | null, wagers: false, edited: null as string | null, semis: false, finals: false, reinstated: false, qf: false };
 /**
  * R5, during the run: (1) right after lock-in the host cancels one round-robin match that is not on a court;
  * (2) QA Bots 2 and 3 each put 10 on a different player to win (place_wager, tournament_rank 1); (3) after a third of
@@ -909,8 +911,24 @@ async function r5Extras(st: State, real: any[], rounds: any[]) {
     log(error ? `SETTINGS EDIT ERROR: ${error.message}` : 'host edited the settings mid-run: courts 1, 2, 3 -> 1, 2');
     check('R5: the host can edit the courts while the tournament runs', !error, error?.message);
   }
+  const qfs = real.filter((m) => typeOf.get(m.round_id) === 'quarterfinals');
+  if (R5_PO === 'top_8' && !r5.qf && qfs.length) {
+    r5.qf = true;
+    const { data: regs } = await admin.from('tournament_registrations').select('user_id, seed').eq('tournament_id', tId);
+    const seedOf = new Map((regs ?? []).map((r: any) => [r.user_id, r.seed ?? 999]));
+    const order = PO.groupOrder(real as PO.PM[], rounds as PO.PR[], seedOf, await tieRanks(tId)).map((r) => r.lo);
+    const want = [[0, 7], [1, 6], [2, 5], [3, 4]].map(([a, b]) => [order[a], order[b]].sort().join('|')).sort();
+    const got = qfs.map((m) => [m.team1_player1, m.team2_player1].sort().join('|')).sort();
+    check('R5 top 8: quarterfinals = round-robin 1v8, 2v7, 3v6, 4v5', JSON.stringify(want) === JSON.stringify(got), `got ${got.length} QFs`);
+  }
   const semis = real.filter((m) => typeOf.get(m.round_id) === 'semifinals');
-  if (!r5.semis && semis.length) {
+  if (R5_PO === 'top_8' && !r5.semis && semis.length && qfs.every((m) => m.status === 'completed')) {
+    r5.semis = true;
+    const w = (m: any) => (m.winner_team === 'team1' ? m.team1_player1 : m.team2_player1);
+    const qfWinners = new Set(qfs.map(w));
+    check('R5 top 8: the semifinalists are the four quarterfinal winners', semis.flatMap((m) => [m.team1_player1, m.team2_player1]).every((u) => qfWinners.has(u)) && semis.length === 2);
+  }
+  if (R5_PO !== 'top_8' && !r5.semis && semis.length) {
     r5.semis = true;
     const { data: regs } = await admin.from('tournament_registrations').select('user_id, seed').eq('tournament_id', tId);
     const seedOf = new Map((regs ?? []).map((r: any) => [r.user_id, r.seed ?? 999]));
@@ -1153,8 +1171,8 @@ async function run() {
       if (R5 && !formatChecked) {
         formatChecked = true;
         const { data: tt } = await admin.from('tournaments').select('format, match_type, playoff_format, playoff_third_place, pickle_ante, courts, bracket_release_time').eq('id', tId).single() as { data: any };
-        check('R5 tournament is round_robin / singles / top_4 + third place / ante 50 / 3 courts / release time set',
-          tt.format === 'round_robin' && tt.match_type === 'singles' && tt.playoff_format === 'top_4' && tt.playoff_third_place === true
+        check(`R5 tournament is round_robin / singles / ${R5_PO} + third place / ante 50 / 3 courts / release time set`,
+          tt.format === 'round_robin' && tt.match_type === 'singles' && tt.playoff_format === R5_PO && tt.playoff_third_place === true
             && tt.pickle_ante === ANTE && (tt.courts ?? []).length === 3 && !!tt.bracket_release_time, JSON.stringify(tt));
       }
       if (R4 && !formatChecked) {
