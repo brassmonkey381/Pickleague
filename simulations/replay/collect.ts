@@ -42,7 +42,7 @@ export type ReplayData = {
   version: 1;
   built_at: string;
   tournament: Record<string, any>;
-  people: Record<string, { name: string; seed: number | null; role: string | null; bot?: boolean }>;
+  people: Record<string, { name: string; seed: number | null; role: string | null; bot?: boolean; gender?: string | null }>;
   /** MLP: player -> team. */
   teams: Record<string, { id: string; name: string }>;
   rounds: { id: string; label: string | null; round_type: string; round_number: number; created_at: string }[];
@@ -89,9 +89,9 @@ export async function collectReplay(sb: SupabaseClient, tid: string, checks: RCh
   for (const n of notifs) ids.add(n.user_id);
   const profs: any[] = [];
   const idList = [...ids].filter(Boolean);
-  for (let i = 0; i < idList.length; i += 200) profs.push(...await all<any>(sb.from('profiles').select('id, full_name, username').in('id', idList.slice(i, i + 200)), 'profiles', notes));
+  for (let i = 0; i < idList.length; i += 200) profs.push(...await all<any>(sb.from('profiles').select('id, full_name, username, gender').in('id', idList.slice(i, i + 200)), 'profiles', notes));
   const people: ReplayData['people'] = {};
-  for (const p of profs) people[p.id] = { name: (p.full_name || p.username || 'Player').trim(), seed: null, role: null };
+  for (const p of profs) people[p.id] = { name: (p.full_name || p.username || 'Player').trim(), seed: null, role: null, gender: p.gender ?? null };
   for (const r of regs) people[r.user_id] = { ...(people[r.user_id] ?? { name: 'Player' }), seed: r.seed, role: r.role };
   const nm = (id: string | null | undefined) => (id ? people[id]?.name ?? 'someone' : 'the server');
   const admins = new Set<string>([t.created_by, ...regs.filter((r) => r.role === 'admin' || r.role === 'co-admin').map((r) => r.user_id)]);

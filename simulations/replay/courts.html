@@ -1,0 +1,305 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Tournament Replay</title>
+<style>
+:root{--bg:#f6f4ee;--card:#fff;--ink:#1d2a20;--mute:#6b7a6f;--line:#dcd8cc;--court:#2f7d4f;--court2:#3a9160;--kitchen:#e9c46a;--live:#ffb703;--win:#2a9d8f;--lose:#9aa59d;--flag:#d62828;--chip:#eef2ea}
+@media (prefers-color-scheme:dark){:root:not([data-theme=light]){--bg:#121712;--card:#1b231c;--ink:#e8efe7;--mute:#97a69a;--line:#2e3a30;--court:#245f3d;--court2:#2c714a;--chip:#232e25}}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--ink);font:14px/1.35 system-ui,-apple-system,Segoe UI,Roboto,sans-serif}
+header{padding:14px 16px 6px}
+h1{font-size:18px;margin:0}
+.sub{color:var(--mute);font-size:12.5px;margin-top:2px}
+main{padding:0 16px 120px;max-width:1200px;margin:0 auto}
+section{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:12px;margin:10px 0}
+h2{font-size:13px;text-transform:uppercase;letter-spacing:.06em;color:var(--mute);margin:0 0 8px}
+/* format overview */
+.stages{display:flex;gap:10px;overflow-x:auto;padding-bottom:4px}
+.stage{min-width:150px;flex:0 0 auto}
+.stage h3{font-size:12px;margin:0 0 6px;color:var(--mute);font-weight:600;white-space:nowrap}
+.mbox{border:1px solid var(--line);border-radius:8px;padding:4px 6px;margin-bottom:5px;font-size:11.5px;background:var(--chip);transition:background .3s,border-color .3s}
+.mbox .s{display:flex;justify-content:space-between;gap:6px}
+.mbox .s span:first-child{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:118px}
+.mbox.live{border-color:var(--live);box-shadow:0 0 0 2px color-mix(in srgb,var(--live) 35%,transparent)}
+.mbox.done .w{font-weight:700}
+.mbox.done .l{color:var(--lose)}
+.mbox.cxl{opacity:.35;text-decoration:line-through}
+.mbox.flagged{border-color:var(--flag)}
+.mbox.tbd{color:var(--mute);font-style:italic}
+/* courts */
+.courts{display:grid;grid-template-columns:repeat(auto-fill,minmax(220px,1fr));gap:12px}
+.court{position:relative;height:150px;border-radius:10px;background:linear-gradient(90deg,var(--court) 0 49.6%,#fff 49.6% 50.4%,var(--court2) 50.4%);border:3px solid #fff;outline:1px solid var(--line)}
+.court::before,.court::after{content:"";position:absolute;top:0;bottom:0;width:15%;background:color-mix(in srgb,var(--kitchen) 35%,transparent)}
+.court::before{left:35%}.court::after{right:35%}
+.court .lbl{position:absolute;left:8px;top:6px;color:#fff;font-weight:700;font-size:12px;text-shadow:0 1px 2px #0006;z-index:1}
+.court .info{position:absolute;left:8px;right:8px;bottom:6px;color:#fff;font-size:11px;text-shadow:0 1px 2px #0008;z-index:1;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.court.over{outline:3px solid var(--flag)}
+.bench{position:relative;min-height:64px;margin-top:12px;border:1px dashed var(--line);border-radius:10px;padding:6px}
+.bench .lbl{font-size:11px;color:var(--mute)}
+#stage{position:relative}
+.p{position:absolute;width:30px;height:30px;border-radius:50%;display:grid;place-items:center;font-size:10.5px;font-weight:700;color:#fff;background:#5c6b8a;border:2px solid #fff;box-shadow:0 1px 3px #0004;transition:left .9s ease-in-out,top .9s ease-in-out,background .3s;z-index:3;pointer-events:none}
+.p.f{background:#b5547a}
+.p.me{border-color:var(--live)}
+.p.two{background:var(--flag)!important;animation:pulse .8s infinite}
+@keyframes pulse{50%{transform:scale(1.15)}}
+.pop{position:absolute;z-index:5;font-weight:800;font-size:12px;padding:2px 6px;border-radius:999px;background:var(--win);color:#fff;pointer-events:none;animation:up 1.6s ease-out forwards}
+.pop.l{background:var(--lose)}
+@keyframes up{from{transform:translateY(0);opacity:1}to{transform:translateY(-34px);opacity:0}}
+/* flags */
+#flags{list-style:none;margin:0;padding:0}
+#flags li{padding:6px 8px;border-left:3px solid var(--flag);background:color-mix(in srgb,var(--flag) 8%,transparent);margin-bottom:6px;border-radius:4px;cursor:pointer;font-size:12.5px}
+#flags li.future{opacity:.45}
+#flags .ok{border-left-color:var(--win);background:color-mix(in srgb,var(--win) 10%,transparent);cursor:default}
+.legend{display:flex;flex-wrap:wrap;gap:12px;font-size:11.5px;color:var(--mute);margin-top:8px}
+.legend i{display:inline-block;width:10px;height:10px;border-radius:50%;margin-right:4px;vertical-align:-1px}
+/* controls */
+.bar{position:fixed;left:0;right:0;bottom:0;background:var(--card);border-top:1px solid var(--line);padding:10px 16px calc(10px + env(safe-area-inset-bottom));display:flex;align-items:center;gap:10px;z-index:10}
+.bar button{font:inherit;font-weight:700;border:1px solid var(--line);background:var(--chip);color:var(--ink);border-radius:8px;padding:8px 12px;min-width:44px;min-height:40px;cursor:pointer}
+.bar input[type=range]{flex:1;min-width:80px}
+.clock{font-variant-numeric:tabular-nums;font-size:12.5px;color:var(--mute);min-width:96px;text-align:right}
+.status{font-size:12.5px;margin-top:6px;color:var(--mute)}
+</style>
+</head>
+<body>
+<header>
+  <h1 id="title">Tournament replay</h1>
+  <div class="sub" id="subtitle"></div>
+</header>
+<main>
+  <section><h2>Format</h2><div class="stages" id="stages"></div></section>
+  <section>
+    <h2 id="courtsHead">Courts</h2>
+    <div id="stage">
+      <div class="courts" id="courts"></div>
+      <div class="bench" id="bench"><div class="lbl">Waiting / resting</div></div>
+    </div>
+    <div class="legend"><span><i style="background:#5c6b8a"></i>man</span><span><i style="background:#b5547a"></i>woman</span><span><i style="background:var(--flag)"></i>on two courts at once</span><span><i style="border:2px solid var(--live)"></i>you</span></div>
+    <div class="status" id="status"></div>
+  </section>
+  <section><h2>Real-world checks</h2><ul id="flags"></ul></section>
+</main>
+<div class="bar">
+  <button id="play" aria-label="Play">▶</button>
+  <button id="speed" aria-label="Speed">1x</button>
+  <input type="range" id="scrub" min="0" max="1000" value="0" aria-label="Timeline">
+  <span class="clock" id="clock"></span>
+</div>
+<script id="replay-data" type="application/json">/*__REPLAY_DATA__*/</script>
+<script>
+(function(){
+const D = JSON.parse(document.getElementById('replay-data').textContent);
+const $ = (id) => document.getElementById(id);
+const T = D.tournament || {};
+const ms = (x) => Date.parse(x);
+const people = D.people || {};
+const ME = '252a36e1-5d89-4ad2-8a3e-b786579f019a';
+const nm = (id) => id ? ((people[id] && people[id].name) || id.slice(0, 6)) : '?';
+const short = (id) => { const n = nm(id).replace(/\s*\(YOU\)/, ''); const m = n.match(/^QA Bot (\d+)$/); if (m) return 'B' + m[1]; if (id === ME) return 'You'; return n.split(/\s+/).map((w) => w[0]).join('').slice(0, 3).toUpperCase(); };
+const COURTS = ((T.courts || []).filter((c) => c && String(c).trim()));
+
+// ── matches over time ──
+const rounds = new Map((D.rounds || []).map((r) => [r.id, r]));
+const M = new Map();
+for (const m of D.matches || []) {
+  M.set(m.id, { ...m, slots: [{ at: -Infinity, t1: [...m.initial.t1], t2: [...m.initial.t2] }],
+    round: rounds.get(m.round_id) || { label: '?', round_type: '?', round_number: 0 }, callAt: null, court: null, scoreAt: null, score: null, winner: null, cxlAt: null });
+}
+for (const e of D.events || []) {
+  const m = e.match_id && M.get(e.match_id); if (!m) continue;
+  const d = e.data || {}, at = ms(e.at);
+  if (e.kind === 'match_called') { if (m.callAt == null) { m.callAt = at; m.court = d.court ? d.court[1] : null; } }
+  else if (e.kind === 'match_scored') { if (m.scoreAt == null) { m.scoreAt = at; const s1 = d.team1_score ? d.team1_score[1] : (d.score || [])[0]; const s2 = d.team2_score ? d.team2_score[1] : (d.score || [])[1]; m.score = [s1, s2]; m.winner = d.winner_team ? d.winner_team[1] : (s1 > s2 ? 'team1' : 'team2'); } }
+  else if (e.kind === 'match_cancelled') { m.cxlAt = at; }
+  else if (e.kind === 'slots_filled') {
+    const last = m.slots[m.slots.length - 1]; const nx = { at, t1: [...last.t1], t2: [...last.t2] };
+    for (const [k, v] of Object.entries(d)) { const mm = k.match(/^team([12])_player([12])$/); if (mm && Array.isArray(v)) (mm[1] === '1' ? nx.t1 : nx.t2)[Number(mm[2]) - 1] = v[1]; }
+    m.slots.push(nx);
+  }
+}
+const slotsAt = (m, t) => { let s = m.slots[0]; for (const x of m.slots) if (x.at <= t) s = x; return s; };
+const playersOf = (m, t) => { const s = slotsAt(m, t); return [...s.t1, ...s.t2].filter(Boolean); };
+const sideOf = (m, t, k) => (slotsAt(m, t)[k] || []).filter(Boolean);
+// play order: play_round when the server set one; else elimination round numbers. MLP rounds are team meetings (any order), so none.
+const roundOf = (m) => m.play_round != null ? m.play_round : (m.round.round_type === 'pool' || /^mlp/.test(T.format || '') ? null : m.round.round_number);
+
+// play windows: courts on = called -> scored; otherwise derived (players free -> scored)
+const order = [...M.values()].sort((a, b) => (a.scoreAt ?? Infinity) - (b.scoreAt ?? Infinity));
+const freeAt = new Map();
+const flags = [];
+const flag = (at, text, matchId, who) => flags.push({ at, text, matchId, who: who || [] });
+for (const m of order) {
+  if (m.scoreAt == null) continue;
+  const ps = playersOf(m, m.scoreAt);
+  if (COURTS.length) {
+    if (m.callAt == null) { flag(m.scoreAt, `${label(m)} was scored without being called to a court`, m.id); m.start = m.scoreAt - 4000; m.virtual = true; }
+    else m.start = m.callAt;
+  } else {
+    const ready = Math.max(ms(m.created_at) || 0, ...ps.map((p) => freeAt.get(p) || 0));
+    m.start = Math.min(ready, m.scoreAt - 1000);
+  }
+  m.end = m.scoreAt;
+  for (const p of ps) freeAt.set(p, Math.max(freeAt.get(p) || 0, m.end));
+}
+function label(m) { const r = m.round; const same = [...M.values()].filter((x) => x.round_id === m.round_id).sort((a, b) => a.match_order - b.match_order); const k = same.indexOf(m) + 1; return `${r.label || r.round_type} #${k}${m.is_dreambreaker ? ' (Dreambreaker)' : ''}`; }
+const played = [...M.values()].filter((m) => m.start != null).sort((a, b) => a.start - b.start);
+
+// F1: a player in two matches at once
+const byP = new Map();
+for (const m of played) for (const p of playersOf(m, m.start)) { if (!byP.has(p)) byP.set(p, []); byP.get(p).push(m); }
+for (const [p, list] of byP) { list.sort((a, b) => a.start - b.start); for (let i = 1; i < list.length; i++) { if (list[i].start < list[i - 1].end - 1000) flag(list[i].start, `${nm(p)} is in ${label(list[i - 1])} and ${label(list[i])} at the same time`, list[i].id, [p]); } }
+// F2: more live matches than courts
+if (COURTS.length) {
+  const pts = []; for (const m of played) if (!m.virtual) { pts.push([m.start, 1, m]); pts.push([m.end, -1, m]); }
+  pts.sort((a, b) => a[0] - b[0] || a[1] - b[1]); let live = 0, warned = false;
+  for (const [at, d, m] of pts) { live += d; if (live > COURTS.length && !warned) { flag(at, `${live} matches live on ${COURTS.length} court(s)`, m.id); warned = true; } if (live <= COURTS.length) warned = false; }
+  // two matches on one court at once
+  const byC = new Map(); for (const m of played) if (m.court && !m.virtual) { if (!byC.has(m.court)) byC.set(m.court, []); byC.get(m.court).push(m); }
+  for (const [c, list] of byC) { list.sort((a, b) => a.start - b.start); for (let i = 1; i < list.length; i++) if (list[i].start < list[i - 1].end - 1000) flag(list[i].start, `Court ${c} has ${label(list[i - 1])} and ${label(list[i])} at once`, list[i].id); }
+}
+// F3: a match starts before one of its players finished the match before (only with court calls: derived starts are free by construction)
+if (COURTS.length) for (const [p, list] of byP) for (let i = 1; i < list.length; i++) { const a = list[i - 1], b = list[i]; if (!b.virtual && b.callAt != null && a.end > b.callAt + 1000 && !(b.start < a.end - 1000)) flag(b.callAt, `${label(b)} was called before ${nm(p)} finished ${label(a)}`, b.id, [p]); }
+// F4: a team more than 1 round ahead (a round r match starts while a round r-2 match still waits)
+for (const m of played) {
+  const r = roundOf(m); if (r == null) continue;
+  const behind = [...M.values()].filter((x) => x !== m && roundOf(x) != null && roundOf(x) <= r - 2 && x.cxlAt == null && (x.scoreAt == null || x.scoreAt > m.start) && playersOf(x, m.start).length >= 2 && (x.start == null || x.start > m.start));
+  if (behind.length) flag(m.start, `${label(m)} (round ${r}) starts while ${label(behind[0])} (round ${roundOf(behind[0])}) has not started`, m.id);
+}
+flags.sort((a, b) => a.at - b.at);
+
+// ── lanes (courts, or "spots" when no courts are reserved) ──
+let lanes = COURTS.map((c) => String(c));
+if (!lanes.length) {
+  const ends = [];
+  for (const m of played) { let k = ends.findIndex((e) => e <= m.start); if (k < 0) { k = ends.length; ends.push(0); } ends[k] = m.end; m.lane = k; }
+  lanes = ends.map((_, i) => String(i + 1));
+} else for (const m of played) m.lane = Math.max(0, lanes.indexOf(String(m.court)));
+$('courtsHead').textContent = COURTS.length ? `Courts (${COURTS.length} reserved)` : `Where play happened (no courts reserved: ${lanes.length} at once at the peak)`;
+
+// ── header + format overview ──
+$('title').textContent = (T.name || 'Tournament').replace(/^\[SIM\]\s*/, '');
+const fmt = { mlp_random: 'MLP, random teams', mlp: 'MLP', round_robin: 'Round robin', pool_play: 'Pool play', single_elimination: 'Single elimination', double_elimination: 'Double elimination', rotating_partners: 'Rotating partners' }[T.format] || T.format;
+const allPlayers = new Set(); for (const m of M.values()) for (const p of playersOf(m, Infinity)) allPlayers.add(p);
+$('subtitle').textContent = `${fmt} · ${T.match_type || ''} · ${allPlayers.size} players · ${M.size} matches${T.playoff_format && T.playoff_format !== 'none' ? ' · playoff ' + T.playoff_format.replace(/_/g, ' ') : ''}`;
+const stageKey = (m) => { const rt = m.round.round_type; if (rt === 'pool') return 'Pool ' + (m.round.label || '').replace(/^Pool\s*/, ''); if (rt === 'winners' && /^(mlp|round_robin|rotating)/.test(T.format)) return roundOf(m) != null && T.format !== 'mlp_random' && T.format !== 'mlp' ? 'Round ' + roundOf(m) : 'Round robin'; return ({ quarterfinals: 'Quarterfinals', semifinals: 'Semifinals', finals: 'Final', third_place_match: '3rd place', losers: 'Losers', winners: 'Winners', grand_final: 'Grand final' }[rt] || m.round.label || rt); };
+const stages = new Map();
+for (const m of [...M.values()].sort((a, b) => (a.round.round_number - b.round.round_number) || (a.match_order - b.match_order))) { const k = stageKey(m); if (!stages.has(k)) stages.set(k, []); stages.get(k).push(m); }
+const boxes = new Map();
+for (const [k, list] of stages) {
+  const col = document.createElement('div'); col.className = 'stage';
+  col.innerHTML = `<h3>${k} · ${list.length}</h3>`;
+  for (const m of list) { const b = document.createElement('div'); b.className = 'mbox'; col.appendChild(b); boxes.set(m.id, b); }
+  $('stages').appendChild(col);
+}
+const sideTxt = (ids) => ids.length ? ids.map(short).join(' & ') : 'TBD';
+
+// ── courts + figures ──
+const courtEls = lanes.map((c) => { const el = document.createElement('div'); el.className = 'court'; el.innerHTML = `<div class="lbl">${COURTS.length ? 'Court ' + c : 'Spot ' + c}</div><div class="info"></div>`; $('courts').appendChild(el); return el; });
+const figs = new Map();
+const gender = (id) => { const p = people[id] || {}; return p.gender || null; };
+for (const p of allPlayers) { const el = document.createElement('div'); el.className = 'p' + (p === ME ? ' me' : ''); el.textContent = short(p); el.title = nm(p); $('stage').appendChild(el); figs.set(p, el); }
+// genders from MLP lineups when the people map has none: women's / mixed slots
+if (T.format && /^mlp/.test(T.format)) for (const r of rounds.values()) { const subs = [...M.values()].filter((m) => m.round_id === r.id && !m.is_dreambreaker).sort((x, y) => x.match_order - y.match_order); const wm = subs[1]; if (wm && !Object.values(people).some((p) => p.gender)) for (const p of playersOf(wm, Infinity)) if (figs.get(p)) figs.get(p).classList.add('f'); }
+for (const [p, el] of figs) if (gender(p) === 'female') el.classList.add('f');
+
+function place(el, x, y) { el.style.left = x + 'px'; el.style.top = y + 'px'; }
+const stageEl = $('stage');
+function layout(t) {
+  const sr = stageEl.getBoundingClientRect();
+  const live = played.filter((m) => m.start <= t && t < m.end);
+  const onCourt = new Map();
+  courtEls.forEach((el) => { el.classList.remove('over'); el.querySelector('.info').textContent = ''; });
+  const perLane = new Map();
+  for (const m of live) { if (!perLane.has(m.lane)) perLane.set(m.lane, []); perLane.get(m.lane).push(m); }
+  for (const [lane, list] of perLane) {
+    const el = courtEls[lane]; if (!el) continue; const r = el.getBoundingClientRect();
+    if (list.length > 1) el.classList.add('over');
+    const m = list[0];
+    el.querySelector('.info').textContent = `${label(m)}${list.length > 1 ? `  +${list.length - 1} more!` : ''}`;
+    list.forEach((mm, j) => {
+      const s1 = sideOf(mm, t, 't1'), s2 = sideOf(mm, t, 't2');
+      const put = (ids, left) => ids.forEach((p, i) => { const x = r.left - sr.left + (left ? r.width * 0.2 : r.width * 0.7) + j * 8; const y = r.top - sr.top + r.height * (ids.length > 1 ? (i ? 0.58 : 0.22) : 0.4) + j * 8; (onCourt.get(p) || onCourt.set(p, []).get(p)).push([x, y]); });
+      put(s1, true); put(s2, false);
+    });
+  }
+  // bench: everyone not on a court, in a grid
+  const bench = $('bench').getBoundingClientRect(); let k = 0; const cols = Math.max(1, Math.floor((bench.width - 12) / 36));
+  for (const [p, el] of figs) {
+    const spots = onCourt.get(p);
+    el.classList.toggle('two', !!spots && spots.length > 1);
+    if (spots) place(el, spots[0][0], spots[0][1]);
+    else { place(el, bench.left - sr.left + 8 + (k % cols) * 36, bench.top - sr.top + 20 + Math.floor(k / cols) * 36); k++; }
+  }
+  $('bench').style.minHeight = (28 + Math.ceil(Math.max(1, k) / cols) * 36) + 'px';
+}
+
+// ── format boxes at time t ──
+function paint(t) {
+  for (const m of M.values()) {
+    const b = boxes.get(m.id); if (!b) continue;
+    const s1 = sideOf(m, t, 't1'), s2 = sideOf(m, t, 't2');
+    const done = m.scoreAt != null && m.scoreAt <= t, live = m.start != null && m.start <= t && t < m.end, cxl = m.cxlAt != null && m.cxlAt <= t;
+    const w1 = done && m.winner === 'team1', w2 = done && m.winner === 'team2';
+    b.className = 'mbox' + (done ? ' done' : '') + (live ? ' live' : '') + (cxl ? ' cxl' : '') + (!s1.length && !s2.length ? ' tbd' : '') + (flags.some((f) => f.matchId === m.id && f.at <= t) ? ' flagged' : '');
+    b.innerHTML = `<div class="s ${w1 ? 'w' : done ? 'l' : ''}"><span>${sideTxt(s1)}</span><span>${done ? m.score[0] : ''}</span></div><div class="s ${w2 ? 'w' : done ? 'l' : ''}"><span>${sideTxt(s2)}</span><span>${done ? m.score[1] : ''}</span></div>`;
+    b.title = label(m);
+  }
+}
+
+// ── points pop when a match ends ──
+let lastT = -Infinity;
+function pops(t) {
+  if (t < lastT || t - lastT > 120000) { lastT = t; return; }
+  const sr = stageEl.getBoundingClientRect();
+  for (const m of played) if (m.end > lastT && m.end <= t) {
+    const wins = sideOf(m, t, m.winner === 'team1' ? 't1' : 't2'), loses = sideOf(m, t, m.winner === 'team1' ? 't2' : 't1');
+    const pop = (p, txt, cls) => { const el = figs.get(p); if (!el) return; const d = document.createElement('div'); d.className = 'pop ' + cls; d.textContent = txt; d.style.left = el.style.left; d.style.top = el.style.top; stageEl.appendChild(d); setTimeout(() => d.remove(), 1700); };
+    wins.forEach((p) => pop(p, `W ${Math.max(...m.score)}-${Math.min(...m.score)}`, ''));
+    loses.forEach((p) => pop(p, 'L', 'l'));
+  }
+  lastT = t;
+}
+
+// ── flags list ──
+function paintFlags(t) {
+  const ul = $('flags'); ul.innerHTML = '';
+  if (!flags.length) { ul.innerHTML = '<li class="ok">No real-world problems: nobody on two courts at once, never more live matches than courts, and no team more than 1 round ahead.</li>'; return; }
+  for (const f of flags) { const li = document.createElement('li'); li.className = f.at <= t ? '' : 'future'; li.textContent = `${clockOf(f.at)}  ${f.text}`; li.onclick = () => { seek(f.at - 1500); }; ul.appendChild(li); }
+}
+
+// ── time: real timestamps, idle gaps over 20 s squeezed ──
+const marks = [...new Set(played.flatMap((m) => [m.start, m.end]).concat(flags.map((f) => f.at)))].sort((a, b) => a - b);
+const t0 = marks[0] ?? Date.now(), tEnd = marks[marks.length - 1] ?? t0;
+const GAP = 20000; const seg = []; let acc = 0;
+for (let i = 1; i < marks.length; i++) { const g = marks[i] - marks[i - 1]; const v = Math.min(g, GAP); seg.push([marks[i - 1], marks[i], acc, acc + v]); acc += v; }
+const V = Math.max(acc, 1);
+const toReal = (v) => { for (const [a, b, va, vb] of seg) if (v <= vb) return vb === va ? b : a + (b - a) * (v - va) / (vb - va); return tEnd; };
+const toV = (r) => { for (const [a, b, va, vb] of seg) if (r <= b) return b === a ? va : va + (vb - va) * (r - a) / (b - a); return V; };
+const clockOf = (r) => new Date(r).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit', second: '2-digit' });
+
+let v = 0, playing = false, speed = 1, last = 0;
+const SPEEDS = [1, 2, 4, 8];
+// 1x plays the squeezed timeline at about 6 seconds of play per real second
+const RATE = 6;
+function render() {
+  const t = toReal(v);
+  paint(t); layout(t); pops(t); paintFlags(t);
+  $('scrub').value = Math.round(v / V * 1000);
+  const live = played.filter((m) => m.start <= t && t < m.end).length;
+  $('clock').textContent = clockOf(t);
+  $('status').textContent = `${live} match(es) in play · ${played.filter((m) => m.end <= t).length} of ${played.length} finished`;
+}
+function frame(now) { if (!playing) return; if (last) v = Math.min(V, v + (now - last) * RATE * speed); last = now; render(); if (v >= V) { playing = false; $('play').textContent = '↺'; return; } requestAnimationFrame(frame); }
+function seek(r) { v = toV(r); lastT = -Infinity; render(); }
+$('play').onclick = () => { if (v >= V) { v = 0; lastT = -Infinity; } playing = !playing; $('play').textContent = playing ? '❚❚' : '▶'; last = 0; if (playing) requestAnimationFrame(frame); };
+$('speed').onclick = () => { speed = SPEEDS[(SPEEDS.indexOf(speed) + 1) % SPEEDS.length]; $('speed').textContent = speed + 'x'; };
+$('scrub').oninput = (e) => { v = e.target.value / 1000 * V; lastT = -Infinity; render(); };
+window.addEventListener('resize', render);
+// for tests: the derived timeline
+window.__replay = { flags, lanes, played: played.length, matches: M.size, render: (r) => { seek(r); }, t0, tEnd };
+render();
+})();
+</script>
+</body>
+</html>
