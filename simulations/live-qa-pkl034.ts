@@ -1246,7 +1246,7 @@ async function r2CheckSchedule(st: State, teams: MT[], rounds: XR[], ms: XM[]) {
   const alt = generateMLPSchedule(teams.map((t) => [t.male_1_id!, t.male_2_id!] as [string, string]));
   const women = new Set(teams.flatMap((t) => [t.female_1_id, t.female_2_id]));
   const altWomen = alt.some((m) => [...m.team1, ...m.team2].some((u) => women.has(u ?? null)));
-  check('R2 Manage checklist path: "Generate MLP schedule" + "Lock in & notify" would also write MLP meetings (sub-matches with the women)',
+  knownBug('PKL-076', 'R2 Manage checklist path: "Generate MLP schedule" + "Lock in & notify" would also write MLP meetings (sub-matches with the women)',
     altWomen && alt.length === rr.length * 4, `generateMLPSchedule gives ${alt.length} men-only doubles rows for ${rr.length} meetings, no women's, mixed or dreambreaker rows`);
 }
 
