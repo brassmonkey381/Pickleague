@@ -7,7 +7,7 @@ import { getTournamentRole, TournamentRole } from '../../lib/tournamentRole';
 import {
   FORMAT_META, seedPlayers, seedTeams,
   generateRoundRobin, generatePoolPlay, generateSingleElim, generateDoubleElim,
-  generateRotatingPartners, rotatingPartnersRounds, generateMLPSchedule,
+  generateRotatingPartners, rotatingPartnersRounds,
   generateDoublesRoundRobin, generateDoublesSingleElim, generateDoublesDoubleElim, generateDoublesPoolPlay,
   MatchPairing, validateDoublesTeams, validateMlpTeams, validatePools, MlpTeamShape,
 } from '../../lib/tournament';
@@ -687,16 +687,16 @@ export function useTournamentDetail({ navigation, tournamentId }: {
       const teamError = validateMlpTeams(teamRows);
       if (teamError) { status.error(`MLP teams incomplete: ${teamError.message}`); return null; }
 
-      // Build [string, string][] pairs from the validated teams for the
-      // existing schedule generator (it treats each team as a 2-token pair).
-      // We pass [male_1, male_2] as the token pair and rely on the live MLP
-      // backend tables (mlp_team_standings, etc.) to track the actual 4-player
-      // roster. The preview here is just round-by-round team matchups.
-      const teams: [string, string][] = teamRows
-        .map(t => [t.male_1_id!, t.male_2_id!] as [string, string]);
-
-      try { return commit(generateMLPSchedule(teams)); }
-      catch (e) { bailFromError('MLP bracket', e); return null; }
+      // PKL-076: the checklist's Generate builds the real MLP schedule on the server (generate_mlp_bracket, as the
+      // Teams section's Generate Bracket does): every matchup's men's, women's and 2 mixed games plus its Dreambreaker.
+      // The local generateMLPSchedule only made one men's doubles row per matchup, and Lock in wrote those. MLP has no
+      // preview: the schedule goes live (and players are told) as soon as it is generated.
+      try {
+        const n = await sbCall(() => supabase.rpc('generate_mlp_bracket', { p_tournament_id: tournament.id }));
+        status.success(`MLP schedule generated: ${n ?? 'all'} games (each matchup: men's, women's, 2 mixed and a Dreambreaker if it is 2-2). Players are notified.`);
+        await load();
+        return [];
+      } catch (e) { bailFromError('MLP bracket', e); return null; }
     }
 
     // ── Doubles tournaments with fixed pairs (round-robin / elim / pool play) ──
@@ -825,6 +825,12 @@ export function useTournamentDetail({ navigation, tournamentId }: {
     const passed = Array.isArray(matchesArg) ? matchesArg : undefined;
     const matches = passed ?? generatedMatches;
     if (!matches || !tournament) return;
+    // PKL-076: MLP schedules are written by generate_mlp_bracket only (never client rows: they would be men-only).
+    if (tournament.format === 'mlp' || tournament.format === 'mlp_random') {
+      status.error('MLP schedules are built by Generate: there is nothing to lock in.');
+      setShowLockInConfirm(false);
+      return;
+    }
     // Min-roster gate (covers the godmode shortcut path too, which skips
     // the confirm modal and calls doLockIn directly).
     const approvedCount = registrations.filter(r => r.status === 'approved').length;
@@ -854,9 +860,7 @@ export function useTournamentDetail({ navigation, tournamentId }: {
       //    to doubles_pairs yet. Insert them now so the pair section UI
       //    reflects every team that actually got locked in.
       const usesFixedPairs = tournament.match_type === 'doubles'
-        && tournament.format !== 'mlp'
-        && tournament.format !== 'mlp_random'
-        && tournament.format !== 'rotating_partners';
+        && tournament.format !== 'rotating_partners'; // MLP never reaches lock-in (PKL-076)
 
       if (usesFixedPairs) {
         const alreadyPaired = new Set<string>();
@@ -957,7 +961,7 @@ export function useTournamentDetail({ navigation, tournamentId }: {
       }
 
       // 2. Save all matches — rotating_partners is always doubles regardless of setting
-      const isRotating = tournament.format === 'rotating_partners' || tournament.format === 'mlp';
+      const isRotating = tournament.format === 'rotating_partners';
       const matchRows = matches.map((m, i) => {
         // Pool-play matches carry poolIndex (set in generatePoolPlay); fall back
         // to pool 0 if absent so we never write a null round_id.

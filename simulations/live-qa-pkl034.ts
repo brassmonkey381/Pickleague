@@ -1263,13 +1263,14 @@ async function r2CheckSchedule(st: State, teams: MT[], rounds: XR[], ms: XM[]) {
   }
   check(`R2 schedule: every team meets every other team once (${(n * (n - 1)) / 2} meetings); each is Men's, Women's, Mixed 1, Mixed 2 + a singles dreambreaker between the two Dreambreaker players`,
     bad.length === 0, bad.slice(0, 4).join(' ; '));
-  // The Manage checklist's "Generate MLP schedule" + "Lock in & notify" (useTournamentDetail.generateBracket ->
-  // generateMLPSchedule([male_1, male_2] per team) -> doLockIn) would write this instead. Pure, nothing is written.
-  const alt = generateMLPSchedule(teams.map((t) => [t.male_1_id!, t.male_2_id!] as [string, string]));
-  const women = new Set(teams.flatMap((t) => [t.female_1_id, t.female_2_id]));
-  const altWomen = alt.some((m) => [...m.team1, ...m.team2].some((u) => women.has(u ?? null)));
-  knownBug('PKL-076', 'R2 Manage checklist path: "Generate MLP schedule" + "Lock in & notify" would also write MLP meetings (sub-matches with the women)',
-    altWomen && alt.length === rr.length * 4, `generateMLPSchedule gives ${alt.length} men-only doubles rows for ${rr.length} meetings, no women's, mixed or dreambreaker rows`);
+  // PKL-076 (fixed 2026-11-24): the Manage checklist's Generate (useTournamentDetail.generateBracket) calls
+  // generate_mlp_bracket like the Teams section, and Lock in refuses MLP, so the app can no longer write men-only rows.
+  // This run's schedule came from generate_mlp_bracket (checked above); here, the app source takes that path too.
+  const src = fs.readFileSync(path.join(repo, 'mobile', 'src', 'components', 'tournament', 'useTournamentDetail.ts'), 'utf8');
+  const mlpBranch = src.slice(Math.max(0, src.indexOf('const { data: mlpRows')));
+  check('R2 Manage checklist path builds the same MLP schedule (generate_mlp_bracket, not the men-only local rows; Lock in refuses MLP) (PKL-076)',
+    mlpBranch.slice(0, 3000).includes("rpc('generate_mlp_bracket'") && !src.includes('generateMLPSchedule(') && src.includes('MLP schedules are built by Generate'),
+    'useTournamentDetail.generateBracket / doLockIn still take the local path');
 }
 
 /** Every meeting: a dreambreaker is played exactly when the 4 sub-matches split 2-2 and is cancelled once a team has 3. */
