@@ -47,7 +47,16 @@ type StandingsRow = {
   pool_letter: string | null;
   sub_matches_won: number;
   sub_matches_lost: number;
+  matchups_won?: number;
+  matchups_lost?: number;
+  point_diff?: number;
 };
+
+/** PKL-084: the server's order (mlp_team_standings): matchups W-L, point diff, games W-L, seed. */
+const mlpOrder = (a: StandingsRow, b: StandingsRow) =>
+  ((b.matchups_won ?? 0) - (a.matchups_won ?? 0)) || ((a.matchups_lost ?? 0) - (b.matchups_lost ?? 0))
+  || ((b.point_diff ?? 0) - (a.point_diff ?? 0))
+  || (b.sub_matches_won - a.sub_matches_won) || (a.sub_matches_lost - b.sub_matches_lost) || (a.seed - b.seed);
 
 type MlpTeam = {
   id: string;
@@ -251,9 +260,7 @@ export default function MlpPlayoffPreview({
       }
     } else {
       const sorted = [...rows].sort((a, b) =>
-        (b.sub_matches_won - a.sub_matches_won)
-        || (a.sub_matches_lost - b.sub_matches_lost)
-        || (a.seed - b.seed)
+        mlpOrder(a, b)
       );
       for (let i = 0; i < playoffTeams; i++) {
         const team = sorted[i];
@@ -351,9 +358,7 @@ export default function MlpPlayoffPreview({
       const cmp = a.pool_letter.localeCompare(b.pool_letter);
       if (cmp !== 0) return cmp;
     }
-    return (b.sub_matches_won - a.sub_matches_won)
-        || (a.sub_matches_lost - b.sub_matches_lost)
-        || (a.seed - b.seed);
+    return mlpOrder(a, b);
   });
 
   return (
@@ -426,7 +431,7 @@ export default function MlpPlayoffPreview({
                       <RankMedal place={i + 1} size={16} />
                     </View>
                     <Text style={[S.standCell, S.standName]} numberOfLines={2}>{r.team_name}</Text>
-                    <Text style={[S.standCell, S.standWL]}>{r.sub_matches_won}–{r.sub_matches_lost}</Text>
+                    <Text style={[S.standCell, S.standWL]}>{r.matchups_won ?? r.sub_matches_won}–{r.matchups_lost ?? r.sub_matches_lost}</Text>
                   </View>
                 ))}
               </View>

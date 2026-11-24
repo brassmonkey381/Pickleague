@@ -201,6 +201,9 @@ export function settledStandings<T extends { key: string }>(
 /** A mlp_team_standings RPC row, as far as ordering cares. Points and the
  *  admin tie order are added by the caller (the RPC has neither). */
 export type MlpTeamStandingLike = {
+  /** PKL-084: matchups (team vs team) won and lost; absent from an older server, then 0. */
+  matchups_won?: number;
+  matchups_lost?: number;
   sub_matches_won: number;
   sub_matches_lost: number;
   seed: number | null;
@@ -210,15 +213,20 @@ export type MlpTeamStandingLike = {
 };
 
 /**
- * Display order of the MLP team table, the same chain as every format:
- * sub-matches won desc, fewer lost, point diff, the admin's tie order, seed.
+ * Display order of the MLP team table (PKL-084, the server's mlp_team_standings order): matchups won desc, fewer
+ * matchups lost, point diff, games (sub-matches) won desc, fewer lost, the admin's tie order, seed. Never head-to-head.
  * Returns a sorted copy.
  */
 export function sortMlpTeamStandings<T extends MlpTeamStandingLike>(rows: T[]): T[] {
-  return [...rows].sort((a, b) => compareStandings(
-    { wins: a.sub_matches_won, losses: a.sub_matches_lost, pf: a.pf ?? 0, pa: a.pa ?? 0, tieRank: a.tieRank, seed: a.seed },
-    { wins: b.sub_matches_won, losses: b.sub_matches_lost, pf: b.pf ?? 0, pa: b.pa ?? 0, tieRank: b.tieRank, seed: b.seed },
-  ));
+  const big = Number.MAX_SAFE_INTEGER;
+  return [...rows].sort((a, b) =>
+    ((b.matchups_won ?? 0) - (a.matchups_won ?? 0))
+    || ((a.matchups_lost ?? 0) - (b.matchups_lost ?? 0))
+    || (((b.pf ?? 0) - (b.pa ?? 0)) - ((a.pf ?? 0) - (a.pa ?? 0)))
+    || (b.sub_matches_won - a.sub_matches_won)
+    || (a.sub_matches_lost - b.sub_matches_lost)
+    || ((a.tieRank ?? big) - (b.tieRank ?? big))
+    || ((a.seed ?? big) - (b.seed ?? big)));
 }
 
 // ── Per-player table (rotating partners) ────────────────────────────────────

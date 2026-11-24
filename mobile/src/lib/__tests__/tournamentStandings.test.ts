@@ -400,6 +400,17 @@ describe('settled ranks (tournament_final_ranks)', () => {
   });
 });
 
+describe('sortMlpTeamStandings (PKL-084: matchups first)', () => {
+  it('ranks by matchups won before games won', () => {
+    const rows = [
+      { team_id: 'd', matchups_won: 1, matchups_lost: 2, sub_matches_won: 8, sub_matches_lost: 6, seed: 4, pf: 100, pa: 92 },
+      { team_id: 'a', matchups_won: 2, matchups_lost: 1, sub_matches_won: 6, sub_matches_lost: 6, seed: 1, pf: 90, pa: 90 },
+      { team_id: 'b', matchups_won: 2, matchups_lost: 1, sub_matches_won: 7, sub_matches_lost: 6, seed: 2, pf: 96, pa: 90 },
+    ];
+    expect(sortMlpTeamStandings(rows).map(r => r.team_id)).toEqual(['b', 'a', 'd']);
+  });
+});
+
 describe('sortMlpTeamStandings', () => {
   it('orders by sub-matches won, then fewer lost, then seed, without mutating', () => {
     const rows = [

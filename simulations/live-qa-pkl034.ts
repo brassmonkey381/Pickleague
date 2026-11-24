@@ -1079,7 +1079,18 @@ export function r2Score(wSeed: number, lSeed: number, plan5: boolean, rand = Mat
 }
 /** Per team over the given matches: sub-match W, L (dreambreakers included, as mlp_team_standings) and point diff. */
 export function r2Tally(ms: XM[], teams: MT[]) {
-  const rows = new Map(teams.map((t) => [t.id, { team: t, wins: 0, losses: 0, diff: 0 }]));
+  const rows = new Map(teams.map((t) => [t.id, { team: t, wins: 0, losses: 0, diff: 0, mw: 0, ml: 0 }]));
+  // PKL-084: a matchup (one round) is one W or L for the team once none of its games is open; more games won takes it.
+  const byRound = new Map<string, XM[]>(); for (const m of ms) { if (!m.round_id) continue; if (!byRound.has(m.round_id)) byRound.set(m.round_id, []); byRound.get(m.round_id)!.push(m); }
+  for (const list of byRound.values()) {
+    if (list.some((m) => m.status !== 'completed' && m.status !== 'cancelled')) continue;
+    const first = [...list].sort((a, b) => (a.match_order ?? 0) - (b.match_order ?? 0))[0];
+    const A = teams.find((t) => mlpMembers(t).includes(first?.team1_player1 ?? '')), B = teams.find((t) => mlpMembers(t).includes(first?.team2_player1 ?? ''));
+    const aw = list.filter((m) => m.status === 'completed' && m.winner_team === 'team1').length, bw = list.filter((m) => m.status === 'completed' && m.winner_team === 'team2').length;
+    if (!A || !B || aw === bw) continue;
+    const ra = rows.get(A.id)!, rb = rows.get(B.id)!;
+    if (aw > bw) { ra.mw++; rb.ml++; } else { rb.mw++; ra.ml++; }
+  }
   for (const m of ms) {
     if (m.status !== 'completed' || !m.winner_team) continue;
     const a = teams.find((t) => mlpMembers(t).includes(m.team1_player1 ?? '')), b = teams.find((t) => mlpMembers(t).includes(m.team2_player1 ?? ''));
@@ -1092,9 +1103,9 @@ export function r2Tally(ms: XM[], teams: MT[]) {
 }
 type TRow = ReturnType<typeof r2Tally>[number];
 /** The server's playoff order (_generate_mlp_playoff_unchecked, PKL-077 live 2026-11-23): W desc, L asc, point diff desc, seed. */
-export const r2ServerOrder = (rows: TRow[]) => [...rows].sort((a, b) => b.wins - a.wins || a.losses - b.losses || b.diff - a.diff || (a.team.seed ?? 999) - (b.team.seed ?? 999));
+export const r2ServerOrder = (rows: TRow[]) => [...rows].sort((a, b) => b.mw - a.mw || a.ml - b.ml || b.diff - a.diff || b.wins - a.wins || a.losses - b.losses || (a.team.seed ?? 999) - (b.team.seed ?? 999));
 /** PKL-052: W desc, L asc, point diff desc, then the admin's tie order (none for MLP teams yet), then seed. */
-export const r2RuleOrder = (rows: TRow[]) => [...rows].sort((a, b) => b.wins - a.wins || a.losses - b.losses || b.diff - a.diff || (a.team.seed ?? 999) - (b.team.seed ?? 999));
+export const r2RuleOrder = r2ServerOrder; // PKL-084: matchups W-L, point diff, games W-L, seed (never head-to-head)
 
 /** Offline: the 5-team plan through the oracle (no network). */
 function planR2() {
@@ -1121,7 +1132,7 @@ function planR2() {
     else cancelled++;
   }
   const rows = r2Tally(ms, teams);
-  const fmt = (o: TRow[]) => o.map((r) => `${r.team.name} ${r.wins}-${r.losses} ${r.diff >= 0 ? '+' : ''}${r.diff}`).join(', ');
+  const fmt = (o: TRow[]) => o.map((r) => `${r.team.name} ${r.mw}-${r.ml} (games ${r.wins}-${r.losses}) ${r.diff >= 0 ? '+' : ''}${r.diff}`).join(', ');
   const sv = r2ServerOrder(rows), rl = r2RuleOrder(rows);
   console.log(`R2 plan: 10 meetings, ${ms.length} sub-matches, ${dbs} dreambreakers played, ${cancelled} cancelled; meetings hit their targets: ${okMeet}`);
   console.log('server order (W, L, ±, seed): ' + fmt(sv));
@@ -1129,8 +1140,8 @@ function planR2() {
   const t4 = rows.find((r) => r.team.seed === 4)!, t5 = rows.find((r) => r.team.seed === 5)!;
   const okTie = t4.wins === t5.wins && t4.losses === t5.losses && t5.diff > t4.diff;
   // PKL-077 live: the server now breaks the W-L tie on point diff too, so both orders put seed 5 4th.
-  const okProbe = sv[3].team.seed === 5 && rl[3].team.seed === 5;
-  console.log(`seeds 4 and 5 level on W-L with seed 5 ahead on ±: ${okTie}; both orders put seed 5 4th (PKL-077): ${okProbe}`);
+  const okProbe = sv.every((r, i) => i === 0 || sv[i - 1].mw >= r.mw); // PKL-084: matchups first
+  console.log(`seeds 4 and 5 level on W-L with seed 5 ahead on ±: ${okTie}; the order goes by matchups won first (PKL-084): ${okProbe}`);
   let okScores = true; for (let i = 0; i < 2000; i++) for (const [a, b] of [[1, 5], [5, 1], [4, 2], [2, 4], [4, 5], [1, 2]]) { const [w, l] = r2Score(a, b, true); if (!validScore(w, l)) okScores = false; }
   console.log(`R2 scores valid: ${okScores}; ratings distinct for 20: ${new Set(Array.from({ length: 20 }, (_, i) => r2Rating(i + 1, 20))).size === 20}`);
   process.exit(okMeet && okTie && okProbe && okScores && dbs === 2 ? 0 : 1);

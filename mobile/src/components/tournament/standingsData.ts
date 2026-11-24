@@ -116,6 +116,7 @@ export type StandingsData = {
 type MlpRow = {
   team_id: string; team_name: string; seed: number | null;
   pool_letter: string | null; sub_matches_won: number; sub_matches_lost: number;
+  matchups_won?: number; matchups_lost?: number;
 };
 
 export type StandingsInput = {
@@ -227,8 +228,8 @@ export function buildStandings(i: StandingsInput): StandingsData | null {
       key: r.team_id,
       name: r.pool_letter ? `${r.team_name}, Pool ${r.pool_letter}` : r.team_name,
       isMe: !!i.myMlpTeamId && r.team_id === i.myMlpTeamId,
-      wins: r.sub_matches_won,
-      losses: r.sub_matches_lost,
+      wins: r.matchups_won ?? r.sub_matches_won,
+      losses: r.matchups_lost ?? r.sub_matches_lost,
       pf: r.pf, pa: r.pa,
       tieRank: r.tieRank,
       tieKeys: r.tieKeys,
@@ -238,8 +239,8 @@ export function buildStandings(i: StandingsInput): StandingsData | null {
     return {
       kind: 'mlp',
       entrantLabel: 'Team',
-      recordLabel: 'Sub W-L',
-      note: `By sub-matches (men's, women's and 2 mixed per team meeting). ${RANK_RULE}`,
+      recordLabel: 'W-L',
+      note: "A matchup is 4 games (men's, women's, 2 mixed) and a Dreambreaker at 2-2; winning it is 1 win. Ties: point diff, then games won, then the admin's order.",
       settled: false,
       tables: [table],
       waitingCount: countWaiting([table]),
