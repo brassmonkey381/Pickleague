@@ -1396,7 +1396,7 @@ async function r2CheckSchedule(st: State, teams: MT[], rounds: XR[], ms: XM[]) {
   }
   for (let i = 0; i < n; i++) for (let j = i + 1; j < n; j++) {
     const k = [teams[i].id, teams[j].id].sort().join('|');
-    if (seen.get(k) !== (samePool(teams[i], teams[j]) ? 1 : 0)) bad.push(`${teams[i].name} v ${teams[j].name}: ${seen.get(k) ?? 0} meetings`);
+    if ((seen.get(k) ?? 0) !== (samePool(teams[i], teams[j]) ? 1 : 0)) bad.push(`${teams[i].name} v ${teams[j].name}: ${seen.get(k) ?? 0} meetings`);
   }
   check(R6 ? `R6 schedule: 2 pools by seed snake, every team meets each team in its pool once (${wantMeet} meetings); each is Men's, Women's, Mixed 1, Mixed 2 + a rotating Dreambreaker` : `R2 schedule: every team meets every other team once (${(n * (n - 1)) / 2} meetings); each is Men's, Women's, Mixed 1, Mixed 2 + a singles dreambreaker between the two Dreambreaker players`,
     bad.length === 0, bad.slice(0, 4).join(' ; '));
@@ -1449,8 +1449,8 @@ async function r2Tick(st: State, nm: Map<string, string>): Promise<'scored' | 'w
     const rowsAll = r2Tally(ms, teams); // what mlp_team_standings counts (every completed game, playoff ones too)
     const { data: srv } = await (await asBot(st, st.bots[0].id)).rpc('mlp_team_standings', { p_tournament_id: tId });
     const sRows = (srv ?? []) as any[];
-    log('ROUND ROBIN DONE. Team standings (sub-matches W-L, ±, seed):\n' + r2RuleOrder(rows).map((r, i) =>
-      `    ${i + 1}. ${r.team.name.padEnd(22)} ${r.wins}-${r.losses}  ${r.diff >= 0 ? '+' : ''}${r.diff}  seed ${r.team.seed}`).join('\n'));
+    log('ROUND ROBIN DONE. Team standings (matchups W-L, games W-L, ±, seed):\n' + r2RuleOrder(rows).map((r, i) =>
+      `    ${i + 1}. ${r.team.name.padEnd(22)} ${r.mw}-${r.ml}  games ${r.wins}-${r.losses}  ${r.diff >= 0 ? '+' : ''}${r.diff}  seed ${r.team.seed}`).join('\n'));
     const badSt = rowsAll.filter((r) => { const s = sRows.find((x) => x.team_id === r.team.id); return !s || s.sub_matches_won !== r.wins || s.sub_matches_lost !== r.losses || (s.point_diff !== undefined && s.point_diff !== r.diff); })
       .map((r) => { const s = sRows.find((x) => x.team_id === r.team.id); return `${r.team.name} server ${s?.sub_matches_won ?? '-'}-${s?.sub_matches_lost ?? '-'}, results ${r.wins}-${r.losses}`; });
     check('R2 team standings (mlp_team_standings) = the sub-match results, dreambreakers included', badSt.length === 0 && sRows.length === teams.length, badSt.slice(0, 3).join(' ; '));
@@ -1460,15 +1460,15 @@ async function r2Tick(st: State, nm: Map<string, string>): Promise<'scored' | 'w
     const poolOrder = (order: (o: TRow[]) => TRow[]) => {
       const pk = (t: MT) => { const k = ((t.seed ?? 1) - 1) % 4; return k < 2 ? k : 3 - k; };
       const A = order(rows.filter((r) => pk(r.team) === 0)), B = order(rows.filter((r) => pk(r.team) === 1));
-      return [A[0], B[0], B[1], A[1]];
+      return [A[0], B[0], A[1], B[1]]; // pairs() takes 0v3 and 1v2: A1 v B2, B1 v A2
     };
     const pairs = (o: TRow[]) => [[o[0], o[3]], [o[1], o[2]]].map((p) => p.map((x) => x?.team.id).sort().join('|')).sort();
     const sv = R6 ? poolOrder(r2ServerOrder) : r2ServerOrder(rows), rl = R6 ? poolOrder(r2RuleOrder) : r2RuleOrder(rows);
     const txt = (o: TRow[]) => `${o[0]?.team.name} v ${o[3]?.team.name}, ${o[1]?.team.name} v ${o[2]?.team.name}`;
     const gotTxt = first.map((r) => r.label).join(' ; ');
     check('R2 playoff: semifinals are created on their own after the round robin (top 4, 1v4 and 2v3)', first.length === 2 && !r2.playoffForced, `${first.length} semifinal meetings${r2.playoffForced ? ' (the host had to press Generate playoff)' : ''}`);
-    check('R2 playoff draw = the server\'s own standings order (sub-match W, L, point diff, seed): 1v4, 2v3', JSON.stringify(got) === JSON.stringify(pairs(sv)), `got ${gotTxt}; want ${txt(sv)}`);
-    check('R2 playoff draw by the PKL-052 rule (W-L, then point diff, then the admin tie order; never head-to-head): 1v4, 2v3',
+    check(R6 ? 'R6 playoff draw = the server\'s pool standings (matchups W-L, point diff, games W-L, seed), crossed: A1 v B2, B1 v A2' : 'R2 playoff draw = the server\'s own standings order (matchups W-L, point diff, games W-L, seed): 1v4, 2v3',JSON.stringify(got) === JSON.stringify(pairs(sv)), `got ${gotTxt}; want ${txt(sv)}`);
+    check(R6 ? 'R6 playoff draw by the PKL-052/084 rule in each pool (never head-to-head): A1 v B2, B1 v A2' : 'R2 playoff draw by the PKL-052/084 rule (matchups W-L, point diff, games, admin tie order; never head-to-head): 1v4, 2v3',
       JSON.stringify(got) === JSON.stringify(pairs(rl)), `got ${gotTxt}; PKL-052 wants ${txt(rl)} (${rl.slice(2, 5).map((r) => `${r.team.name} ${r.wins}-${r.losses} ${r.diff >= 0 ? '+' : ''}${r.diff}`).join(', ')})`);
     const early = ms.filter((m) => playoff.some((r) => r.id === m.round_id) && m.status === 'completed');
     if (st.brian) { if (early.length) log(`info: ${early.length} playoff game(s) were already scored when the draw was checked (a player can score one right away); the draw comes from the round robin only`); }
