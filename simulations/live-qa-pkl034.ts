@@ -1297,11 +1297,12 @@ async function r2Tick(st: State, nm: Map<string, string>): Promise<'scored' | 'w
     r2.drawChecked = true;
     r2CheckMeetings('R2 round robin', rr, ms, teams);
     const rows = r2Tally(rrMs, teams);
+    const rowsAll = r2Tally(ms, teams); // what mlp_team_standings counts (every completed game, playoff ones too)
     const { data: srv } = await (await asBot(st, st.bots[0].id)).rpc('mlp_team_standings', { p_tournament_id: tId });
     const sRows = (srv ?? []) as any[];
     log('ROUND ROBIN DONE. Team standings (sub-matches W-L, ±, seed):\n' + r2RuleOrder(rows).map((r, i) =>
       `    ${i + 1}. ${r.team.name.padEnd(22)} ${r.wins}-${r.losses}  ${r.diff >= 0 ? '+' : ''}${r.diff}  seed ${r.team.seed}`).join('\n'));
-    const badSt = rows.filter((r) => { const s = sRows.find((x) => x.team_id === r.team.id); return !s || s.sub_matches_won !== r.wins || s.sub_matches_lost !== r.losses || (s.point_diff !== undefined && s.point_diff !== r.diff); })
+    const badSt = rowsAll.filter((r) => { const s = sRows.find((x) => x.team_id === r.team.id); return !s || s.sub_matches_won !== r.wins || s.sub_matches_lost !== r.losses || (s.point_diff !== undefined && s.point_diff !== r.diff); })
       .map((r) => { const s = sRows.find((x) => x.team_id === r.team.id); return `${r.team.name} server ${s?.sub_matches_won ?? '-'}-${s?.sub_matches_lost ?? '-'}, results ${r.wins}-${r.losses}`; });
     check('R2 team standings (mlp_team_standings) = the sub-match results, dreambreakers included', badSt.length === 0 && sRows.length === teams.length, badSt.slice(0, 3).join(' ; '));
     const first = playoff.filter((r) => r.round_type === 'semifinals');
@@ -1314,7 +1315,9 @@ async function r2Tick(st: State, nm: Map<string, string>): Promise<'scored' | 'w
     check('R2 playoff draw = the server\'s own standings order (sub-match W, L, point diff, seed): 1v4, 2v3', JSON.stringify(got) === JSON.stringify(pairs(sv)), `got ${gotTxt}; want ${txt(sv)}`);
     check('R2 playoff draw by the PKL-052 rule (W-L, then point diff, then the admin tie order; never head-to-head): 1v4, 2v3',
       JSON.stringify(got) === JSON.stringify(pairs(rl)), `got ${gotTxt}; PKL-052 wants ${txt(rl)} (${rl.slice(2, 5).map((r) => `${r.team.name} ${r.wins}-${r.losses} ${r.diff >= 0 ? '+' : ''}${r.diff}`).join(', ')})`);
-    check('no playoff sub-match is already scored when the checks run', !ms.some((m) => playoff.some((r) => r.id === m.round_id) && m.status === 'completed'));
+    const early = ms.filter((m) => playoff.some((r) => r.id === m.round_id) && m.status === 'completed');
+    if (st.brian) { if (early.length) log(`info: ${early.length} playoff game(s) were already scored when the draw was checked (a player can score one right away); the draw comes from the round robin only`); }
+    else check('no playoff sub-match is already scored when the checks run', early.length === 0);
   }
   if (fin.length && !r2.finalChecked && semis.length && semis.every((r) => r2Meeting(r, ms, teams).decided)) {
     r2.finalChecked = true;
@@ -2151,6 +2154,16 @@ async function auditDoubles(st: State, tId: string, players: string[]) {
   const { data: notes0 } = await admin.from('notifications').select('id, user_id, title, body, push_data, created_at')
     .eq('entity_id', tId).eq('type', 'tournament').gte('created_at', st.created_at).order('created_at');
   const notes = (notes0 ?? []) as any[];
+  // A player who tapped "Clear all" (NotificationsScreen) has no notification rows of any age: their alerts can't be
+  // audited. Their lines are reported as "cleared by the player", not as failures (R2 live 2026-11-24).
+  const cleared = new Set<string>();
+  for (const p of players) {
+    if (notes.some((n) => n.user_id === p)) continue;
+    const { count } = await admin.from('notifications').select('id', { count: 'exact', head: true }).eq('user_id', p);
+    if (!count) cleared.add(p);
+  }
+  if (cleared.size) log(`info: alerts cleared by the player (no notification rows at all, "Clear all"): ${[...cleared].map(N).join(', ')}; their A1/A2/A4/B2 lines are not counted`);
+  const notCleared = (xs: string[]) => xs.filter((x) => ![...cleared].some((p) => x.startsWith(N(p) + ':') || x.includes(` ${N(p)} (entered it)`) || x.startsWith(`#`) && x.includes(` ${N(p)} `)));
   const kindOf = (n: any) => n.push_data?.kind ?? '';
   const { data: pay0 } = await admin.from('tournament_match_bonus_grants').select('match_id, user_id, paid').in('match_id', ms.map((m) => m.id));
   const payOf = new Map((pay0 ?? []).map((g: any) => [`${g.match_id}|${g.user_id}`, Number(g.paid)]));
@@ -2170,8 +2183,9 @@ async function auditDoubles(st: State, tId: string, players: string[]) {
     if (first.length !== 1 || first[0].title !== title || first[0].body !== want)
       bad.push(`${N(p)}: first-match alert x${first.length}${first[0] ? ` "${first[0].title} | ${first[0].body}"` : ''}, want "${title} | ${want}"`);
   }
+  const badA1 = notCleared(bad);
   check('A1 every player gets one first-match alert: the right match, round, court, and "Bye in round 1" when they sit out first',
-    bad.length === 0, bad.slice(0, 4).join(' ; '));
+    badA1.length === 0, badA1.slice(0, 4).join(' ; '));
 
   // A2 + A3. score alerts and "Up next"
   const bad2: string[] = [], bad3: string[] = [];
@@ -2206,9 +2220,10 @@ async function auditDoubles(st: State, tId: string, players: string[]) {
       if (hit[0].body !== want) (next && !(hit[0].body ?? '').includes(next) ? bad3 : bad2).push(`${tag}: "${hit[0].body}" want "${want}"`);
     }
   }
+  const badA2 = notCleared(bad2), badA3 = notCleared(bad3);
   check('A2 each score: the 3 others get "you won/lost a-b, Entered by", match pay; the one who entered it gets pay + Up next',
-    bad2.length === 0 && reporterUnknown === 0, `${reporterUnknown ? `${reporterUnknown} match(es) with no "Entered by"; ` : ''}${bad2.slice(0, 4).join(' ; ')}`);
-  check('A3 "Up next" names each player\'s next open match (partner, opponents, "match k of 8")', bad3.length === 0, bad3.slice(0, 4).join(' ; '));
+    badA2.length === 0 && reporterUnknown === 0, `${reporterUnknown ? `${reporterUnknown} match(es) with no "Entered by"; ` : ''}${badA2.slice(0, 4).join(' ; ')}`);
+  check('A3 "Up next" names each player\'s next open match (partner, opponents, "match k of 8")', badA3.length === 0, badA3.slice(0, 4).join(' ; '));
 
   // A4. final placement
   const { data: ranks } = await admin.from('tournament_final_ranks').select('user_id, final_rank').eq('tournament_id', tId);
@@ -2234,7 +2249,8 @@ async function auditDoubles(st: State, tId: string, players: string[]) {
     const hit = notes.filter((n) => n.user_id === p && kindOf(n) === 'tm_finished');
     if (hit.length !== 1 || hit[0].title !== title || hit[0].body !== body) bad4.push(`${N(p)}: x${hit.length} "${hit[0]?.title ?? ''} | ${hit[0]?.body ?? ''}" want "${title} | ${body}"`);
   }
-  check('A4 one final-placement alert each, with the right place and placement pay', bad4.length === 0 && (ranks ?? []).length === players.length, bad4.slice(0, 3).join(' ; '));
+  const badA4 = notCleared(bad4);
+  check('A4 one final-placement alert each, with the right place and placement pay', badA4.length === 0 && (ranks ?? []).length === players.length, badA4.slice(0, 3).join(' ; '));
   const extra = notes.filter((n) => !['tm_ready', 'tm_score', 'tm_finished', 'tm_court', 'tm_bye'].includes(kindOf(n)));
   if (extra.length) log(`info: ${extra.length} other tournament alert(s): ${[...new Set(extra.map((n) => kindOf(n) || n.title))].join(', ')}`);
 
@@ -2252,7 +2268,8 @@ async function auditDoubles(st: State, tId: string, players: string[]) {
   for (let w = 0; st.brian && w < 24 && ob.some((o) => o.recipient_id === st.brian && ['pending', 'sending'].includes(o.status)); w++) { await sleep(5000); ob = await outbox(); }
   const missing = ids.length - ob.length;
   check(`B1 every alert (${ids.length}) has a push queued`, missing === 0, `${missing} alert(s) with no push_outbox row`);
-  if (st.brian) {
+  if (st.brian && cleared.has(st.brian)) log('B2 not checked: your alerts were cleared on the phone ("Clear all"), so their pushes are gone too.');
+  else if (st.brian) {
     const mine = ob.filter((o) => o.recipient_id === st.brian);
     const notSent = mine.filter((o) => o.status !== 'sent');
     check(`B2 all ${mine.length} of your pushes were sent`, mine.length > 0 && notSent.length === 0,
