@@ -402,7 +402,6 @@ async function brianSnapshot(id: string) {
 // ── setup ─────────────────────────────────────────────────────────────────────
 async function setup() {
   log(`=== setup (${MODE}) ===`);
-  if (R2 && !REHEARSAL) die('R2 is bots-only for now: run it with --rehearsal');
   if (R2 && (N_PLAYERS % 4 || N_PLAYERS < 8)) die(`R2 needs a multiple of 4 players, at least 8 (got ${N_PLAYERS})`);
   const prior = readState();
   if (prior?.tournament_id) {
@@ -440,7 +439,9 @@ async function setup() {
     const id = data.user!.id;
     st.bots.push({ n, id, email, name }); writeState(st);
     // R2 (MLP): odd bots are men, even bots women, each with its own PLUPR so the snake draft has one right answer.
-    const prof: Record<string, unknown> = R2 ? { full_name: name, gender: n % 2 ? 'male' : 'female', rating: r2Rating(n, N_BOTS) } : { full_name: name, gender: 'male' };
+    // Live R2: Brian (a man) is the last player, so the last bot is a woman to keep 10 men and 10 women.
+    const r2Male = n % 2 === 1 && !(!REHEARSAL && n === N_BOTS);
+    const prof: Record<string, unknown> = R2 ? { full_name: name, gender: r2Male ? 'male' : 'female', rating: r2Rating(n, N_BOTS) } : { full_name: name, gender: 'male' };
     const { error: pe } = await admin.from('profiles').update(prof).eq('id', id);
     if (pe) log(`  note: profile update ${name}: ${pe.message}`);
     log(`bot ${name}  ${id}  ${email}${R2 ? `  ${prof.gender}, PLUPR ${prof.rating}` : ''}`);
@@ -1090,8 +1091,8 @@ export function r2Tally(ms: XM[], teams: MT[]) {
   return [...rows.values()];
 }
 type TRow = ReturnType<typeof r2Tally>[number];
-/** The server's playoff order (_generate_mlp_playoff_unchecked): sub-match wins desc, losses asc, seed. */
-export const r2ServerOrder = (rows: TRow[]) => [...rows].sort((a, b) => b.wins - a.wins || a.losses - b.losses || (a.team.seed ?? 999) - (b.team.seed ?? 999));
+/** The server's playoff order (_generate_mlp_playoff_unchecked, PKL-077 live 2026-11-23): W desc, L asc, point diff desc, seed. */
+export const r2ServerOrder = (rows: TRow[]) => [...rows].sort((a, b) => b.wins - a.wins || a.losses - b.losses || b.diff - a.diff || (a.team.seed ?? 999) - (b.team.seed ?? 999));
 /** PKL-052: W desc, L asc, point diff desc, then the admin's tie order (none for MLP teams yet), then seed. */
 export const r2RuleOrder = (rows: TRow[]) => [...rows].sort((a, b) => b.wins - a.wins || a.losses - b.losses || b.diff - a.diff || (a.team.seed ?? 999) - (b.team.seed ?? 999));
 
@@ -1123,12 +1124,13 @@ function planR2() {
   const fmt = (o: TRow[]) => o.map((r) => `${r.team.name} ${r.wins}-${r.losses} ${r.diff >= 0 ? '+' : ''}${r.diff}`).join(', ');
   const sv = r2ServerOrder(rows), rl = r2RuleOrder(rows);
   console.log(`R2 plan: 10 meetings, ${ms.length} sub-matches, ${dbs} dreambreakers played, ${cancelled} cancelled; meetings hit their targets: ${okMeet}`);
-  console.log('server order (W, L, seed):  ' + fmt(sv));
+  console.log('server order (W, L, ±, seed): ' + fmt(sv));
   console.log('PKL-052 order (W, L, ±):    ' + fmt(rl));
   const t4 = rows.find((r) => r.team.seed === 4)!, t5 = rows.find((r) => r.team.seed === 5)!;
   const okTie = t4.wins === t5.wins && t4.losses === t5.losses && t5.diff > t4.diff;
-  const okProbe = sv[3].team.seed === 4 && rl[3].team.seed === 5;
-  console.log(`seeds 4 and 5 level on W-L with seed 5 ahead on ±: ${okTie}; the probe splits the two rules at 4th: ${okProbe}`);
+  // PKL-077 live: the server now breaks the W-L tie on point diff too, so both orders put seed 5 4th.
+  const okProbe = sv[3].team.seed === 5 && rl[3].team.seed === 5;
+  console.log(`seeds 4 and 5 level on W-L with seed 5 ahead on ±: ${okTie}; both orders put seed 5 4th (PKL-077): ${okProbe}`);
   let okScores = true; for (let i = 0; i < 2000; i++) for (const [a, b] of [[1, 5], [5, 1], [4, 2], [2, 4], [4, 5], [1, 2]]) { const [w, l] = r2Score(a, b, true); if (!validScore(w, l)) okScores = false; }
   console.log(`R2 scores valid: ${okScores}; ratings distinct for 20: ${new Set(Array.from({ length: 20 }, (_, i) => r2Rating(i + 1, 20))).size === 20}`);
   process.exit(okMeet && okTie && okProbe && okScores && dbs === 2 ? 0 : 1);
@@ -1136,7 +1138,7 @@ function planR2() {
 
 /** R2 state across loop passes. */
 const r2 = { ratings: null as Map<string, number> | null, genders: null as Map<string, string> | null, teamsChecked: false, scheduleChecked: false,
-  drawChecked: false, finalChecked: false, idle: 0, playoffForced: false, completeAsked: false, stalled: false };
+  drawChecked: false, finalChecked: false, idle: 0, playoffForced: false, completeAsked: false, stalled: false, youMsg: '' };
 
 /**
  * R2 before the schedule exists, as the organizer does it in the app's Teams section (MlpTeamSection):
@@ -1288,7 +1290,7 @@ async function r2Tick(st: State, nm: Map<string, string>): Promise<'scored' | 'w
     const sRows = (srv ?? []) as any[];
     log('ROUND ROBIN DONE. Team standings (sub-matches W-L, ±, seed):\n' + r2RuleOrder(rows).map((r, i) =>
       `    ${i + 1}. ${r.team.name.padEnd(22)} ${r.wins}-${r.losses}  ${r.diff >= 0 ? '+' : ''}${r.diff}  seed ${r.team.seed}`).join('\n'));
-    const badSt = rows.filter((r) => { const s = sRows.find((x) => x.team_id === r.team.id); return !s || s.sub_matches_won !== r.wins || s.sub_matches_lost !== r.losses; })
+    const badSt = rows.filter((r) => { const s = sRows.find((x) => x.team_id === r.team.id); return !s || s.sub_matches_won !== r.wins || s.sub_matches_lost !== r.losses || (s.point_diff !== undefined && s.point_diff !== r.diff); })
       .map((r) => { const s = sRows.find((x) => x.team_id === r.team.id); return `${r.team.name} server ${s?.sub_matches_won ?? '-'}-${s?.sub_matches_lost ?? '-'}, results ${r.wins}-${r.losses}`; });
     check('R2 team standings (mlp_team_standings) = the sub-match results, dreambreakers included', badSt.length === 0 && sRows.length === teams.length, badSt.slice(0, 3).join(' ; '));
     const first = playoff.filter((r) => r.round_type === 'semifinals');
@@ -1298,7 +1300,7 @@ async function r2Tick(st: State, nm: Map<string, string>): Promise<'scored' | 'w
     const txt = (o: TRow[]) => `${o[0]?.team.name} v ${o[3]?.team.name}, ${o[1]?.team.name} v ${o[2]?.team.name}`;
     const gotTxt = first.map((r) => r.label).join(' ; ');
     check('R2 playoff: semifinals are created on their own after the round robin (top 4, 1v4 and 2v3)', first.length === 2 && !r2.playoffForced, `${first.length} semifinal meetings${r2.playoffForced ? ' (the host had to press Generate playoff)' : ''}`);
-    check('R2 playoff draw = the server\'s own standings order (sub-match W, L, seed): 1v4, 2v3', JSON.stringify(got) === JSON.stringify(pairs(sv)), `got ${gotTxt}; want ${txt(sv)}`);
+    check('R2 playoff draw = the server\'s own standings order (sub-match W, L, point diff, seed): 1v4, 2v3', JSON.stringify(got) === JSON.stringify(pairs(sv)), `got ${gotTxt}; want ${txt(sv)}`);
     check('R2 playoff draw by the PKL-052 rule (W-L, then point diff, then the admin tie order; never head-to-head): 1v4, 2v3',
       JSON.stringify(got) === JSON.stringify(pairs(rl)), `got ${gotTxt}; PKL-052 wants ${txt(rl)} (${rl.slice(2, 5).map((r) => `${r.team.name} ${r.wins}-${r.losses} ${r.diff >= 0 ? '+' : ''}${r.diff}`).join(', ')})`);
     check('no playoff sub-match is already scored when the checks run', !ms.some((m) => playoff.some((r) => r.id === m.round_id) && m.status === 'completed'));
@@ -1312,18 +1314,27 @@ async function r2Tick(st: State, nm: Map<string, string>): Promise<'scored' | 'w
       `final ${fin.map((r) => r.label).join(' ; ')}; semifinal winners ${semis.map((r) => tn(r2Meeting(r, ms, teams).winner)).join(', ')}`);
   }
 
-  // the next sub-match to score: meetings in round order, sub-matches in match order
+  // the next sub-match to score: meetings in round order, sub-matches in match order. Live: a sub-match Brian plays in
+  // is his to enter on the phone; the bots skip it and score the others.
+  const me = st.brian ?? null;
+  const mine = (x: XM) => !!me && four(x).includes(me);
+  let waitingOnYou: string[] = [];
   for (const r of [...rr, ...[...playoff].sort((a, b) => a.round_number - b.round_number)]) {
     const mt = r2Meeting(r, ms, teams);
     if (!mt.A || !mt.B) continue;
     if (fin.some((f) => f.id === r.id) && mt.decided) continue; // the Final is over once a team has 3
     const tg = r2Target(r, mt.A.seed ?? 99, mt.B.seed ?? 99, teams.length, R2_SEMIS);
-    let m = mt.subs.find((x) => x.status === 'pending') ?? null;
+    const myPending = mt.subs.filter((x) => x.status === 'pending' && mine(x));
+    if (myPending.length) waitingOnYou.push(`${r.label} · ${myPending.map((x) => ["Men's", "Women's", 'Mixed 1', 'Mixed 2'][mt.subs.indexOf(x)]).join(', ')}`);
+    let m = mt.subs.find((x) => x.status === 'pending' && !mine(x)) ?? null;
     let aWin: boolean;
     if (m) {
       const left = mt.subs.filter((x) => x.status === 'pending').length, need = tg.a - mt.subA;
       aWin = need >= left ? true : need <= 0 ? false : h32(m.id) % left < need;
-    } else if (mt.db && mt.db.status === 'pending' && mt.subsDone && mt.subA === 2 && mt.subB === 2) { m = mt.db; aWin = tg.db === 'A'; }
+    } else if (mt.db && mt.db.status === 'pending' && mt.subsDone && mt.subA === 2 && mt.subB === 2) {
+      if (mine(mt.db)) { waitingOnYou.push(`${r.label} · Dreambreaker`); continue; }
+      m = mt.db; aWin = tg.db === 'A';
+    }
     else continue;
     const W = aWin ? mt.A : mt.B, L = aWin ? mt.B : mt.A;
     const [w, l] = r2Score(W.seed ?? 99, L.seed ?? 99, teams.length === 5 && r.round_type === 'winners');
@@ -1345,6 +1356,12 @@ async function r2Tick(st: State, nm: Map<string, string>): Promise<'scored' | 'w
     return 'scored';
   }
 
+  // nothing for the bots to score
+  if (waitingOnYou.length) {
+    if (r2.youMsg !== waitingOnYou.join('|')) { r2.youMsg = waitingOnYou.join('|'); log(`YOUR TURN: enter ${waitingOnYou.join(' ; ')} on your phone (MatchEntry from the tournament page)`); }
+    r2.idle = 0;
+    return 'wait';
+  }
   // nothing to score: what should have happened on its own?
   r2.idle++;
   const G = fast ? 5 : 8;
@@ -1406,20 +1423,21 @@ async function finishR2(st: State, nm: Map<string, string>) {
   log(`CHAMPION: ${fm?.winner?.name ?? '?'} (${fm ? `${fm.aw}-${fm.bw} in the Final` : 'no Final'}): ${fm?.winner ? mlpMembers(fm.winner).map(N).join(', ') : ''}`
     + (pendingFinal ? `; ${pendingFinal} Final sub-match(es) left unplayed (the tournament closed at 3 wins)` : ''));
   check('R2 champion = the Final winner by sub-match wins', !!fm && !!fm.winner && (fm.aw >= 3 || fm.bw >= 3), fm ? `${fm.aw}-${fm.bw}` : 'no Final');
-  // final ranks: the server's per-player rule for MLP (compute_tournament_final_ranks: W, fewer L, ±, admin tie order, seed)
-  const pr = PO.playerRanks(ms as PO.PM[], players, seedOf, await tieRanks(tId));
+  // PKL-078 (live 2026-11-23, Brian: "Whole team shares the place"): places are by team. Final winner 1, Final loser 2,
+  // the semifinal losers 3 and 4 by the team standings, then the rest by the team standings (W, L, point diff, seed).
   const got = new Map((ranks ?? []).map((r: any) => [r.user_id, r.final_rank]));
-  const badR = players.filter((u) => got.get(u) !== pr.ranks.get(u)).map((u) => `${N(u)} ${got.get(u) ?? '-'}, want ${pr.ranks.get(u)}`);
-  check(`R2 final ranks: ${players.length} rows by the server's per-player MLP rule (W, fewer L, ±, admin tie order; no head-to-head)`,
+  void seedOf;
+  const semisR = rounds.filter((r) => r.round_type === 'semifinals');
+  const semiLosers = semisR.map((r) => r2Meeting(r, ms, teams).loser).filter((t): t is MT => !!t);
+  const rrRounds = rounds.filter((r) => r.round_type === 'winners');
+  const order = r2ServerOrder(r2Tally(ms.filter((m) => rrRounds.some((r) => r.id === m.round_id)), teams)).map((x) => x.team);
+  const want = new Map<string, number>();
+  const teamOrder = [fm?.winner, fm?.loser, ...order.filter((t) => semiLosers.some((x) => x.id === t.id)),
+    ...order.filter((t) => t.id !== fm?.winner?.id && t.id !== fm?.loser?.id && !semiLosers.some((x) => x.id === t.id))].filter((t): t is MT => !!t);
+  teamOrder.forEach((t, i) => mlpMembers(t).forEach((u) => want.set(u, i + 1)));
+  const badR = players.filter((u) => got.get(u) !== want.get(u)).map((u) => `${N(u)} (${teamOf(u)?.name}) ${got.get(u) ?? '-'}, want ${want.get(u)}`);
+  check(`R2 final places by team (PKL-078): every player takes the team's place; Final winners 1, runners-up 2, semifinal losers 3-4, then the rest`,
     badR.length === 0 && (ranks ?? []).length === players.length, badR.slice(0, 4).join(' ; '));
-  if (fm?.winner && fm.loser) {
-    const champs = mlpMembers(fm.winner), runners = mlpMembers(fm.loser);
-    const off = [...champs.filter((u) => (got.get(u) ?? 99) > 4).map((u) => `${N(u)} (champion) ${got.get(u)}`),
-      ...runners.filter((u) => { const k = got.get(u) ?? 99; return k <= 4 || k > 8; }).map((u) => `${N(u)} (runner-up) ${got.get(u)}`)];
-    const r1 = (ranks ?? []).find((r: any) => r.final_rank === 1);
-    check('R2 final places by team: the 4 Final winners hold places 1-4, the 4 runners-up 5-8', off.length === 0,
-      `${off.slice(0, 5).join(' ; ')}${r1 ? `; rank 1 is ${N(r1.user_id)} of ${teamOf(r1.user_id)?.name}` : ''}`);
-  }
   try { await auditDoubles(st, tId, players); }
   catch (e: any) { check('PKL-043 audit ran', false, 'audit threw: ' + (e?.message ?? e)); }
 }
