@@ -2095,7 +2095,7 @@ async function auditDoubles(st: State, tId: string, players: string[]) {
   const tName = t.name as string;
   const courtsOn = ((t.courts ?? []) as string[]).some((c) => c.trim() !== '');
   const { data: ms0 } = await admin.from('tournament_matches')
-    .select('id, round_id, created_at, match_order, status, winner_team, team1_player1, team1_player2, team2_player1, team2_player2, team1_score, team2_score, completed_at, play_round, court, called_at, plupr_delta, plupr_global_weight, plupr_category, plupr_ratings, plupr_applied_at, is_dreambreaker')
+    .select('id, round_id, created_at, match_order, status, winner_team, team1_player1, team1_player2, team2_player1, team2_player2, team1_score, team2_score, completed_at, play_round, court, called_at, plupr_delta, plupr_global_weight, plupr_category, plupr_ratings, plupr_applied_at, is_dreambreaker, db_order_team1')
     .eq('tournament_id', tId).order('match_order');
   const { data: rds } = await admin.from('tournament_rounds').select('id, label, round_type, round_number').eq('tournament_id', tId);
   const rdOf = new Map((rds ?? []).map((r: any) => [r.id, r]));
