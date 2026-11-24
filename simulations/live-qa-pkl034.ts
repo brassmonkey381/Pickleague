@@ -69,16 +69,19 @@ const R3 = has('--r3');
 // dreambreakers. 20 bots (10 men, 10 women) = 5 teams. With 5 teams the round robin follows a fixed plan in which the
 // 4th and 5th teams tie on sub-match W-L and the 5th has the better point diff (a PKL-052 probe). --semis dreambreaker
 // (default: both semifinals go 2-2 and a dreambreaker decides) | decided (3-1, the dreambreaker is cancelled).
-const R2 = has('--r2');
+// PKL-060 R6: MLP fixed teams (format mlp), pool play + top 4 playoff. Captains make teams, players ask to join, captains
+// accept (one decline on purpose) and lock; then the same MLP loop as R2 (matchup standings, rotating Dreambreaker).
+const R6 = has('--r6');
+const R2 = has('--r2') || R6;
 const R2_SEMIS = val('--semis', 'dreambreaker');
 const POOL_COUNT = Number(val('--pool-count', '2'));
 const PLAYOFF = val('--playoff', 'top_2_per_pool');
 const ANTE = POOLS || R7 || R5 ? Number(val('--ante', '50')) : 0;
 const VARIANT = val('--variant', '').replace(/[^a-z0-9]/gi, '').toLowerCase();
 const DOUBLES = has('--doubles') || POOLS || R7 || R4;
-const TAG = POOLS ? 'pkl050' : R7 ? 'pkl060r7' : R4 ? 'pkl060r4' : R5 ? 'pkl060r5' : R3 ? 'pkl060r3' : R2 ? 'pkl060r2' : DOUBLES ? 'pkl043' : 'pkl034';
+const TAG = POOLS ? 'pkl050' : R7 ? 'pkl060r7' : R4 ? 'pkl060r4' : R5 ? 'pkl060r5' : R3 ? 'pkl060r3' : R6 ? 'pkl060r6' : R2 ? 'pkl060r2' : DOUBLES ? 'pkl043' : 'pkl034';
 const ITEM = POOLS ? 'PKL-050' : R7 || R4 || R5 || R3 || R2 ? 'PKL-060' : DOUBLES ? 'PKL-043' : 'PKL-034';
-const N_PLAYERS = POOLS ? Number(val('--players', '16')) : R7 ? Number(val('--players', '9')) : R4 ? 16 : R5 ? Number(val('--players', '7')) : R2 ? Number(val('--players', '20')) : DOUBLES ? 10 : 8;
+const N_PLAYERS = POOLS ? Number(val('--players', '16')) : R7 ? Number(val('--players', '9')) : R4 ? 16 : R5 ? Number(val('--players', '7')) : R6 ? Number(val('--players', '24')) : R2 ? Number(val('--players', '20')) : DOUBLES ? 10 : 8;
 const N_BOTS = REHEARSAL ? N_PLAYERS : N_PLAYERS - 1;
 /** R4: two more bots that only try to join late (one when the field is full: waitlisted; one after the deadline: refused). */
 const LATE_BOTS = R4 ? 2 : 0;
@@ -87,6 +90,7 @@ const T_NAME = POOLS ? `[SIM] PKL-050 pool play QA${VARIANT ? ' ' + VARIANT : ''
   : R4 ? `[SIM] PKL-060 R4 single elim doubles QA${REHEARSAL ? ' rehearsal' : ''}`
   : R5 ? `[SIM] PKL-060 R5 round robin singles QA${VARIANT ? ' ' + VARIANT : ''}${REHEARSAL ? ' rehearsal' : ''}`
   : R3 ? `[SIM] PKL-060 R3 double elim singles QA${REHEARSAL ? ' rehearsal' : ''}`
+  : R6 ? `[SIM] PKL-060 R6 MLP fixed teams QA${VARIANT ? ' ' + VARIANT : ''}${REHEARSAL ? ' rehearsal' : ''}`
   : R2 ? `[SIM] PKL-060 R2 MLP random teams QA${VARIANT ? ' ' + VARIANT : ''}${REHEARSAL ? ' rehearsal' : ''}`
   : DOUBLES ? (REHEARSAL ? '[SIM] PKL-043 doubles QA rehearsal' : '[SIM] PKL-043 doubles QA')
   : REHEARSAL ? '[SIM] PKL-034 rehearsal' : '[SIM] PKL-034 live QA';
@@ -95,6 +99,7 @@ const L_NAME = POOLS ? `[SIM] PKL-050 QA league${VARIANT ? ' ' + VARIANT : ''}${
   : R4 ? `[SIM] PKL-060 R4 QA league${REHEARSAL ? ' rehearsal' : ''}`
   : R5 ? `[SIM] PKL-060 R5 QA league${VARIANT ? ' ' + VARIANT : ''}${REHEARSAL ? ' rehearsal' : ''}`
   : R3 ? `[SIM] PKL-060 R3 QA league${REHEARSAL ? ' rehearsal' : ''}`
+  : R6 ? `[SIM] PKL-060 R6 QA league${VARIANT ? ' ' + VARIANT : ''}${REHEARSAL ? ' rehearsal' : ''}`
   : R2 ? `[SIM] PKL-060 R2 QA league${VARIANT ? ' ' + VARIANT : ''}${REHEARSAL ? ' rehearsal' : ''}`
   : DOUBLES ? (REHEARSAL ? '[SIM] PKL-043 rehearsal league' : '[SIM] PKL-043 QA league')
   : REHEARSAL ? '[SIM] PKL-034 rehearsal league' : '[SIM] PKL-034 QA league';
@@ -120,7 +125,7 @@ const FAST_MS = 2500;
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const repo = path.resolve(here, '..');
-const STATE_DIR = path.join(repo, 'state', POOLS ? 'pkl-050' : R7 ? 'pkl-060-r7' : R4 ? 'pkl-060-r4' : R5 ? 'pkl-060-r5' : R3 ? 'pkl-060-r3' : R2 ? 'pkl-060-r2' : DOUBLES ? 'pkl-043' : 'pkl-034');
+const STATE_DIR = path.join(repo, 'state', POOLS ? 'pkl-050' : R7 ? 'pkl-060-r7' : R4 ? 'pkl-060-r4' : R5 ? 'pkl-060-r5' : R3 ? 'pkl-060-r3' : R6 ? 'pkl-060-r6' : R2 ? 'pkl-060-r2' : DOUBLES ? 'pkl-043' : 'pkl-034');
 /** R7: the second tournament, created only to be cancelled (cancel-check). */
 const T2_NAME = `${T_NAME} (cancel check)`;
 const RUN = `${MODE}${VARIANT ? '-' + VARIANT : ''}`; // file stem: live, rehearsal, rehearsal-p3, ...
@@ -483,12 +488,12 @@ async function setup() {
     // (it sends 2 when the format is not pool play), and no playoff_format (only sent for non-MLP formats).
     league_id: lg!.id, name: T_NAME,
     description: `QA test (${ITEM}). Private, invite only. ${N_BOTS} QA bots post scores automatically; this is not a real event.`,
-    created_by: host.id, format: 'mlp_random', match_type: 'doubles', seeding: 'elo', pool_count: 1,
-    partner_rotation: null, team_creation: 'random', registration_mode: 'invite_only', registration_closes_at: null,
+    created_by: host.id, format: R6 ? 'mlp' : 'mlp_random', match_type: 'doubles', seeding: 'elo', pool_count: 1,
+    partner_rotation: null, team_creation: R6 ? 'fixed' : 'random', registration_mode: 'invite_only', registration_closes_at: null,
     min_players: N_PLAYERS, max_players: N_PLAYERS, start_time: start.toISOString(), expected_length_hours: 3,
     location_name: 'QA test (online)', location_lat: null, location_lng: null,
     pickle_ante: 0, payout_structure: [60, 25, 15], status: 'registration',
-    mlp_play_format: 'round_robin_playoff', mlp_pool_count: 2, mlp_playoff_teams: 4, courts: null,
+    mlp_play_format: R6 ? 'pool_play_playoff' : 'round_robin_playoff', mlp_pool_count: 2, mlp_playoff_teams: 4, courts: null,
   } : R3 ? {
     league_id: lg!.id, name: T_NAME,
     description: `QA test (${ITEM}). Private, invite only. ${N_BOTS} QA bots post scores automatically; this is not a real event.`,
@@ -1191,6 +1196,122 @@ async function r2Draw(st: State, approved: string[]) {
   if (error) die('could not generate the MLP bracket');
 }
 
+const R6_NAMES = ['Dink Dynasty', 'Kitchen Kings', 'Lob City', 'Third Shot Club', 'Erne Express', 'Paddle Battle', 'Net Gains', 'Spin Doctors'];
+const r6 = { lockTested: false, lockRefused: false, declined: false, declineAsked: false, teamsChecked: false, youAsked: false };
+/**
+ * R6 before the schedule exists, as players do it in the app's Teams section (MlpTeamSection): the first N/4 men
+ * create a team each (create_mlp_team; the captain takes a slot by gender), everyone else asks to join one
+ * (mlp_request_join) and that captain accepts (mlp_respond_to_join; the first ask of QA Bot 2 is declined on purpose),
+ * a captain tries to lock at 3 players (must be refused), each full team is locked (mlp_lock_team), then the host taps
+ * Generate Bracket (generate_mlp_bracket). Live: Brian asks to join a team on his phone; the men bots wait for him.
+ */
+async function r6Form(st: State, approved: string[]) {
+  const tId = st.tournament_id!; const nTeams = approved.length / 4;
+  const N = (u: string | null | undefined) => (u === st.brian ? 'YOU' : st.bots.find((b) => b.id === u)?.name ?? (u ?? '-').slice(0, 8));
+  const { data: profs } = await admin.from('profiles').select('id, gender').in('id', approved);
+  const g = new Map((profs ?? []).map((p: any) => [p.id as string, String(p.gender)]));
+  const byN = (u: string) => st.bots.find((b) => b.id === u)?.n ?? 999;
+  const men = approved.filter((u) => g.get(u) === 'male').sort((a, b) => byN(a) - byN(b));
+  const women = approved.filter((u) => g.get(u) === 'female').sort((a, b) => byN(a) - byN(b));
+  const captains = men.filter((u) => u !== st.brian).slice(0, nTeams);
+  const { data: t0 } = await admin.from('mlp_teams').select('*').eq('tournament_id', tId).order('created_at');
+  const teams = (t0 ?? []) as MT[];
+  // 1. captains make the teams
+  if (teams.length < nTeams) {
+    for (const [i, c] of captains.entries()) {
+      if (teams.some((t) => t.captain_id === c)) continue;
+      const { data, error } = await (await asBot(st, c)).rpc('create_mlp_team', { p_tournament_id: tId, p_name: R6_NAMES[i] ?? `Team ${i + 1}` });
+      log(error ? `TEAM ERROR ${N(c)} create_mlp_team: ${error.message}` : `${N(c)} created "${R6_NAMES[i]}" and is its captain (${data})`);
+      if (error) die('could not create an MLP team');
+    }
+    return;
+  }
+  const members = (t: MT) => mlpMembers(t);
+  const teamOf = (u: string) => teams.find((t) => members(t).includes(u));
+  const { data: rq0 } = await admin.from('mlp_team_join_requests').select('id, team_id, user_id, direction, status').in('team_id', teams.map((t) => t.id));
+  const reqs = (rq0 ?? []) as { id: string; team_id: string; user_id: string; direction: string; status: string }[];
+  const nameOf = (id: string) => teams.find((t) => t.id === id)?.name ?? id.slice(0, 8);
+  // 2. the lock rule: a captain may not lock with 3 players
+  if (!r6.lockTested) {
+    const three = teams.find((t) => t.status === 'forming' && members(t).length === 3);
+    if (three) {
+      r6.lockTested = true;
+      const { error } = await (await asBot(st, three.captain_id!)).rpc('mlp_lock_team', { p_team_id: three.id });
+      r6.lockRefused = !!error;
+      log(`${N(three.captain_id)} tried to lock "${three.name}" with 3 players: ${error ? 'refused (' + error.message + ')' : 'ALLOWED'}`);
+      return;
+    }
+  }
+  // 3. captains answer join requests (QA Bot 2's first ask is declined on purpose)
+  const pending = reqs.filter((r) => r.status === 'pending' && r.direction === 'request');
+  if (pending.length) {
+    for (const r of pending) {
+      const t = teams.find((x) => x.id === r.team_id)!;
+      const decline = !r6.declined && r6.declineAsked && r.user_id === women[0] && t.id === teams[teams.length - 1].id;
+      const { error } = await (await asBot(st, t.captain_id!)).rpc('mlp_respond_to_join', { p_request_id: r.id, p_accept: !decline });
+      if (decline && !error) r6.declined = true;
+      log(error ? `JOIN ERROR ${N(t.captain_id)} answering ${N(r.user_id)}: ${error.message}` : `captain ${N(t.captain_id)} ${decline ? 'DECLINED' : 'accepted'} ${N(r.user_id)}'s ask to join "${t.name}"`);
+    }
+    return;
+  }
+  // 4. everyone not on a team asks to join one
+  const open = (t: MT, sex: string) => t.status === 'forming' && (sex === 'male' ? [t.male_1_id, t.male_2_id] : [t.female_1_id, t.female_2_id]).some((x) => !x);
+  const youOn = !st.brian || !!teamOf(st.brian);
+  let asked = 0;
+  for (const [i, w] of women.entries()) {
+    if (teamOf(w) || w === st.brian) continue;
+    let target = teams[i % nTeams];
+    if (w === women[0] && !r6.declineAsked) { target = teams[teams.length - 1]; r6.declineAsked = true; }
+    if (!open(target, 'female')) target = teams.find((t) => open(t, 'female')) ?? target;
+    const { error } = await (await asBot(st, w)).rpc('mlp_request_join', { p_team_id: target.id, p_message: null });
+    log(error ? `JOIN ERROR ${N(w)} -> "${target.name}": ${error.message}` : `${N(w)} asked to join "${target.name}"`); asked++;
+  }
+  if (youOn) for (const m of men) {
+    if (teamOf(m) || m === st.brian || captains.includes(m)) continue;
+    const target = teams.find((t) => open(t, 'male') && !reqs.some((r) => r.team_id === t.id && r.status === 'pending' && g.get(r.user_id) === 'male'));
+    if (!target) break;
+    const { error } = await (await asBot(st, m)).rpc('mlp_request_join', { p_team_id: target.id, p_message: null });
+    log(error ? `JOIN ERROR ${N(m)} -> "${target.name}": ${error.message}` : `${N(m)} asked to join "${target.name}"`); asked++;
+  }
+  if (asked) return;
+  if (!youOn) {
+    if (!r6.youAsked) { r6.youAsked = true; log(`YOUR TURN: open the tournament on your phone, Teams, and tap "Ask to join" on any team with a men's spot open (${teams.filter((t) => open(t, 'male')).map((t) => t.name).join(', ')}). Its captain accepts.`); }
+    return;
+  }
+  // 5. full teams are locked by their captain
+  const full = teams.filter((t) => t.status === 'forming' && members(t).length === 4);
+  if (full.length) {
+    for (const t of full) {
+      const { error } = await (await asBot(st, t.captain_id!)).rpc('mlp_lock_team', { p_team_id: t.id });
+      log(error ? `LOCK ERROR "${t.name}": ${error.message}` : `captain ${N(t.captain_id)} locked "${t.name}"`);
+    }
+    return;
+  }
+  if (teams.some((t) => t.status !== 'locked')) { log('STUCK: a team is not full and nobody is left to join'); return; }
+  // 6. checks, then Generate Bracket
+  if (!r6.teamsChecked) {
+    r6.teamsChecked = true;
+    const bad: string[] = [];
+    if (teams.length !== nTeams) bad.push(`${teams.length} teams, want ${nTeams}`);
+    const all = teams.flatMap(members);
+    if (!sameSet(all, approved)) bad.push(`${all.length} slotted / ${new Set(all).size} distinct, ${approved.length} approved`);
+    for (const t of teams) {
+      if (!members(t).includes(t.captain_id!)) bad.push(`${t.name}: captain not on the team`);
+      for (const u of [t.male_1_id, t.male_2_id]) if (g.get(u!) !== 'male') bad.push(`${t.name}: ${N(u)} in a men's slot is ${g.get(u!)}`);
+      for (const u of [t.female_1_id, t.female_2_id]) if (g.get(u!) !== 'female') bad.push(`${t.name}: ${N(u)} in a women's slot is ${g.get(u!)}`);
+    }
+    check(`R6 teams: ${nTeams} captains made teams, everyone else joined by request, each team is locked with 2 men and 2 women, everyone on exactly one`, bad.length === 0, bad.slice(0, 4).join(' ; '));
+    const acc = reqs.filter((r) => r.status === 'accepted').length, dec = reqs.filter((r) => r.status === 'declined').length;
+    check('R6 join requests: the captain answers; a declined ask leaves the player free to ask another team', dec >= 1 && acc === approved.length - nTeams && !!teamOf(women[0]),
+      `${acc} accepted (want ${approved.length - nTeams}), ${dec} declined; QA Bot 2 on ${teamOf(women[0])?.name ?? 'no team'}`);
+    check('R6 a captain cannot lock a team with 3 players (mlp_lock_team)', r6.lockTested && r6.lockRefused, r6.lockTested ? 'the lock went through' : 'never tried');
+  }
+  const { data, error } = await (await asBot(st, st.bots[0].id)).rpc('generate_mlp_bracket', { p_tournament_id: tId });
+  log(error ? `BRACKET ERROR generate_mlp_bracket: ${error.message}` : `host tapped "Generate Bracket" (generate_mlp_bracket): ${data} games`);
+  if (error) die('could not generate the MLP bracket');
+  void nameOf;
+}
+
 /** Teams from the snake draft: 4 per team in the right slots, everyone once, locked, and the snake pattern by PLUPR. */
 async function r2CheckTeams(st: State, teams: MT[], approved: string[]) {
   const nm = (u: string | null) => (u ? st.bots.find((b) => b.id === u)?.name ?? u.slice(0, 8) : '-');
@@ -1232,11 +1353,18 @@ async function r2CheckSchedule(st: State, teams: MT[], rounds: XR[], ms: XM[]) {
   const seeds = draftOrder.map((t) => t.seed);
   const sameTime = new Set(teams.map((t) => t.created_at)).size === 1;
   log(`TEAM SEEDS (generate_mlp_bracket, by created_at${sameTime ? '; every team has the same created_at' : ''}): ` + [...teams].sort((a, b) => (a.seed ?? 99) - (b.seed ?? 99)).map((t) => `${t.seed}=${t.name}`).join(' '));
-  check('R2 team seeds follow PLUPR: the draft\'s team 1 (best man and woman) is seed 1, team 2 seed 2, ...', seeds.every((s, i) => s === i + 1),
+  if (R6) {
+    const byCreated = [...teams].sort((a, b) => String(a.created_at).localeCompare(String(b.created_at))).map((t) => t.seed);
+    check('R6 team seeds follow the order the teams were made (generate_mlp_bracket: by created_at)', byCreated.every((x, i) => x === i + 1), `seeds by creation: ${byCreated.join(',')}`);
+  } else check('R2 team seeds follow PLUPR: the draft\'s team 1 (best man and woman) is seed 1, team 2 seed 2, ...', seeds.every((s, i) => s === i + 1),
     `draft order has seeds ${seeds.join(',')}${sameTime ? ' (all teams share one created_at, so the seed order is arbitrary)' : ''}`);
-  const rr = rounds.filter((r) => r.round_type === 'winners');
+  const rr = rounds.filter((r) => r.round_type === 'winners' || r.round_type === 'pool');
   const n = teams.length, bad: string[] = [];
-  if (rr.length !== (n * (n - 1)) / 2) bad.push(`${rr.length} meetings, want ${(n * (n - 1)) / 2}`);
+  // R6: 2 pools by seed snake (1 A, 2 B, 3 B, 4 A, 5 A, 6 B, ...); every team meets each team in its own pool once.
+  const poolOfSeed = (sd: number) => { const k = (sd - 1) % 4; return k < 2 ? k : 3 - k; };
+  const samePool = (a: MT, b: MT) => !R6 || poolOfSeed(a.seed ?? 1) === poolOfSeed(b.seed ?? 1);
+  const wantMeet = teams.reduce((acc, a, i) => acc + teams.slice(i + 1).filter((b) => samePool(a, b)).length, 0);
+  if (rr.length !== wantMeet) bad.push(`${rr.length} meetings, want ${wantMeet}`);
   const seen = new Map<string, number>();
   for (const r of rr) {
     const mt = r2Meeting(r, ms, teams);
@@ -1255,13 +1383,14 @@ async function r2CheckSchedule(st: State, teams: MT[], rounds: XR[], ms: XM[]) {
     if (!db || db.match_type !== 'singles' || db.status !== 'pending' || JSON.stringify(db.db_order_team1) !== JSON.stringify(dbOrder(A))
         || JSON.stringify(db.db_order_team2) !== JSON.stringify(dbOrder(B)) || db.team1_player1 !== dbOrder(A)[0] || db.team2_player1 !== dbOrder(B)[0])
       bad.push(`${r.label}: dreambreaker ${db ? `${(db.db_order_team1 ?? [db.team1_player1]).map(nm).join('>')} v ${(db.db_order_team2 ?? [db.team2_player1]).map(nm).join('>')} (${db.match_type}, ${db.status})` : 'missing'}`);
-    if (r.label !== `${A.name} vs ${B.name}`) bad.push(`label "${r.label}"`);
+    const wantLabel = R6 ? `Pool ${'AB'[poolOfSeed(A.seed ?? 1)]} · ${A.name} vs ${B.name}` : `${A.name} vs ${B.name}`;
+    if (r.label !== wantLabel) bad.push(`label "${r.label}", want "${wantLabel}"`);
   }
   for (let i = 0; i < n; i++) for (let j = i + 1; j < n; j++) {
     const k = [teams[i].id, teams[j].id].sort().join('|');
-    if (seen.get(k) !== 1) bad.push(`${teams[i].name} v ${teams[j].name}: ${seen.get(k) ?? 0} meetings`);
+    if (seen.get(k) !== (samePool(teams[i], teams[j]) ? 1 : 0)) bad.push(`${teams[i].name} v ${teams[j].name}: ${seen.get(k) ?? 0} meetings`);
   }
-  check(`R2 schedule: every team meets every other team once (${(n * (n - 1)) / 2} meetings); each is Men's, Women's, Mixed 1, Mixed 2 + a singles dreambreaker between the two Dreambreaker players`,
+  check(R6 ? `R6 schedule: 2 pools by seed snake, every team meets each team in its pool once (${wantMeet} meetings); each is Men's, Women's, Mixed 1, Mixed 2 + a rotating Dreambreaker` : `R2 schedule: every team meets every other team once (${(n * (n - 1)) / 2} meetings); each is Men's, Women's, Mixed 1, Mixed 2 + a singles dreambreaker between the two Dreambreaker players`,
     bad.length === 0, bad.slice(0, 4).join(' ; '));
   // PKL-076 (fixed 2026-11-24): the Manage checklist's Generate (useTournamentDetail.generateBracket) calls
   // generate_mlp_bracket like the Teams section, and Lock in refuses MLP, so the app can no longer write men-only rows.
@@ -1299,7 +1428,7 @@ async function r2Tick(st: State, nm: Map<string, string>): Promise<'scored' | 'w
   const rounds = (rs0 ?? []) as XR[], ms = (ms0 ?? []) as XM[], teams = (tm0 ?? []) as MT[];
   const tn = (t: MT | null | undefined) => (t ? `${t.name} (seed ${t.seed})` : '?');
   if (!r2.scheduleChecked) { r2.scheduleChecked = true; await r2CheckSchedule(st, teams, rounds, ms); }
-  const rr = rounds.filter((r) => r.round_type === 'winners');
+  const rr = rounds.filter((r) => r.round_type === 'winners' || r.round_type === 'pool');
   const semis = rounds.filter((r) => r.round_type === 'semifinals'), fin = rounds.filter((r) => r.round_type === 'finals');
   const playoff = rounds.filter((r) => ['quarterfinals', 'semifinals', 'finals', 'third_place_match'].includes(r.round_type));
   const rrMs = ms.filter((m) => rr.some((r) => r.id === m.round_id));
@@ -1319,8 +1448,14 @@ async function r2Tick(st: State, nm: Map<string, string>): Promise<'scored' | 'w
     check('R2 team standings (mlp_team_standings) = the sub-match results, dreambreakers included', badSt.length === 0 && sRows.length === teams.length, badSt.slice(0, 3).join(' ; '));
     const first = playoff.filter((r) => r.round_type === 'semifinals');
     const got = first.map((r) => { const mt = r2Meeting(r, ms, teams); return [mt.A?.id, mt.B?.id].sort().join('|'); }).sort();
+    // R6 (pool play): top 2 per pool, crossed: A1 v B2, B1 v A2 (_generate_mlp_playoff_unchecked: by pool rank, then pool)
+    const poolOrder = (order: (o: TRow[]) => TRow[]) => {
+      const pk = (t: MT) => { const k = ((t.seed ?? 1) - 1) % 4; return k < 2 ? k : 3 - k; };
+      const A = order(rows.filter((r) => pk(r.team) === 0)), B = order(rows.filter((r) => pk(r.team) === 1));
+      return [A[0], B[0], B[1], A[1]];
+    };
     const pairs = (o: TRow[]) => [[o[0], o[3]], [o[1], o[2]]].map((p) => p.map((x) => x?.team.id).sort().join('|')).sort();
-    const sv = r2ServerOrder(rows), rl = r2RuleOrder(rows);
+    const sv = R6 ? poolOrder(r2ServerOrder) : r2ServerOrder(rows), rl = R6 ? poolOrder(r2RuleOrder) : r2RuleOrder(rows);
     const txt = (o: TRow[]) => `${o[0]?.team.name} v ${o[3]?.team.name}, ${o[1]?.team.name} v ${o[2]?.team.name}`;
     const gotTxt = first.map((r) => r.label).join(' ; ');
     check('R2 playoff: semifinals are created on their own after the round robin (top 4, 1v4 and 2v3)', first.length === 2 && !r2.playoffForced, `${first.length} semifinal meetings${r2.playoffForced ? ' (the host had to press Generate playoff)' : ''}`);
@@ -1457,7 +1592,7 @@ async function finishR2(st: State, nm: Map<string, string>) {
   void seedOf;
   const semisR = rounds.filter((r) => r.round_type === 'semifinals');
   const semiLosers = semisR.map((r) => r2Meeting(r, ms, teams).loser).filter((t): t is MT => !!t);
-  const rrRounds = rounds.filter((r) => r.round_type === 'winners');
+  const rrRounds = rounds.filter((r) => r.round_type === 'winners' || r.round_type === 'pool');
   const order = r2ServerOrder(r2Tally(ms.filter((m) => rrRounds.some((r) => r.id === m.round_id)), teams)).map((x) => x.team);
   const want = new Map<string, number>();
   const teamOrder = [fm?.winner, fm?.loser, ...order.filter((t) => semiLosers.some((x) => x.id === t.id)),
@@ -1663,9 +1798,10 @@ async function run() {
       if (R2 && !formatChecked) {
         formatChecked = true;
         const { data: tt } = await admin.from('tournaments').select('format, match_type, team_creation, seeding, mlp_play_format, mlp_playoff_teams, courts').eq('id', tId).single() as { data: any };
-        check('R2 tournament is mlp_random / doubles / random teams / PLUPR seeding / round robin + playoff top 4 / no courts',
-          tt.format === 'mlp_random' && tt.match_type === 'doubles' && tt.team_creation === 'random' && tt.seeding === 'elo'
-            && tt.mlp_play_format === 'round_robin_playoff' && tt.mlp_playoff_teams === 4 && !(tt.courts ?? []).some((c: string) => c?.trim()), JSON.stringify(tt));
+        check(R6 ? 'R6 tournament is mlp (fixed teams) / doubles / 2 pools + playoff top 4 / no courts'
+            : 'R2 tournament is mlp_random / doubles / random teams / PLUPR seeding / round robin + playoff top 4 / no courts',
+          tt.format === (R6 ? 'mlp' : 'mlp_random') && tt.match_type === 'doubles' && tt.team_creation === (R6 ? 'fixed' : 'random') && tt.seeding === 'elo'
+            && tt.mlp_play_format === (R6 ? 'pool_play_playoff' : 'round_robin_playoff') && tt.mlp_playoff_teams === 4 && !(tt.courts ?? []).some((c: string) => c?.trim()), JSON.stringify(tt));
       }
       if (R4 && !formatChecked) {
         formatChecked = true;
@@ -1695,6 +1831,7 @@ async function run() {
           : 'waiting: pairs forming';
         if (msg !== lastWaitMsg) log(msg); lastWaitMsg = msg; await sleep(fast ? FAST_MS : 5000); continue;
       }
+      if (R6) { await r6Form(st, approved); await sleep(fast ? FAST_MS : 5000); continue; }
       if (R2) { await r2Draw(st, approved); await sleep(fast ? FAST_MS : 5000); continue; }
       if (R7) await ensureCoAdmin(st, regs ?? []);
       if (R4) await r4LateAndPairs(st);
