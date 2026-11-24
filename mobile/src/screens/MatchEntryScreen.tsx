@@ -38,6 +38,7 @@ import { getCourtPresence } from '../data/courtPresence';
 import { hereChoices, hereFirst, nextEmptySlot } from '../lib/matchPlayersHere';
 import { badgeDisplayName } from '../lib/badgeDisplay';
 import ConfirmModal from '../components/ConfirmModal';
+import { DREAMBREAKER_RULE, dreambreakerProblem } from '../lib/mlpDreambreaker';
 
 type Props = {
   navigation: NativeStackNavigationProp<RootStackParamList, 'MatchEntry'>;
@@ -94,6 +95,7 @@ export default function MatchEntryScreen({ navigation, route }: Props) {
     tournamentId,
     tournamentMatchId,
     tournamentName,
+    dreambreaker,
     eventId,
     prefillMatchType,
     prefillTeam1Player, prefillTeam1Partner,
@@ -586,7 +588,8 @@ export default function MatchEntryScreen({ navigation, route }: Props) {
     const gameScoresPayload = parsedGames.length > 1 ? parsedGames : null;
     // The server's score rule (11+ with a 2-point lead, at most 50), said
     // here in words instead of as a raw constraint error after the send.
-    const scoreErr = scoreProblem(parsedGames.length, s1, s2);
+    // PKL-086: a Dreambreaker is one rally game to 21, win by 2 (the server refuses anything else).
+    const scoreErr = dreambreaker ? dreambreakerProblem(s1, s2) : scoreProblem(parsedGames.length, s1, s2);
     if (scoreErr) return setError(scoreErr);
     // Tournament matches inherit the tournament's location; only require for league matches.
     if (!isTournamentMatch && !location) return setError('Please enter a match location.');
@@ -633,7 +636,7 @@ export default function MatchEntryScreen({ navigation, route }: Props) {
           })
           .eq('id', tournamentMatchId));
         setSubmitted(true);
-        status.success('Tournament match recorded. PLUPR updated.');
+        status.success(dreambreaker ? 'Dreambreaker recorded. The winner takes the matchup.' : 'Tournament match recorded. PLUPR updated.');
         navTimer.current = setTimeout(() => navigation.goBack(), 1500);
         return;
       }
@@ -828,6 +831,8 @@ export default function MatchEntryScreen({ navigation, route }: Props) {
         setError(refusalCopy('match.not_member', { leagueName }));
       } else if ((e as { code?: string } | null)?.code === '23514' && /score_sanity/i.test(String((e as Error).message))) {
         setError(refusalCopy('match.score_invalid'));
+      } else if (/Dreambreaker is one rally game/.test(String((e as Error | null)?.message ?? ''))) {
+        setError(dreambreakerProblem(-1, -1) ?? '');
       } else if (/PL_TM_NOT_CALLED/.test(String((e as Error | null)?.message ?? ''))) {
         // PKL-039: courts are reserved and the queue hasn't called this match.
         setError('This match hasn\'t been called to a court yet. You\'ll get a push when it\'s your turn; the host can score it early.');
@@ -948,10 +953,12 @@ export default function MatchEntryScreen({ navigation, route }: Props) {
         <Panel emphasis style={S.tournamentBanner}>
           <View style={S.iconRow}>
             <Icon name="trophy" size={16} color={colors.rarityLegendary} />
-            <Text style={S.tournamentBannerTitle}>Recording a tournament match</Text>
+            <Text style={S.tournamentBannerTitle}>{dreambreaker ? 'Recording the Dreambreaker' : 'Recording a tournament match'}</Text>
           </View>
-          <Text style={S.tournamentBannerBody} numberOfLines={3}>
-            {tournamentName ? `From ${tournamentName}. ` : ''}Players and match type are locked from the bracket. PLUPR updates as soon as you submit — no separate confirmation step.
+          <Text style={S.tournamentBannerBody} numberOfLines={4}>
+            {dreambreaker
+              ? `${tournamentName ? `From ${tournamentName}. ` : ''}All 4 players on each team take turns in their order of play. ${DREAMBREAKER_RULE} Enter the final score; it counts for the team, not anyone's PLUPR.`
+              : `${tournamentName ? `From ${tournamentName}. ` : ''}Players and match type are locked from the bracket. PLUPR updates as soon as you submit — no separate confirmation step.`}
           </Text>
         </Panel>
       )}

@@ -1077,6 +1077,11 @@ export function r2Score(wSeed: number, lSeed: number, plan5: boolean, rand = Mat
   }
   return randomScore(rand);
 }
+/** PKL-086: a winner-first rally score to 21, win by 2 (21-0..21-19, now and then 22-20..24-22). */
+export function r2Rally21(seed: number): [number, number] {
+  const k = seed % 25;
+  return k < 20 ? [21, k] : [22 + (k - 20) % 3, 20 + (k - 20) % 3];
+}
 /** Per team over the given matches: sub-match W, L (dreambreakers included, as mlp_team_standings) and point diff. */
 export function r2Tally(ms: XM[], teams: MT[]) {
   const rows = new Map(teams.map((t) => [t.id, { team: t, wins: 0, losses: 0, diff: 0, mw: 0, ml: 0 }]));
@@ -1143,6 +1148,7 @@ function planR2() {
   const okProbe = sv.every((r, i) => i === 0 || sv[i - 1].mw >= r.mw); // PKL-084: matchups first
   console.log(`seeds 4 and 5 level on W-L with seed 5 ahead on ±: ${okTie}; the order goes by matchups won first (PKL-084): ${okProbe}`);
   let okScores = true; for (let i = 0; i < 2000; i++) for (const [a, b] of [[1, 5], [5, 1], [4, 2], [2, 4], [4, 5], [1, 2]]) { const [w, l] = r2Score(a, b, true); if (!validScore(w, l)) okScores = false; }
+  for (let i = 0; i < 500; i++) { const [w, l] = r2Rally21(h32('x' + i)); const hi = Math.max(w, l), d = Math.abs(w - l); if (!(hi >= 21 && d >= 2 && (hi === 21 || d === 2))) okScores = false; }
   console.log(`R2 scores valid: ${okScores}; ratings distinct for 20: ${new Set(Array.from({ length: 20 }, (_, i) => r2Rating(i + 1, 20))).size === 20}`);
   process.exit(okMeet && okTie && okProbe && okScores && dbs === 2 ? 0 : 1);
 }
@@ -1242,8 +1248,13 @@ async function r2CheckSchedule(st: State, teams: MT[], rounds: XR[], ms: XM[]) {
     const got = mt.subs.map((m) => [m.team1_player1, m.team1_player2, m.team2_player1, m.team2_player2]);
     if (mt.subs.length !== 4 || want.some((w, i) => JSON.stringify(w) !== JSON.stringify(got[i])) || mt.subs.some((m) => m.match_type !== 'doubles'))
       bad.push(`${r.label}: sub-matches are not Men's, Women's, Mixed 1, Mixed 2`);
-    if (!mt.db || mt.db.match_type !== 'singles' || mt.db.team1_player1 !== A.dreambreaker_player_id || mt.db.team2_player1 !== B.dreambreaker_player_id || mt.db.status !== 'pending')
-      bad.push(`${r.label}: dreambreaker ${mt.db ? `${nm(mt.db.team1_player1)} v ${nm(mt.db.team2_player1)} (${mt.db.match_type}, ${mt.db.status})` : 'missing'}`);
+    // PKL-086: each side lists its 4 in order of play: the captain's Dreambreaker pick first, then the roster.
+    const dbOrder = (t: MT) => { const ro = [t.male_1_id, t.male_2_id, t.female_1_id, t.female_2_id].filter((x): x is string => !!x);
+      return t.dreambreaker_player_id && ro.includes(t.dreambreaker_player_id) ? [t.dreambreaker_player_id, ...ro.filter((x) => x !== t.dreambreaker_player_id)] : ro; };
+    const db: any = mt.db;
+    if (!db || db.match_type !== 'singles' || db.status !== 'pending' || JSON.stringify(db.db_order_team1) !== JSON.stringify(dbOrder(A))
+        || JSON.stringify(db.db_order_team2) !== JSON.stringify(dbOrder(B)) || db.team1_player1 !== dbOrder(A)[0] || db.team2_player1 !== dbOrder(B)[0])
+      bad.push(`${r.label}: dreambreaker ${db ? `${(db.db_order_team1 ?? [db.team1_player1]).map(nm).join('>')} v ${(db.db_order_team2 ?? [db.team2_player1]).map(nm).join('>')} (${db.match_type}, ${db.status})` : 'missing'}`);
     if (r.label !== `${A.name} vs ${B.name}`) bad.push(`label "${r.label}"`);
   }
   for (let i = 0; i < n; i++) for (let j = i + 1; j < n; j++) {
@@ -1351,7 +1362,9 @@ async function r2Tick(st: State, nm: Map<string, string>): Promise<'scored' | 'w
     }
     else continue;
     const W = aWin ? mt.A : mt.B, L = aWin ? mt.B : mt.A;
-    const [w, l] = r2Score(W.seed ?? 99, L.seed ?? 99, teams.length === 5 && r.round_type === 'winners');
+    // PKL-086: a rotating Dreambreaker is one rally game to 21, win by 2 (the server refuses anything else)
+    const [w, l] = m.is_dreambreaker && (m as any).db_order_team1 ? r2Rally21(h32(m.id + 'db'))
+      : r2Score(W.seed ?? 99, L.seed ?? 99, teams.length === 5 && r.round_type === 'winners');
     const s1 = aWin ? w : l, s2 = aWin ? l : w;
     const reporter = four(m)[h32(m.id + 'r') % four(m).length];
     const bc = await asBot(st, reporter);
@@ -2087,7 +2100,8 @@ async function auditDoubles(st: State, tId: string, players: string[]) {
   const { data: rds } = await admin.from('tournament_rounds').select('id, label, round_type, round_number').eq('tournament_id', tId);
   const rdOf = new Map((rds ?? []).map((r: any) => [r.id, r]));
   const PLAYOFF_T = ['quarterfinals', 'semifinals', 'finals', 'third_place_match', 'grand_final', 'losers'];
-  const ms = ((ms0 ?? []) as any[]).filter((m) => m.status === 'completed' && m.team1_player1 && m.team2_player1);
+  // PKL-086: a rotating Dreambreaker is a team game (no PLUPR, player count or match pay), so the per-player audit skips it.
+  const ms = ((ms0 ?? []) as any[]).filter((m) => m.status === 'completed' && m.team1_player1 && m.team2_player1 && !(m.is_dreambreaker && m.db_order_team1));
   // _pl_tm_player_matches: round number, then match order, then created_at
   // MLP (PKL-060 R2): the notices (_pl_tm_player_matches) count every row that is not cancelled at the time, so a
   // dreambreaker counts until its meeting reaches 3 sub-match wins (it is cancelled in that same write) and a Final

@@ -596,6 +596,8 @@ export type RootStackParamList = {
     // that tournament_matches row instead of inserting a new league match.
     tournamentId?: string;
     tournamentMatchId?: string;
+    /** PKL-086: this tournament match is a rotating MLP Dreambreaker (one rally game to 21, win by 2). */
+    dreambreaker?: boolean;
     tournamentName?: string;
     // When set, the resulting league match is tied to a league_events row
     // (matches.event_id). Surfaces on EventDetail's matches list.

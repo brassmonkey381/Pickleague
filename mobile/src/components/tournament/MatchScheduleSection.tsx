@@ -15,6 +15,8 @@ import {
 } from './tournamentModel';
 import type { TournamentDetailNavigation, TournamentDetailState } from './useTournamentDetail';
 import { shortName } from '../../lib/finishShare';
+import { isRotatingDreambreaker, DREAMBREAKER_RULE } from '../../lib/mlpDreambreaker';
+import DreambreakerOrderSheet from './DreambreakerOrderSheet';
 import { byeSlots, courtAllowsScoring, courtLabel, hasCourts, playRounds, type CourtMatch } from '../../lib/tournamentCourts';
 
 /** Matches listed before "Show N more" while no filter is on. */
@@ -32,6 +34,8 @@ type Props = {
   setFilter: (f: ScheduleFilter) => void;
   /** "History" in the header: the full TournamentMatchHistory screen. */
   onOpenHistory: () => void;
+  /** PKL-086: reload the schedule after a Dreambreaker order change. */
+  onReload?: () => void;
 } & Pick<TournamentDetailState, 'savedMatches' | 'savedRounds' | 'playerName' | 'openMatchActionSheet'>;
 
 /**
@@ -47,12 +51,14 @@ type Props = {
  * the wager sheet when wagering is on.
  */
 export default function MatchScheduleSection({
-  navigation, tournament, myUserId, isPriv, upcomingStages, filter, setFilter, onOpenHistory,
+  navigation, tournament, myUserId, isPriv, upcomingStages, filter, setFilter, onOpenHistory, onReload,
   savedMatches, savedRounds, playerName, openMatchActionSheet,
 }: Props) {
   const { S, c } = useTournamentDetailStyles();
   const [expanded, setExpanded] = useState(false);
   const [roundPickerOpen, setRoundPickerOpen] = useState(false);
+  // PKL-086: the Dreambreaker whose order of play is being set, and which side.
+  const [orderFor, setOrderFor] = useState<{ match: any; team: 1 | 2 } | null>(null);
 
   const visible = useMemo(() => visibleScheduleMatches(savedMatches as ScheduleMatch[]), [savedMatches]);
   const myCount = visible.filter(m => involves(m, myUserId)).length;
@@ -151,13 +157,18 @@ export default function MatchScheduleSection({
   });
 
   function renderMatch(m: any, i: number) {
-    const t1 = [m.team1_player1, m.team1_player2].filter(Boolean).map(id => shortName(playerName(id))).join(' & ') || '—';
-    const t2 = [m.team2_player1, m.team2_player2].filter(Boolean).map(id => shortName(playerName(id))).join(' & ') || '—';
+    // PKL-086: a rotating Dreambreaker lists each team's 4 in order of play; an old one shows its one player.
+    const rotating = isRotatingDreambreaker(m);
+    const t1 = (rotating ? (m.db_order_team1 as string[]).map((id, k) => `${k + 1}. ${shortName(playerName(id))}`)
+      : [m.team1_player1, m.team1_player2].filter(Boolean).map(id => shortName(playerName(id)))).join(' & ') || '—';
+    const t2 = (rotating ? (m.db_order_team2 as string[]).map((id, k) => `${k + 1}. ${shortName(playerName(id))}`)
+      : [m.team2_player1, m.team2_player2].filter(Boolean).map(id => shortName(playerName(id)))).join(' & ') || '—';
     // On screen, one player per line, no "&" (the stack reads as a pair,
     // PKL-027); t1/t2 keep the "&" for the screen-reader label.
     const t1Lines = t1.split(' & ').join('\n');
     const t2Lines = t2.split(' & ').join('\n');
-    const isMyMatch = involves(m, myUserId);
+    const isMyMatch = involves(m, myUserId) || (rotating && !!myUserId
+      && ((m.db_order_team1 as string[]).includes(myUserId) || (m.db_order_team2 as string[]).includes(myUserId)));
     const completed = m.status === 'completed' && m.winner_team != null;
     const team1Won = m.winner_team === 'team1';
     // Pending dreambreaker = 5th singles sub-match the meeting is tied 2-2
@@ -189,6 +200,7 @@ export default function MatchScheduleSection({
       prefillTeam1Partner:m.team1_player2 ?? undefined,
       prefillTeam2Player: m.team2_player1 ?? undefined,
       prefillTeam2Partner:m.team2_player2 ?? undefined,
+      dreambreaker:       rotating || undefined,
     });
     // Gated (lib/features.ts): with wagering off there is nothing for a
     // long-press to open.
@@ -204,12 +216,31 @@ export default function MatchScheduleSection({
     if (wagerable) rowProps.onLongPress = () => openMatchActionSheet(m);
     return (
       <React.Fragment key={m.id}>
-        {isPendingDreambreaker && (
+        {(isPendingDreambreaker || (rotating && completed)) && (
           <View style={[local.dreamBadge, { backgroundColor: c.warningLight }]}>
             <Icon name="trophy" size={12} color={c.warning} />
-            <Text style={[local.dreamText, { color: c.warning }]}>Dreambreaker (singles tiebreaker)</Text>
+            <Text style={[local.dreamText, { color: c.warning }]}>
+              {rotating ? `Dreambreaker: ${DREAMBREAKER_RULE}` : 'Dreambreaker (singles tiebreaker)'}
+            </Text>
           </View>
         )}
+        {rotating && isPendingDreambreaker && m.team1_score == null && (() => {
+          const mine = (side: 1 | 2) => !!myUserId && (side === 1 ? m.db_order_team1 : m.db_order_team2).includes(myUserId);
+          const sides = ([1, 2] as const).filter(side => isPriv || mine(side));
+          if (!sides.length) return null;
+          return (
+            <View style={local.orderRow}>
+              {sides.map(side => (
+                <TouchableOpacity key={side} onPress={() => setOrderFor({ match: m, team: side })} accessibilityRole="button"
+                  accessibilityLabel={`Set the order of play for ${side === 1 ? 'the first' : 'the second'} team`}>
+                  <Text style={[local.orderLink, { color: c.primary }]}>
+                    {sides.length === 2 ? `Order, ${side === 1 ? 'left' : 'right'} team` : 'Set our order'}
+                  </Text>
+                </TouchableOpacity>
+              ))}
+            </View>
+          );
+        })()}
         <Row style={[S.matchRow, isMyMatch && S.matchRowHighlight]} {...rowProps}>
           <Text style={S.matchNum}>{i + 1}</Text>
           <Text style={[
@@ -318,6 +349,13 @@ export default function MatchScheduleSection({
         onPick={(id) => { setFilter({ ...filter, roundId: id }); setRoundPickerOpen(false); }}
         onClose={() => setRoundPickerOpen(false)}
       />
+      <DreambreakerOrderSheet
+        match={orderFor?.match ?? null}
+        team={orderFor?.team ?? 1}
+        playerName={playerName}
+        onClose={() => setOrderFor(null)}
+        onSaved={() => onReload?.()}
+      />
     </SectionCard>
   );
 }
@@ -329,5 +367,7 @@ const local = StyleSheet.create({
     flexDirection: 'row', alignItems: 'center', gap: SPACE.xs, alignSelf: 'flex-start',
     paddingHorizontal: SPACE.sm, paddingVertical: SPACE.xxs, borderRadius: RADIUS.sm, marginTop: SPACE.xs,
   },
-  dreamText: { fontSize: FONT.size.xs, fontWeight: FONT.weight.heavy },
+  dreamText: { fontSize: FONT.size.xs, fontWeight: FONT.weight.heavy, flexShrink: 1 },
+  orderRow: { flexDirection: 'row', gap: SPACE.md, marginTop: SPACE.xxs },
+  orderLink: { fontSize: FONT.size.sm, fontWeight: FONT.weight.bold, paddingVertical: SPACE.xxs },
 });

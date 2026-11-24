@@ -1183,6 +1183,7 @@ export default function TournamentDetailScreen({ navigation, route }: Props) {
                     title: `${tournament.name} History`,
                   })}
                   savedMatches={td.savedMatches}
+                  onReload={() => { void td.load(); }}
                   savedRounds={td.savedRounds}
                   playerName={td.playerName}
                   openMatchActionSheet={td.openMatchActionSheet}
