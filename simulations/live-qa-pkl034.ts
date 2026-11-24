@@ -1248,9 +1248,15 @@ async function r6Form(st: State, approved: string[]) {
     for (const r of pending) {
       const t = teams.find((x) => x.id === r.team_id)!;
       const decline = !r6.declined && r6.declineAsked && r.user_id === women[0] && t.id === teams[teams.length - 1].id;
-      const { error } = await (await asBot(st, t.captain_id!)).rpc('mlp_respond_to_join', { p_request_id: r.id, p_accept: !decline });
+      let { error } = await (await asBot(st, t.captain_id!)).rpc('mlp_respond_to_join', { p_request_id: r.id, p_accept: !decline });
       if (decline && !error) r6.declined = true;
       log(error ? `JOIN ERROR ${N(t.captain_id)} answering ${N(r.user_id)}: ${error.message}` : `captain ${N(t.captain_id)} ${decline ? 'DECLINED' : 'accepted'} ${N(r.user_id)}'s ask to join "${t.name}"`);
+      if (error && !decline) {
+        // the slot filled since they asked: the captain declines, so the player is free to ask another team
+        ({ error } = await (await asBot(st, t.captain_id!)).rpc('mlp_respond_to_join', { p_request_id: r.id, p_accept: false }));
+        log(error ? `JOIN ERROR ${N(t.captain_id)} declining ${N(r.user_id)}: ${error.message}` : `captain ${N(t.captain_id)} declined ${N(r.user_id)} (that spot is full)`);
+        if (error) die('a join request can be neither accepted nor declined');
+      }
     }
     return;
   }
@@ -1266,10 +1272,12 @@ async function r6Form(st: State, approved: string[]) {
     const { error } = await (await asBot(st, w)).rpc('mlp_request_join', { p_team_id: target.id, p_message: null });
     log(error ? `JOIN ERROR ${N(w)} -> "${target.name}": ${error.message}` : `${N(w)} asked to join "${target.name}"`); asked++;
   }
+  const askedMale = new Set<string>();
   if (youOn) for (const m of men) {
     if (teamOf(m) || m === st.brian || captains.includes(m)) continue;
-    const target = teams.find((t) => open(t, 'male') && !reqs.some((r) => r.team_id === t.id && r.status === 'pending' && g.get(r.user_id) === 'male'));
+    const target = teams.find((t) => open(t, 'male') && !askedMale.has(t.id) && !reqs.some((r) => r.team_id === t.id && r.status === 'pending' && g.get(r.user_id) === 'male'));
     if (!target) break;
+    askedMale.add(target.id);
     const { error } = await (await asBot(st, m)).rpc('mlp_request_join', { p_team_id: target.id, p_message: null });
     log(error ? `JOIN ERROR ${N(m)} -> "${target.name}": ${error.message}` : `${N(m)} asked to join "${target.name}"`); asked++;
   }
