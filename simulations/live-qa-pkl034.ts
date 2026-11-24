@@ -2108,7 +2108,8 @@ async function auditDoubles(st: State, tId: string, players: string[]) {
   // sub-match left unplayed when the tournament closed counts too. Those rows join the player's list, never the scores.
   const goneAt = new Map<string, number>();
   const extraRows = ((R2 ? ms0 ?? [] : []) as any[]).filter((m) => m.team1_player1 && m.team2_player1 && m.status !== 'completed'
-    && (m.status === 'pending' || (m.status === 'cancelled' && m.is_dreambreaker)));
+    && (m.status === 'pending' || (m.status === 'cancelled' && m.is_dreambreaker))
+    && !(m.is_dreambreaker && m.db_order_team1)); // PKL-086: a rotating Dreambreaker is no one's personal match
   for (const x of extraRows.filter((m) => m.status === 'cancelled')) {
     const subs = ms.filter((m) => m.round_id === x.round_id && !m.is_dreambreaker).sort((a, b) => String(a.completed_at).localeCompare(String(b.completed_at)));
     let a = 0, b = 0;
