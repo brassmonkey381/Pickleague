@@ -17,7 +17,7 @@ import { useStatusMessage } from '../../lib/useStatusMessage';
 import { sbCall, currentUserId, friendlySbMessage } from '@just-messin-around/expo-foundation/supabase';
 import { useRefresh } from '../../lib/useRefresh';
 import { fetchFinalRanks, type FinalRankRow, type TieRanks } from '../../lib/tournamentStandings';
-import type { MlpTeamSlots } from './tournamentModel';
+import { matchResultsKey, type MlpTeamSlots } from './tournamentModel';
 import { ROUND_FORMATS, courtsText, parseCourts } from '../../lib/tournamentCourts';
 
 export type TournamentDetailNavigation = NativeStackNavigationProp<RootStackParamList, 'TournamentDetail'>;
@@ -164,6 +164,8 @@ export function useTournamentDetail({ navigation, tournamentId }: {
   useFocusEffect(useCallback(() => { load(); }, []));
 
   const refresh = useRefresh(load);
+  /** PKL-089: changes on every score; the MLP standings (card and Playoff block) re-fetch on it. */
+  const resultsKey = React.useMemo(() => matchResultsKey(savedMatches), [savedMatches]);
 
   // Refresh MLP standings whenever the tournament loads or new matches land —
   // the RPC reads completed sub-match counts, so it updates as games finish.
@@ -186,7 +188,8 @@ export function useTournamentDetail({ navigation, tournamentId }: {
       setMlpStandings((data ?? []) as any);
     })();
     return () => { cancelled = true; };
-  }, [tournamentId, tournament?.format, tournament?.mlp_play_format, tournament?.status, savedMatches.length]);
+    // PKL-089: re-fetch on every result change, not on the row count (a score adds no rows, so W-L froze at 0-0).
+  }, [tournamentId, tournament?.format, tournament?.mlp_play_format, tournament?.status, resultsKey]);
 
   async function load() {
     // Local session read: the old getUser() was a network round trip that
@@ -1227,7 +1230,7 @@ export function useTournamentDetail({ navigation, tournamentId }: {
     status, refresh, load, loading, loadError,
     // Data
     tournament, registrations, myRole, myUserId, godmode,
-    doublesPairs, savedMatches, savedRounds, mlpStandings,
+    doublesPairs, savedMatches, savedRounds, mlpStandings, resultsKey,
     profileNames, profileRatings, wagerMarketSorted, finalRanks, mlpTeams, tieRanks,
     // Schedule filter
     myMatchesOnly, setMyMatchesOnly,

@@ -38,12 +38,19 @@ type Props = {
    * the section (TournamentDetail's "Playoff" section). Default false.
    */
   bare?: boolean;
+  /**
+   * PKL-089: the screen's own mlp_team_standings rows (the Standings card's source). When given, this block shows
+   * them instead of its own fetch, so both sections always agree.
+   */
+  standings?: StandingsRow[] | null;
+  /** PKL-089: changes on every score (matchResultsKey); the playoff part reloads on it. */
+  resultsKey?: string;
 };
 
 type StandingsRow = {
   team_id: string;
   team_name: string;
-  seed: number;
+  seed: number | null;
   pool_letter: string | null;
   sub_matches_won: number;
   sub_matches_lost: number;
@@ -56,7 +63,7 @@ type StandingsRow = {
 const mlpOrder = (a: StandingsRow, b: StandingsRow) =>
   ((b.matchups_won ?? 0) - (a.matchups_won ?? 0)) || ((a.matchups_lost ?? 0) - (b.matchups_lost ?? 0))
   || ((b.point_diff ?? 0) - (a.point_diff ?? 0))
-  || (b.sub_matches_won - a.sub_matches_won) || (a.sub_matches_lost - b.sub_matches_lost) || (a.seed - b.seed);
+  || (b.sub_matches_won - a.sub_matches_won) || (a.sub_matches_lost - b.sub_matches_lost) || ((a.seed ?? 0) - (b.seed ?? 0));
 
 type MlpTeam = {
   id: string;
@@ -99,14 +106,15 @@ const ROTATION_LABELS = ["Men's Doubles", "Women's Doubles", 'Mixed 1', 'Mixed 2
 
 export default function MlpPlayoffPreview({
   tournamentId, tournamentName, leagueId,
-  mlpPlayFormat, poolCount, playoffTeams, isAdmin, bare = false,
+  mlpPlayFormat, poolCount, playoffTeams, isAdmin, bare = false, standings, resultsKey,
 }: Props) {
   const { colors: c } = useTheme();
   const S = makeStyles(c);
   const navigation = useNavigation<NativeStackNavigationProp<RootStackParamList>>();
   const genStatus = useStatusMessage();
 
-  const [rows, setRows]               = useState<StandingsRow[]>([]);
+  const [fetchedRows, setRows]        = useState<StandingsRow[]>([]);
+  const rows = standings ?? fetchedRows;
   const [teams, setTeams]             = useState<MlpTeam[]>([]);
   const [profileNames, setProfileNames] = useState<Record<string, string>>({});
   const [playoffRounds, setPlayoffRounds] = useState<PlayoffRound[]>([]);
@@ -130,7 +138,7 @@ export default function MlpPlayoffPreview({
   }
   const generate = useAsyncPress(generatePlayoff);
 
-  useFocusEffect(useCallback(() => { load(); }, [tournamentId, mlpPlayFormat]));
+  useFocusEffect(useCallback(() => { load(); }, [tournamentId, mlpPlayFormat, resultsKey]));
 
   async function load() {
     setLoading(true);

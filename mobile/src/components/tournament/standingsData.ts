@@ -148,11 +148,15 @@ type Rankish = StandingRow & { tieRank?: number | null; tieKeys: string[] };
 function withTieInfo(
   key: string, label: string | null, rows: Rankish[], scope?: (r: Rankish) => string,
 ): StandingsTable {
+  // PKL-089: a tie only matters once there are results. Rows that haven't played get no tie note and no level
+  // group, so a pool still at 0-0 doesn't ask the admin to order it before any game.
+  const played = (r: Rankish) => r.wins + r.losses > 0 || (r.pf ?? 0) + (r.pa ?? 0) > 0;
   const notes = explainTies(rows, scope);
+  for (const r of rows) if (!played(r)) delete notes[r.key];
   const nameByKey = new Map(rows.map(r => [r.key, r.name]));
   const ties: Record<string, string> = {};
   for (const k of Object.keys(notes)) ties[k] = tieLine(notes[k], x => nameByKey.get(x) ?? '?');
-  const groups: TieGroupView[] = levelGroups(rows, scope).map(g => {
+  const groups: TieGroupView[] = levelGroups(rows, scope).filter(g => g.members.some(played)).map(g => {
     if (g.waiting) for (const m of g.members) m.waiting = true;
     const first = g.members[0];
     return {
@@ -226,7 +230,7 @@ export function buildStandings(i: StandingsInput): StandingsData | null {
     });
     const rows: Rankish[] = sortMlpTeamStandings(withPts).map(r => ({
       key: r.team_id,
-      name: r.pool_letter ? `${r.team_name}, Pool ${r.pool_letter}` : r.team_name,
+      name: r.team_name,
       isMe: !!i.myMlpTeamId && r.team_id === i.myMlpTeamId,
       wins: r.matchups_won ?? r.sub_matches_won,
       losses: r.matchups_lost ?? r.sub_matches_lost,
@@ -234,16 +238,20 @@ export function buildStandings(i: StandingsInput): StandingsData | null {
       tieRank: r.tieRank,
       tieKeys: r.tieKeys,
     }));
+    // PKL-089: one table per pool (Pool A, Pool B, ...), each ranked on its own; one table when there are no pools.
     const poolOf = new Map(i.mlpStandings.map(r => [r.team_id, r.pool_letter ?? '']));
-    const table = withTieInfo('mlp', null, rows, r => poolOf.get(r.key) ?? '');
+    const pools = [...new Set(rows.map(r => poolOf.get(r.key) ?? ''))].sort();
+    const tables = pools.some(p => p !== '')
+      ? pools.map(p => withTieInfo(`mlp:${p}`, p ? `Pool ${p}` : null, rows.filter(r => (poolOf.get(r.key) ?? '') === p)))
+      : [withTieInfo('mlp', null, rows)];
     return {
       kind: 'mlp',
       entrantLabel: 'Team',
       recordLabel: 'W-L',
       note: "A matchup is 4 games (men's, women's, 2 mixed) and a Dreambreaker at 2-2; winning it is 1 win. Ties: point diff, then games won, then the admin's order.",
       settled: false,
-      tables: [table],
-      waitingCount: countWaiting([table]),
+      tables,
+      waitingCount: countWaiting(tables),
     };
   }
 

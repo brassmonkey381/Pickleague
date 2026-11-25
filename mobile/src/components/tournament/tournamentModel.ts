@@ -75,6 +75,16 @@ export function involves(m: ScheduleMatch, userId: string | null | undefined): b
     || m.team2_player1 === userId || m.team2_player2 === userId;
 }
 
+/**
+ * PKL-089: a key that changes whenever any match's result changes (a score, a status, a new or removed row).
+ * Data derived from results (the MLP standings RPC) re-fetches on it; the row count alone missed every score.
+ */
+export function matchResultsKey(matches: Array<{ id: string; status?: string | null; winner_team?: string | null;
+  team1_score?: number | null; team2_score?: number | null }>): string {
+  return matches.map(m => `${m.id}:${m.status ?? ''}:${m.winner_team ?? ''}:${m.team1_score ?? ''}-${m.team2_score ?? ''}`)
+    .sort().join('|');
+}
+
 /** A cancelled dreambreaker never gets played (the meeting was decided 3-1 or
  *  4-0), so it is never listed. A pending one still is: the 2-2 tie needs it. */
 export function visibleScheduleMatches<M extends ScheduleMatch>(matches: M[]): M[] {

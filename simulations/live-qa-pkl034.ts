@@ -1524,6 +1524,7 @@ async function r2Tick(st: State, nm: Map<string, string>): Promise<'scored' | 'w
     log(`SCORE ${r.label} · ${kind}: ${side(m.team1_player1, m.team1_player2)} ${s1}-${s2} ${side(m.team2_player1, m.team2_player2)}  (entered by ${N(reporter)})`
       + `  [meeting ${mt.subA + (aWin && !m.is_dreambreaker ? 1 : 0)}-${mt.subB + (!aWin && !m.is_dreambreaker ? 1 : 0)}${m.is_dreambreaker ? `, dreambreaker to ${W.name}` : ''}]`);
     r2.idle = 0;
+    await standingsOracle(st.tournament_id!);
     return 'scored';
   }
 
@@ -1573,6 +1574,43 @@ async function r2Tick(st: State, nm: Map<string, string>): Promise<'scored' | 'w
   return 'wait';
 }
 
+/**
+ * PKL-089: after every MLP score, the server's standings (mlp_team_standings, what both the Standings card and the
+ * Playoff section show) must match the rule: a matchup is 1 win once a team has 3 game wins (Dreambreaker included),
+ * or once no game in it is open and one team won more. Mismatches are kept for one end-of-run check.
+ */
+const oracle89 = { n: 0, bad: [] as string[] };
+async function standingsOracle(tId: string) {
+  const [{ data: rs }, { data: ms }, { data: tm }, { data: st }] = await Promise.all([
+    admin.from('tournament_rounds').select('id, label').eq('tournament_id', tId),
+    admin.from('tournament_matches').select('round_id, match_order, status, winner_team, team1_player1, team1_player2, team2_player1, team2_player2').eq('tournament_id', tId),
+    admin.from('mlp_teams').select('id, name, male_1_id, male_2_id, female_1_id, female_2_id, status').eq('tournament_id', tId),
+    admin.rpc('mlp_team_standings', { p_tournament_id: tId }),
+  ]);
+  const teams = ((tm ?? []) as any[]).filter((t) => t.status === 'locked');
+  const teamOf = (u: string | null) => (u ? teams.find((t) => [t.male_1_id, t.male_2_id, t.female_1_id, t.female_2_id].includes(u))?.id : undefined);
+  const want = new Map<string, [number, number]>(teams.map((t) => [t.id, [0, 0]]));
+  for (const r of (rs ?? []) as any[]) {
+    const games = ((ms ?? []) as any[]).filter((m) => m.round_id === r.id).sort((a, b) => a.match_order - b.match_order);
+    if (!games.length) continue;
+    const A = teamOf(games[0].team1_player1), B = teamOf(games[0].team2_player1);
+    if (!A || !B) continue;
+    const a = games.filter((m) => m.status === 'completed' && m.winner_team === 'team1').length;
+    const b = games.filter((m) => m.status === 'completed' && m.winner_team === 'team2').length;
+    const open = games.some((m) => !['completed', 'cancelled'].includes(m.status));
+    if (a === b || !(Math.max(a, b) >= 3 || !open)) continue;
+    const [w, l] = a > b ? [A, B] : [B, A];
+    want.get(w)![0]++; want.get(l)![1]++;
+  }
+  oracle89.n++;
+  for (const row of (st ?? []) as any[]) {
+    const [w, l] = want.get(row.team_id) ?? [0, 0];
+    if (row.matchups_won !== w || row.matchups_lost !== l) {
+      oracle89.bad.push(`check ${oracle89.n}: ${row.team_name} server ${row.matchups_won}-${row.matchups_lost}, rule ${w}-${l}`);
+    }
+  }
+}
+
 /** R2 completion: auto-close, the champion, every meeting's dreambreaker, the final ranks, then the PKL-043 audit. */
 async function finishR2(st: State, nm: Map<string, string>) {
   const tId = st.tournament_id!; const N = (id: string) => nm.get(id) ?? id.slice(0, 8);
@@ -1587,6 +1625,8 @@ async function finishR2(st: State, nm: Map<string, string>) {
   const teamOf = (u: string) => teams.find((t) => mlpMembers(t).includes(u));
   log('COMPLETED. Final ranks:\n' + (ranks ?? []).map((r: any) => `    ${String(r.final_rank).padStart(2)}. ${N(r.user_id).padEnd(12)} ${teamOf(r.user_id)?.name.padEnd(22) ?? ''} ${r.wins}-${r.losses}`).join('\n'));
   check('R2 tournament auto-completed after the Final (no "Complete tournament")', !r2.completeAsked);
+  check(`PKL-089 standings after every score (${oracle89.n} checks): each matchup counts as soon as a team has 3 game wins, the same W-L the Standings card and the Playoff section show`,
+    oracle89.n > 0 && oracle89.bad.length === 0, oracle89.bad.slice(0, 4).join(' ; '));
   const fin = rounds.filter((r) => r.round_type === 'finals');
   const fm = fin[0] ? r2Meeting(fin[0], ms, teams) : null;
   if (!r2.finalChecked) r2CheckMeetings('R2 semifinals', rounds.filter((r) => r.round_type === 'semifinals'), ms, teams);

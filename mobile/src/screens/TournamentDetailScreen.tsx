@@ -954,6 +954,8 @@ export default function TournamentDetailScreen({ navigation, route }: Props) {
         poolCount={tournament.mlp_pool_count ?? 2}
         playoffTeams={tournament.mlp_playoff_teams ?? 4}
         isAdmin={isPriv}
+        standings={td.mlpStandings}
+        resultsKey={td.resultsKey}
       />
     </CollapsibleSection>
   ) : null;
