@@ -273,12 +273,18 @@ export default function MatchScheduleSection({
     );
   }
 
+  // PKL-085 #7: MLP counts matchups (4 games and a Dreambreaker each), not games: "1 of 13 matchups", not "5 of 52".
+  const mlpCount = tournament.format === 'mlp' || tournament.format === 'mlp_random';
+  const matchups = (ms: { round_id?: string | null; id: string }[]) => new Set(ms.map(m => m.round_id ?? m.id)).size;
+  const countLabel = mlpCount
+    ? (filtered ? `${matchups(displayed as any)} of ${matchups(visible as any)} matchups` : `${matchups(visible as any)} matchups`)
+    : (filtered ? `${displayed.length} of ${visible.length}` : visible.length);
   const expectedTotal = visible.length + upcomingStages.reduce((n, s) => n + s.total, 0);
 
   return (
     <SectionCard
       title="Schedule"
-      count={filtered ? `${displayed.length} of ${visible.length}` : visible.length}
+      count={countLabel}
       action={{ label: 'History', onPress: onOpenHistory, a11yLabel: 'Open the full match history' }}
     >
       <FilterChipRow
