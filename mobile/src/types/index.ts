@@ -520,6 +520,8 @@ export type Wager = {
 };
 
 export type RootStackParamList = {
+  /** PKL-090 DEV-ONLY golden screens (registered only in __DEV__). */
+  Goldens: undefined;
   /** `email` fills the field (from Check your email). */
   Login: { email?: string } | undefined;
   Register: undefined;

@@ -84,6 +84,7 @@ export const linking: LinkingOptions<RootStackParamList> = {
     initialRouteName: 'Home',
     screens: {
       Login: 'login',
+      ...(typeof __DEV__ !== 'undefined' && __DEV__ ? { Goldens: 'dev/goldens' } : {}),
       Register: 'register',
       CheckEmail: 'check-email',
       GuestJoin: 'g/:token',

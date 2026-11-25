@@ -55,6 +55,8 @@ type Unit = {
   winner: 1 | 2 | null; open: boolean; live: string | null; label: string;
   /** Named playoff rounds (Semifinal, Final, ...) group by type, whatever their round_number; others by number. */
   stageKey: string; named: boolean;
+  /** "Semifinal 2" / "Round 1, match 2", or '' in the group stage; and "A v B". */
+  name: string; vs: string;
 };
 
 function sideOf(m: WaitMatch, t: 1 | 2): string[] {
@@ -95,20 +97,21 @@ function buildUnits(i: WaitInput): Unit[] {
       const m = sorted[0];
       winner = m.status === 'completed' && m.winner_team ? (m.winner_team === 'team1' ? 1 : 2) : null;
       open = m.status === 'pending';
-      if (open && called) live = `on ${courtName(called.court!)} now`;
+      if (open && called) live = `on ${courtName(called.court!)}`;
     }
     units.push({ key, roundType: rt, roundNumber: first.round?.round_number ?? 0, order: first.match_order ?? 0, group,
-      side1, side2, firstMatchId: first.id, winner, open, live, label: '',
+      side1, side2, firstMatchId: first.id, winner, open, live, label: '', name: '', vs: '',
       stageKey: ROUND_NAME[rt] ? rt : `${rt}#${first.round?.round_number ?? 0}`, named: !group && !!ROUND_NAME[rt] });
   }
   // labels: "Semifinal 2: A v B", "Round 1, match 2: A v B", "A v B" for the group stage
   for (const u of units) {
     const peers = units.filter(x => x.stageKey === u.stageKey).sort((a, b) => a.roundNumber - b.roundNumber || a.order - b.order);
     const k = peers.indexOf(u) + 1;
-    const name = u.group ? ''
-      : u.named ? `${ROUND_NAME[u.roundType]}${peers.length > 1 ? ` ${k}` : ''}: `
-      : `Round ${u.roundNumber}${peers.length > 1 ? `, match ${k}` : ''}: `;
-    u.label = `${name}${i.nameOf(u.side1)} v ${i.nameOf(u.side2)}`;
+    u.name = u.group ? ''
+      : u.named ? `${ROUND_NAME[u.roundType]}${peers.length > 1 ? ` ${k}` : ''}`
+      : `Round ${u.roundNumber}${peers.length > 1 ? `, match ${k}` : ''}`;
+    u.vs = `${i.nameOf(u.side1)} v ${i.nameOf(u.side2)}`;
+    u.label = u.name ? `${u.name}: ${u.vs}` : u.vs;
   }
   return units;
 }
@@ -143,7 +146,9 @@ export function waitReason(i: WaitInput): WaitReason | null {
     const title = `${youre} in the ${next}`;
     if (!blockers.length) return { title, line: 'It is being drawn now.', matchId: null };
     const line = blockers.length === 1
-      ? `It starts when ${withLive(blockers[0])} ends.`
+      ? (blockers[0].name
+        ? `It starts when ${blockers[0].name} ends: ${blockers[0].vs}${blockers[0].live ? `, ${blockers[0].live}` : ''}.`
+        : `It starts when ${withLive(blockers[0])} ends.`)
       : `It starts when ${blockers.length} more matches end.`;
     return { title, line, matchId: blockers[0].firstMatchId };
   }
@@ -154,7 +159,7 @@ export function waitReason(i: WaitInput): WaitReason | null {
     const now = groupOpen.find(u => u.live);
     const n = groupOpen.length;
     const line = `${n} more ${word}${n === 1 ? '' : team ? 's' : 'es'} to finish${i.hasPlayoff ? ' before the playoff draw' : ''}`
-      + (now ? `. Now: ${now.label}, ${now.live}` : '.');
+      + (now ? `. Now: ${now.label}, ${now.live}.` : '.');
     return { title: team ? 'Your matchups are done' : 'Your matches are done', line, matchId: (now ?? groupOpen[0]).firstMatchId };
   }
   const playoffOpen = units.filter(u => !u.group && u.open).sort((a, b) => b.roundNumber - a.roundNumber || a.order - b.order);

@@ -29,7 +29,7 @@ describe('PKL-091 why no match right now', () => {
     ];
     const w = waitReason({ format: 'mlp', isMlp: true, hasPlayoff: true, me: T.TSC, matches: ms, nameOf: teamName })!;
     expect(w.title).toBe('Your team is in the Final');
-    expect(w.line).toBe('It starts when Semifinal 2: KK v EE, 2-2, Dreambreaker on Court 1 ends.');
+    expect(w.line).toBe('It starts when Semifinal 2 ends: KK v EE, 2-2, Dreambreaker on Court 1.');
     expect(w.matchId).toBe(ms[5].id);
   });
 
@@ -53,7 +53,7 @@ describe('PKL-091 why no match right now', () => {
     ];
     const w = waitReason({ format: 'mlp', isMlp: true, hasPlayoff: true, me: T.TSC, matches: ms, nameOf: teamName })!;
     expect(w.title).toBe('Your matchups are done');
-    expect(w.line).toBe('1 more matchup to finish before the playoff draw. Now: EE v LC, 1-1');
+    expect(w.line).toBe('1 more matchup to finish before the playoff draw. Now: EE v LC, 1-1.');
   });
 
   it('a match of mine is open: no wait reason (the next-match card shows)', () => {
@@ -67,7 +67,7 @@ describe('PKL-091 why no match right now', () => {
     const ms = [mk(r1, ['a'], ['b'], won('team1')), mk(r1, ['c'], ['d'], { called_at: 'x', court: '2' }), mk(r1, ['b'], ['d'])];
     const w = waitReason({ format: 'round_robin', isMlp: false, hasPlayoff: false, me: ['a'], matches: ms, nameOf: p => p.join(' & ') })!;
     expect(w.title).toBe('Your matches are done');
-    expect(w.line).toBe('2 more matches to finish. Now: c v d, on Court 2 now');
+    expect(w.line).toBe('2 more matches to finish. Now: c v d, on Court 2.');
   });
 
   it('bracket: won my quarterfinal, waiting on the other two', () => {

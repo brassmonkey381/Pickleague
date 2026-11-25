@@ -4,6 +4,20 @@ PKL-090. This page says how every standings table in PickLeague must read. Brian
 and example. Once he signs off, tests check the app against these examples and the golden screens, and only he
 changes them. Each rule below is what the app does **today**. Questions for Brian are marked **Q**.
 
+## 0. Two stages, never mixed (Brian, 2026-11-25)
+
+1. **Stage 1, round robin or pool play**, has its own standings table, one per pool. The moment the stage ends, the
+   table is **locked and labelled "final"**.
+2. **Stage 2, the playoff (optional)**, decides the final places from playoff results. A podium shows 1st (Final
+   winner), 2nd (Final loser), 3rd and 4th (from the 3rd-place match, or a shared 3rd if there isn't one), then any
+   further playoff rounds the same way.
+3. **Then everyone who didn't reach the playoff**, ranked by pool finish: pool place, then W-L, then ±, then the
+   organizer's tie order. Teams with the same pool place in different pools are ordered by record. They are never
+   shown as one mixed W-L table.
+4. **Never one combined "final standings" table** that mixes pool records with playoff places.
+
+Brian approved this layout in the Finished phone mock.
+
 ## 1. Every format
 
 1. **Only finished matches count.** A match not yet played, or a cancelled one, adds nothing. Its players still
@@ -18,14 +32,14 @@ changes them. Each rule below is what the app does **today**. Questions for Bria
 ### Example A: round robin, 4 players
 
 Results: Ana beat Ben 11-7. Ana beat Cal 11-9. Dee beat Ana 11-4. Ben beat Cal 11-3. Ben beat Dee 11-8.
-Cal beat Dee 11-6.
+Cal beat Dee 11-7.
 
 | # | Player | W-L | ± |
 |---|--------|-----|---|
 | 1 | Ben | 2-1 | +7 |
 | 2 | Ana | 2-1 | -1 |
-| 3 | Dee | 1-2 | -1 |
-| 4 | Cal | 1-2 | -5 |
+| 3 | Dee | 1-2 | 0 |
+| 4 | Cal | 1-2 | -6 |
 
 Ben is above Ana although Ana beat Ben, because head-to-head never counts (rule 3).
 
