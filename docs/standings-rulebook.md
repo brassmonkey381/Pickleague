@@ -18,6 +18,11 @@ changes them. Each rule below is what the app does **today**. Questions for Bria
 5. **Order on the screen.** Before the playoff is drawn, the round robin or pool standings are the only section.
    From the draw on: the "next" card, then the playoff (matchups, then the podium once finished), then the locked
    "Round robin, final" or "Pool play, final" tables below. Every format, MLP included (Brian, 2026-11-25).
+6. **Once the tournament closes there is no "Final results" card** (Brian, review v4).
+   - No playoff (a round robin or pool play alone): the Standings card stays exactly as it was, with a **FINAL**
+     stamp next to the "Standings" heading. Its table is the final result; no second table repeats it.
+   - Pool play or round robin plus a playoff: "Final placement" (playoff places, then everyone else by pool finish),
+     then the "Pool play, final" or "Round robin, final" tables.
 
 Brian approved this layout in the Finished phone mock.
 

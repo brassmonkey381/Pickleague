@@ -217,7 +217,9 @@ export type YouCardInput = {
 /** The plan's status x role table, one row per branch. */
 export function youCardKind(i: YouCardInput): YouCardKind {
   if (i.status === 'cancelled') return 'none';
-  if (i.status === 'completed') return i.hasFinalRanks ? 'finished' : 'none';
+  // PKL-085 (Brian 2026-11-25, review v4): no Final results card. The Standings card (stamped FINAL) or the
+  // Final placement section is the result. 'finished' stays for the PKL-092 share entry.
+  if (i.status === 'completed') return 'none';
   if (i.status === 'active') {
     if (i.hasNextMatch) return 'next_match';
     if (i.inSchedule || i.myReg?.status === 'approved') return 'playing';

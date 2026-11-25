@@ -20,9 +20,11 @@ import type { StandingRow, StandingsData } from './standingsData';
 /** Rows shown before "Show all" on a single long table. */
 const TOP_ROWS = 8;
 
-export default function StandingsSection({ data, title, canOrderTies = false, onSaveTieOrder }: {
+export default function StandingsSection({ data, title, stamp, canOrderTies = false, onSaveTieOrder }: {
   data: StandingsData;
   title: string;
+  /** "Final" once a single-stage tournament ends: its table is the final result (Brian 2026-11-25). */
+  stamp?: string;
   /** The viewer is a tournament admin/host (PKL-052). */
   canOrderTies?: boolean;
   /** Saves one level group's order (server entrant keys, first place first). */
@@ -89,7 +91,7 @@ export default function StandingsSection({ data, title, canOrderTies = false, on
   };
 
   return (
-    <SectionCard title={title}>
+    <SectionCard title={title} stamp={stamp}>
       <Text style={[t.meta, styles.note]} numberOfLines={2} maxFontSizeMultiplier={SMALL_TEXT_MAX_SCALE}>
         {data.note}
       </Text>

@@ -909,8 +909,10 @@ export default function TournamentDetailScreen({ navigation, route }: Props) {
   const standingsTitle = standings?.groupStage
     ? (tournament.format === 'pool_play' ? 'Pool play, final' : 'Round robin, final')
     : standings?.placement ? 'Standings'
-    : status === 'completed' ? 'Final standings'
+    : status === 'completed' ? 'Standings'
     : isMlp && mlpPlayoff && playoffExists ? 'Pool play, final' : 'Standings';
+  // Brian 2026-11-25 (review v4): a single-stage event that has ended keeps its Standings card, stamped FINAL.
+  const standingsStamp = status === 'completed' && !standings?.groupStage && !standings?.placement && standingsTitle === 'Standings' ? 'Final' : undefined;
 
   const teamsSummary = isMlp
     ? `${td.mlpTeams.length} team${td.mlpTeams.length === 1 ? '' : 's'} formed`
@@ -1179,6 +1181,7 @@ export default function TournamentDetailScreen({ navigation, route }: Props) {
                   <StandingsSection
                     data={standings}
                     title={standingsTitle}
+                    stamp={standingsStamp}
                     canOrderTies={isPriv}
                     onSaveTieOrder={td.saveTieOrder}
                   />
@@ -1194,6 +1197,7 @@ export default function TournamentDetailScreen({ navigation, route }: Props) {
                   <StandingsSection
                     data={standings}
                     title={standingsTitle}
+                    stamp={standingsStamp}
                     canOrderTies={isPriv}
                     onSaveTieOrder={td.saveTieOrder}
                   />

@@ -60,8 +60,8 @@ describe('youCardKind', () => {
     expect(youCardKind({ ...base, status: 'active', myReg: { status: 'pending', invited_by: null } })).toBe('requested');
     expect(youCardKind({ ...base, status: 'active', myReg: { status: 'waitlisted', invited_by: null } })).toBe('waitlisted');
   });
-  it('completed x anyone: finished once settled ranks exist', () => {
-    expect(youCardKind({ ...base, status: 'completed', hasFinalRanks: true })).toBe('finished');
+  it('completed x anyone: no card (Brian 2026-11-25: the standings or the final placement is the result)', () => {
+    expect(youCardKind({ ...base, status: 'completed', hasFinalRanks: true })).toBe('none');
     expect(youCardKind({ ...base, status: 'completed', hasFinalRanks: false })).toBe('none');
   });
   it('cancelled: no card, whoever is looking', () => {

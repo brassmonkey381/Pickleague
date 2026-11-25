@@ -16,7 +16,6 @@ import TournamentYouCard, { youCardView, type YouCardFacts } from '../components
 import { buildStandings, myStanding } from '../components/tournament/standingsData';
 import { mlpPoolGroups } from '../lib/mlpStandings';
 import { waitReason } from '../lib/waitReason';
-import { podiumFromFinalRanks } from '../lib/tournamentStandings';
 import { goldenMoments, type GoldenMoment } from '../lib/__dev__/goldenSamples';
 
 const noop = () => {};
@@ -44,12 +43,9 @@ function Moment({ m }: { m: GoldenMoment }) {
   const data = buildStandings(m.standings);
   const w = m.wait ? waitReason(m.wait) : null;
   const done = m.standings.tournament.status === 'completed';
-  const ranks = m.standings.finalRanks ?? [];
-  const meRank = ranks.find(r => r.user_id === m.standings.myUserId)?.final_rank ?? null;
-  const view = done
-    ? youCardView('finished', { ...facts(m), myRank: meRank, podium: podiumFromFinalRanks(ranks).map(p => ({
-        rank: p.rank, names: p.userIds.map(u => m.standings.profileNames[u] ?? u).join(' & '), isMe: p.userIds.includes(m.standings.myUserId ?? '') })) })
-    : w ? youCardView('playing', facts(m)) : null;
+  // Brian 2026-11-25 (review v4): a closed tournament has no Final results card.
+  const view = !done && w ? youCardView('playing', facts(m)) : null;
+  const stamp = done && data && !data.stageLocked && !data.placement ? 'Final' : undefined;
   const isMlp = m.standings.tournament.format === 'mlp';
   void mlpPoolGroups;
   // PKL-085 option A: the MLP playoff map, above the locked pool tables
@@ -60,10 +56,10 @@ function Moment({ m }: { m: GoldenMoment }) {
       <Text style={t.label}>{m.format}</Text>
       <Text style={t.title}>{m.title}</Text>
       <Text style={[t.sub, { marginBottom: SPACE.md }]}>{m.story}</Text>
-      {view ? <TournamentYouCard view={view} /> : <Text style={t.sub}>{m.wait && m.wait.matches.some(x => x.status === 'pending' && [x.team1_player1, x.team1_player2, x.team2_player1, x.team2_player2].some(p => !!p && m.wait!.me.includes(p))) ? '(Your match is open: the Next match card shows.)' : '(Every match is in: the tournament closes and the Final results card shows.)'}</Text>}
+      {view ? <TournamentYouCard view={view} /> : <Text style={t.sub}>{m.wait && m.wait.matches.some(x => x.status === 'pending' && [x.team1_player1, x.team1_player2, x.team2_player1, x.team2_player2].some(p => !!p && m.wait!.me.includes(p))) ? '(Your match is open: the Next match card shows.)' : (done ? '(Tournament closed: no card. The results are below.)' : '(Every match is in: the tournament closes.)')}</Text>}
       {map ? <View style={{ marginTop: SPACE.md }}><MlpPlayoffMap view={map} myTeamId={m.standings.myMlpTeamId} /></View> : null}
       {/* PKL-085: once the playoff is drawn it comes first, the locked group stage below */}
-      {data?.stageLocked ? null : (data ? <View style={{ marginTop: SPACE.md }}><StandingsSection data={data} title={map ? 'Pool play, final' : data.stageLocked ? (m.standings.tournament.format === 'pool_play' ? 'Pool play, final' : 'Round robin, final') : 'Standings'} /></View> : null)}
+      {data?.stageLocked ? null : (data ? <View style={{ marginTop: SPACE.md }}><StandingsSection data={data} stamp={stamp} title={map ? 'Pool play, final' : data.stageLocked ? (m.standings.tournament.format === 'pool_play' ? 'Pool play, final' : 'Round robin, final') : 'Standings'} /></View> : null)}
       {data?.placement && data.placement.rows.length > 0 ? (
         <View style={{ marginTop: SPACE.md }}>
           <PlacementSection data={data.placement} entrantLabel={data.entrantLabel}

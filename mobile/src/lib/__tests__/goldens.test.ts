@@ -17,7 +17,10 @@ import { buildMlpPlayoffView } from '../mlpPlayoffView';
 function render() {
   return goldenMoments().map(m => {
     const d = buildStandings(m.standings);
-    const w = m.wait ? waitReason(m.wait) : null;
+    const done = m.standings.tournament.status === 'completed';
+    // A closed tournament shows no card (Brian 2026-11-25); a single-stage one stamps its Standings FINAL.
+    const w = m.wait && !done ? waitReason(m.wait) : null;
+    const stamp = done && d && !d.stageLocked && !d.placement ? { stamp: 'Final' } : {};
     const mine = myStanding(d);
     const map = m.standings.tournament.format === 'mlp'
       ? buildMlpPlayoffView({ rounds: m.standings.savedRounds as any, matches: m.standings.savedMatches as any,
@@ -34,7 +37,7 @@ function render() {
     ];
     return { id: m.id, format: m.format, title: m.title, story: m.story, card: w ? { title: w.title, line: w.line } : null,
       record: mine ? `You ${mine.row.wins}-${mine.row.losses}, #${mine.position} of ${mine.of}${mine.table ? ` in ${mine.table}` : ''}` : null,
-      tables, placement };
+      ...stamp, tables, placement };
   });
 }
 
@@ -43,6 +46,8 @@ const PENDING_REVIEW = ['rr-7', 'pool-5'];
 
 describe('PKL-090 approved goldens', () => {
   const now = render();
+  // Re-capture for a review page: GOLDEN_DUMP=<path> npx vitest run goldens writes what the app shows now.
+  if (process.env.GOLDEN_DUMP) require('fs').writeFileSync(process.env.GOLDEN_DUMP, JSON.stringify(now, null, 1));
   it('covers every approved moment; anything else is waiting for review', () => {
     const ids = (approved as { id: string }[]).map(x => x.id);
     expect(now.map(x => x.id).filter(id => ids.includes(id))).toEqual(ids);
