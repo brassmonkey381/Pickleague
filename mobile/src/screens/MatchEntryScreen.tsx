@@ -24,6 +24,7 @@ import { computeBadgeProgress } from '../lib/unlockProgress';
 import LeaguePickerModal, { PickableLeague } from '../components/LeaguePickerModal';
 import TournamentPickerModal, { PickableTournament } from '../components/TournamentPickerModal';
 import { sbCall, requireUserId, currentUserId, classifySbError } from '@just-messin-around/expo-foundation/supabase';
+import { scoreSaveRetryOn, SCORE_SAVE_TIMEOUT_MS } from '../lib/scoreSaveRetry';
 import { withTimeout } from '@just-messin-around/expo-foundation/platform';
 import { useToast } from '../lib/useToast';
 import { shortTime } from '../lib/agenda';
@@ -620,7 +621,8 @@ export default function MatchEntryScreen({ navigation, route }: Props) {
       // The on_tournament_match_completed trigger fires when status flips to
       // 'completed' and applies PLUPR to the right facet/scope automatically.
       if (isTournamentMatch && tournamentMatchId) {
-        // Safe to retry: an update keyed by id writes the same values twice.
+        // Safe to retry: an update keyed by id writes the same values twice. PKL-075: a statement timeout
+        // (a database stall) is retried once too, so the player doesn't see an error and tap Save again.
         await sbCall(() => supabase
           .from('tournament_matches')
           .update({
@@ -634,7 +636,7 @@ export default function MatchEntryScreen({ navigation, route }: Props) {
             team2_player1_gender_override: genderOverrides.p2,
             team2_player2_gender_override: matchType === 'doubles' ? genderOverrides.partner2 : null,
           })
-          .eq('id', tournamentMatchId));
+          .eq('id', tournamentMatchId), { retryOn: scoreSaveRetryOn(), timeoutMs: SCORE_SAVE_TIMEOUT_MS });
         setSubmitted(true);
         status.success(dreambreaker ? 'Dreambreaker recorded. The winner takes the matchup.' : 'Tournament match recorded. PLUPR updated.');
         navTimer.current = setTimeout(() => navigation.goBack(), 1500);
