@@ -37,6 +37,11 @@ const base = (format: string, matchType: string, ids: string[], names: Record<st
   mlpStandings: null, myMlpTeamId: null, finalRanks: [], ...extra,
 });
 const nameOfPlayers = (names: Record<string, string>) => (ps: string[]) => ps.map(p => names[p] ?? '?').join(' & ');
+/** The same moment after the tournament closed: status completed and the stored final places (tournament_final_ranks). */
+function closed(m: GoldenMoment, ranks: [string, number][]): GoldenMoment {
+  return { ...m, standings: { ...m.standings, tournament: { ...m.standings.tournament, status: 'completed' } as any,
+    finalRanks: ranks.map(([user_id, final_rank]) => ({ user_id, final_rank, wins: 0, losses: 0 })) as any }, wait: null };
+}
 
 // ── 1. Round robin, singles, 4 players (rulebook example A and B). Viewer: Ana. ──
 function roundRobin(): GoldenMoment[] {
@@ -64,6 +69,8 @@ function roundRobin(): GoldenMoment[] {
     mk('rr-2', 'After 2 matches (tie flags)', 'Ana beat Ben 11-7. Cal beat Dee 11-7.', 2),
     mk('rr-4', 'Ana\'s matches are done', 'Also: Ana beat Cal 11-9, Dee beat Ana 11-4.', 4),
     mk('rr-6', 'All played', 'Also: Ben beat Cal 11-3, Ben beat Dee 11-8.', 6),
+    closed(mk('rr-7', 'Tournament closed (no playoff)', 'All 6 played; the round robin is the final standings.', 6),
+      [['ben', 1], ['ana', 2], ['dee', 3], ['cal', 4]]),
   ];
 }
 
@@ -104,6 +111,8 @@ function pools(): GoldenMoment[] {
     mk('pool-2', 'Pools done, semifinals drawn', 'Ben beat Cal 11-9. Fay beat Dee 11-9, Eve beat Fay 11-7. Semifinals: Ana v Eve (A1 v B2), Dee v Ben (B1 v A2).', 1),
     mk('pool-3', 'Ana in the Final, waiting on the other semifinal', 'Ana beat Eve 11-4. Dee v Ben is on Court 1.', 2),
     mk('pool-4', 'Playoff finished', 'Ben beat Dee 11-9. Final: Ana beat Ben 11-8. 3rd-place match: Dee beat Eve 11-6.', 3),
+    closed(mk('pool-5', 'Tournament closed', 'Same results as pool-4; the tournament has closed and stored its final places.', 3),
+      [['ana', 1], ['ben', 2], ['dee', 3], ['eve', 4], ['fay', 5], ['cal', 6]]),
   ];
 }
 

@@ -16,6 +16,7 @@ import TournamentYouCard, { youCardView, type YouCardFacts } from '../components
 import { buildStandings, myStanding } from '../components/tournament/standingsData';
 import { mlpPoolGroups } from '../lib/mlpStandings';
 import { waitReason } from '../lib/waitReason';
+import { podiumFromFinalRanks } from '../lib/tournamentStandings';
 import { goldenMoments, type GoldenMoment } from '../lib/__dev__/goldenSamples';
 
 const noop = () => {};
@@ -42,7 +43,13 @@ function Moment({ m }: { m: GoldenMoment }) {
   const t = textStyles(c);
   const data = buildStandings(m.standings);
   const w = m.wait ? waitReason(m.wait) : null;
-  const view = w ? youCardView('playing', facts(m)) : null;
+  const done = m.standings.tournament.status === 'completed';
+  const ranks = m.standings.finalRanks ?? [];
+  const meRank = ranks.find(r => r.user_id === m.standings.myUserId)?.final_rank ?? null;
+  const view = done
+    ? youCardView('finished', { ...facts(m), myRank: meRank, podium: podiumFromFinalRanks(ranks).map(p => ({
+        rank: p.rank, names: p.userIds.map(u => m.standings.profileNames[u] ?? u).join(' & '), isMe: p.userIds.includes(m.standings.myUserId ?? '') })) })
+    : w ? youCardView('playing', facts(m)) : null;
   const isMlp = m.standings.tournament.format === 'mlp';
   void mlpPoolGroups;
   // PKL-085 option A: the MLP playoff map, above the locked pool tables

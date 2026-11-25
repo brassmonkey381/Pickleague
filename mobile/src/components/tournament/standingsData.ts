@@ -397,7 +397,12 @@ export function buildStandings(i: StandingsInput): StandingsData | null {
   const splitNote = `The playoff decides the top places. ${noun} who didn't reach it rank by their ${t.format === 'pool_play' ? 'pool' : 'round robin'} finish.`;
 
   let placement: PlacementData | null = null;
-  if (settledNow) {
+  // A round robin or pool play with no playoff: its standings ARE the final result (titled "Final standings"), so no
+  // second table repeats them (Brian 2026-11-25: never one table twice). Brackets and two-stage events keep placement.
+  // (A stored order that differs from the table, e.g. a tournament closed early, still gets its own table.)
+  const sameAsTable = () => orderByFinalRanks(overall, i.finalRanks).map(r => r.key).join('|') === overall.map(r => r.key).join('|');
+  const hasPlacementStage = twoStage || t.format === 'single_elimination' || t.format === 'double_elimination' || !sameAsTable();
+  if (settledNow && hasPlacementStage) {
     const places = storedPlaces(overall, i.finalRanks);
     placement = {
       note: twoStage ? splitNote : SETTLED_NOTE,
