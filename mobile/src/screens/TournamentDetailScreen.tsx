@@ -1134,60 +1134,125 @@ export default function TournamentDetailScreen({ navigation, route }: Props) {
               </View>
             )}
 
-            {/* Standings for every format, your row pinned */}
-            {standings && (
-              <View ref={anchorRef('standings')} style={styles.block} onLayout={anchorLayout('standings')}>
-                <StandingsSection
-                  data={standings}
-                  title={standingsTitle}
-                  canOrderTies={isPriv}
-                  onSaveTieOrder={td.saveTieOrder}
-                />
-              </View>
-            )}
+            {/* PKL-085 (Brian 2026-11-25): before the playoff is drawn the standings are the only section; from the
+                draw on, the playoff (matchups, then the podium) comes first and the locked group stage goes below. */}
+            {playoffExists ? (
+              <>
+              {playoffSection}
+              {/* Classic 2-pool tree (renders nothing for other shapes) */}
+              {(status === 'active' || status === 'completed') && tournament.format === 'pool_play' && td.savedRounds.length > 0 && (
+                <View style={styles.block}>
+                  <PoolPlayBracketSection
+                    tournament={tournament}
+                    myUserId={myUserId}
+                    savedRounds={td.savedRounds}
+                    savedMatches={td.savedMatches}
+                    profileNames={td.profileNames}
+                    openMatchActionSheetById={td.openMatchActionSheetById}
+                    registrations={registrations}
+                    tieRanks={td.tieRanks}
+                  />
+                </View>
+              )}
 
-            {/* PKL-041: the Final and the 3rd place match, side by side */}
-            {medal && (
-              <View style={styles.block}>
-                <PlayoffStageSection
-                  final={medal.final}
-                  third={medal.third}
-                  myUserId={myUserId}
-                  isPriv={isPriv}
-                  playerName={td.playerName}
-                  onRecord={openRecord}
-                />
-              </View>
-            )}
+              {/* PKL-041: the Final and the 3rd place match, side by side */}
+              {medal && (
+                <View style={styles.block}>
+                  <PlayoffStageSection
+                    final={medal.final}
+                    third={medal.third}
+                    myUserId={myUserId}
+                    isPriv={isPriv}
+                    playerName={td.playerName}
+                    onRecord={openRecord}
+                  />
+                </View>
+              )}
 
-            {/* PKL-037: final placement, its own table */}
-            {standings?.placement && standings.placement.rows.length > 0 && (
-              <View style={styles.block}>
-                <PlacementSection
-                  data={standings.placement}
-                  entrantLabel={standings.entrantLabel}
-                  title={standings.placement.settled ? 'Final placement' : 'Final placement (so far)'}
-                />
-              </View>
-            )}
+              {/* PKL-037: final placement, its own table */}
+              {standings?.placement && standings.placement.rows.length > 0 && (
+                <View style={styles.block}>
+                  <PlacementSection
+                    data={standings.placement}
+                    entrantLabel={standings.entrantLabel}
+                    title={standings.placement.settled ? 'Final placement' : 'Final placement (so far)'}
+                  />
+                </View>
+              )}
 
-            {/* Classic 2-pool tree (renders nothing for other shapes) */}
-            {(status === 'active' || status === 'completed') && tournament.format === 'pool_play' && td.savedRounds.length > 0 && (
-              <View style={styles.block}>
-                <PoolPlayBracketSection
-                  tournament={tournament}
-                  myUserId={myUserId}
-                  savedRounds={td.savedRounds}
-                  savedMatches={td.savedMatches}
-                  profileNames={td.profileNames}
-                  openMatchActionSheetById={td.openMatchActionSheetById}
-                  registrations={registrations}
-                  tieRanks={td.tieRanks}
-                />
-              </View>
-            )}
 
-            {playoffSection}
+              {/* Standings for every format, your row pinned */}
+              {standings && (
+                <View ref={anchorRef('standings')} style={styles.block} onLayout={anchorLayout('standings')}>
+                  <StandingsSection
+                    data={standings}
+                    title={standingsTitle}
+                    canOrderTies={isPriv}
+                    onSaveTieOrder={td.saveTieOrder}
+                  />
+                </View>
+              )}
+
+              </>
+            ) : (
+              <>
+              {/* Standings for every format, your row pinned */}
+              {standings && (
+                <View ref={anchorRef('standings')} style={styles.block} onLayout={anchorLayout('standings')}>
+                  <StandingsSection
+                    data={standings}
+                    title={standingsTitle}
+                    canOrderTies={isPriv}
+                    onSaveTieOrder={td.saveTieOrder}
+                  />
+                </View>
+              )}
+
+              {playoffSection}
+              {/* Classic 2-pool tree (renders nothing for other shapes) */}
+              {(status === 'active' || status === 'completed') && tournament.format === 'pool_play' && td.savedRounds.length > 0 && (
+                <View style={styles.block}>
+                  <PoolPlayBracketSection
+                    tournament={tournament}
+                    myUserId={myUserId}
+                    savedRounds={td.savedRounds}
+                    savedMatches={td.savedMatches}
+                    profileNames={td.profileNames}
+                    openMatchActionSheetById={td.openMatchActionSheetById}
+                    registrations={registrations}
+                    tieRanks={td.tieRanks}
+                  />
+                </View>
+              )}
+
+              {/* PKL-041: the Final and the 3rd place match, side by side */}
+              {medal && (
+                <View style={styles.block}>
+                  <PlayoffStageSection
+                    final={medal.final}
+                    third={medal.third}
+                    myUserId={myUserId}
+                    isPriv={isPriv}
+                    playerName={td.playerName}
+                    onRecord={openRecord}
+                  />
+                </View>
+              )}
+
+              {/* PKL-037: final placement, its own table */}
+              {standings?.placement && standings.placement.rows.length > 0 && (
+                <View style={styles.block}>
+                  <PlacementSection
+                    data={standings.placement}
+                    entrantLabel={standings.entrantLabel}
+                    title={standings.placement.settled ? 'Final placement' : 'Final placement (so far)'}
+                  />
+                </View>
+              )}
+
+
+              </>
+            )}
 
             {/* Schedule */}
             {scheduleExists && (

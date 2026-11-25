@@ -49,13 +49,15 @@ function Moment({ m }: { m: GoldenMoment }) {
       <Text style={t.title}>{m.title}</Text>
       <Text style={[t.sub, { marginBottom: SPACE.md }]}>{m.story}</Text>
       {view ? <TournamentYouCard view={view} /> : <Text style={t.sub}>{m.wait && m.wait.matches.some(x => x.status === 'pending' && [x.team1_player1, x.team1_player2, x.team2_player1, x.team2_player2].some(p => !!p && m.wait!.me.includes(p))) ? '(Your match is open: the Next match card shows.)' : '(Every match is in: the tournament closes and the Final results card shows.)'}</Text>}
-      {data ? <View style={{ marginTop: SPACE.md }}><StandingsSection data={data} title={data.stageLocked ? (m.standings.tournament.format === 'pool_play' ? 'Pool play, final' : 'Round robin, final') : 'Standings'} /></View> : null}
+      {/* PKL-085: once the playoff is drawn it comes first, the locked group stage below */}
+      {data?.stageLocked ? null : (data ? <View style={{ marginTop: SPACE.md }}><StandingsSection data={data} title={data.stageLocked ? (m.standings.tournament.format === 'pool_play' ? 'Pool play, final' : 'Round robin, final') : 'Standings'} /></View> : null)}
       {data?.placement && data.placement.rows.length > 0 ? (
         <View style={{ marginTop: SPACE.md }}>
           <PlacementSection data={data.placement} entrantLabel={data.entrantLabel}
             title={data.placement.settled ? 'Final placement' : 'Final placement (so far)'} />
         </View>
       ) : null}
+      {data?.stageLocked ? (data ? <View style={{ marginTop: SPACE.md }}><StandingsSection data={data} title={data.stageLocked ? (m.standings.tournament.format === 'pool_play' ? 'Pool play, final' : 'Round robin, final') : 'Standings'} /></View> : null) : null}
     </View>
   );
 }

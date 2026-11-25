@@ -15,6 +15,9 @@ changes them. Each rule below is what the app does **today**. Questions for Bria
    organizer's tie order. Teams with the same pool place in different pools are ordered by record. They are never
    shown as one mixed W-L table.
 4. **Never one combined "final standings" table** that mixes pool records with playoff places.
+5. **Order on the screen.** Before the playoff is drawn, the round robin or pool standings are the only section.
+   From the draw on: the "next" card, then the playoff (matchups, then the podium once finished), then the locked
+   "Round robin, final" or "Pool play, final" tables below. Every format, MLP included (Brian, 2026-11-25).
 
 Brian approved this layout in the Finished phone mock.
 
