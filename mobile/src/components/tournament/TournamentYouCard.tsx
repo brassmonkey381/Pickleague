@@ -86,6 +86,11 @@ export type YouCardFacts = {
   recordLine: string | null;
   /** PKL-049: "Bye: round 5, then round 6" when a bye comes before the next match (or after the last). */
   byeLine?: string | null;
+  /** PKL-091: why there's no match to play now and what's next (lib/waitReason). */
+  waitTitle?: string | null;
+  waitLine?: string | null;
+  /** PKL-091: the wait names a match (the one being waited on, or to watch). */
+  waitHasMatch?: boolean;
   /** PKL-039: where the next match stands on the courts ("On Court 2 now..."); null = no courts reserved. */
   courtLine?: string | null;
   /** PKL-039: false while courts are reserved and the match isn't called (hosts can always score). */
@@ -171,9 +176,10 @@ export function youCardView(kind: YouCardKind, f: YouCardFacts): YouCardView | n
       };
     case 'playing':
       return {
-        title: f.byeLine ? f.byeLine : 'No match to play right now',
-        lines: f.recordLine ? [f.recordLine] : ['Your next match shows here once it is drawn.'],
-        link: f.onOpenSchedule ? { label: 'Schedule', onPress: f.onOpenSchedule } : undefined,
+        title: f.byeLine ? f.byeLine : f.waitTitle ?? 'No match to play right now',
+        lines: [f.waitLine, f.recordLine].filter((x): x is string => !!x).concat(
+          f.waitLine || f.recordLine ? [] : ['Your next match shows here once it is drawn.']),
+        link: f.onOpenSchedule ? { label: f.waitHasMatch ? 'See it in Schedule' : 'Schedule', onPress: f.onOpenSchedule } : undefined,
       };
     case 'finished':
       return {

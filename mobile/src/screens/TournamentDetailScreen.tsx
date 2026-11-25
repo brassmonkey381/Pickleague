@@ -52,6 +52,7 @@ import {
 import TournamentIdentity from '../components/tournament/TournamentIdentity';
 import TournamentHeaderActions from '../components/tournament/TournamentHeaderActions';
 import TournamentYouCard, { youCardView } from '../components/tournament/TournamentYouCard';
+import { waitReason, type WaitMatch } from '../lib/waitReason';
 import TournamentManageSection, { type ManageGroup, type ManageStep } from '../components/tournament/TournamentManageSection';
 import SectionCard from '../components/tournament/SectionCard';
 import StandingsSection from '../components/tournament/StandingsSection';
@@ -492,6 +493,19 @@ export default function TournamentDetailScreen({ navigation, route }: Props) {
     : null;
   const canScoreNow = nextMatch ? courtAllowsScoring(nextMatch as CourtMatch, tournament.courts, isPriv) : true;
 
+  // ── PKL-091: why no match right now (the You card's "playing" state) ──
+  const myMlpTeam = isMlp ? mlpTeamOf(td.mlpTeams, myUserId) : null;
+  const wait = myUserId ? waitReason({
+    format: tournament.format,
+    isMlp,
+    hasPlayoff: isMlp ? /_playoff$/.test(tournament.mlp_play_format ?? '') : !!tournament.playoff_format,
+    me: myMlpTeam ? [myMlpTeam.male_1_id, myMlpTeam.male_2_id, myMlpTeam.female_1_id, myMlpTeam.female_2_id].filter((x): x is string => !!x) : [myUserId],
+    matches: td.savedMatches as WaitMatch[],
+    nameOf: ps => isMlp
+      ? (td.mlpTeams.find(t => ps.some(p => [t.male_1_id, t.male_2_id, t.female_1_id, t.female_2_id].includes(p)))?.name ?? 'a team')
+      : ps.map(id => shortName(td.playerName(id))).join(' & '),
+  }) : null;
+
   // ── The You card ──
   const kind = youCardKind({
     status,
@@ -648,6 +662,9 @@ export default function TournamentDetailScreen({ navigation, route }: Props) {
     partner: nextMatch && myUserId && partnerOf(nextMatch, myUserId) ? td.playerName(partnerOf(nextMatch, myUserId)!) : null,
     roundLabel: nextRound != null ? `Round ${nextRound}` : nextMatch?.round?.label ?? null,
     byeLine,
+    waitTitle: wait?.title ?? null,
+    waitLine: wait?.line ?? null,
+    waitHasMatch: !!wait?.matchId,
     courtLine,
     canScoreNow,
     recordLine: mine
