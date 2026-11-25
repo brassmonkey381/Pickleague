@@ -19,49 +19,49 @@ export default function PlacementSection({ data, entrantLabel, title }: {
 }) {
   const { colors: c } = useTheme();
   const t = textStyles(c);
+  // PKL-085 #8: playoff places and the rest under their own headings, never one mixed W-L table.
+  const playoff = data.rows.filter(r => r.section === 'playoff');
+  const rest = data.rows.filter(r => r.section === 'rest');
+  const split = playoff.length > 0 && rest.length > 0;
+  const row = (r: PlacementData['rows'][number], last: boolean) => {
+    const n = Number(r.place);
+    const line = r.detail || (r.decided ? r.from : `${r.from}, to play`);
+    return (
+      <View
+        key={r.key}
+        style={[styles.row, { borderBottomColor: c.border }, last && styles.lastRow,
+          r.isMe && { backgroundColor: c.primaryLight, borderRadius: RADIUS.sm }]}
+        accessibilityLabel={`Place ${r.place}${r.decided ? '' : ', to be decided'}. ${r.name}${r.isMe ? ' (you)' : ''}. ${line}`}
+      >
+        <View style={styles.place}>
+          {r.decided && Number.isFinite(n) ? (
+            <RankMedal place={n} />
+          ) : (
+            <Text style={[t.meta, { color: c.textMuted }]} maxFontSizeMultiplier={SMALL_TEXT_MAX_SCALE}>{r.place}</Text>
+          )}
+        </View>
+        <View style={styles.name}>
+          <Text style={[t.sub, { color: r.isMe ? c.primary : c.text }, r.isMe && styles.strong]} numberOfLines={2}>
+            {r.name}{r.isMe ? ' (you)' : ''}
+          </Text>
+          <Text style={[t.meta, { color: c.textSub }]} numberOfLines={1} maxFontSizeMultiplier={SMALL_TEXT_MAX_SCALE}>{line}</Text>
+        </View>
+        {!r.detail ? <Text style={[t.sub, styles.wl, { color: c.text }]}>{r.wins}-{r.losses}</Text> : null}
+      </View>
+    );
+  };
+  const heading = (label: string) => (
+    <Text style={[t.fieldLabel, styles.groupHead]} maxFontSizeMultiplier={SMALL_TEXT_MAX_SCALE}>{label}</Text>
+  );
   return (
     <SectionCard title={title}>
-      <Text style={[t.meta, styles.note]} numberOfLines={2} maxFontSizeMultiplier={SMALL_TEXT_MAX_SCALE}>
+      <Text style={[t.meta, styles.note]} numberOfLines={3} maxFontSizeMultiplier={SMALL_TEXT_MAX_SCALE}>
         {data.note}
       </Text>
-      <View style={[styles.row, styles.headRow, { borderBottomColor: c.border }]}>
-        <Text style={[t.fieldLabel, styles.place]} maxFontSizeMultiplier={SMALL_TEXT_MAX_SCALE}>#</Text>
-        <Text style={[t.fieldLabel, styles.name]} maxFontSizeMultiplier={SMALL_TEXT_MAX_SCALE}>{entrantLabel}</Text>
-        <Text style={[t.fieldLabel, styles.wl]} maxFontSizeMultiplier={SMALL_TEXT_MAX_SCALE}>W-L</Text>
-      </View>
-      {data.rows.map((r, i) => {
-        const n = Number(r.place);
-        const last = i === data.rows.length - 1;
-        return (
-          <View
-            key={r.key}
-            style={[
-              styles.row,
-              { borderBottomColor: c.border },
-              last && styles.lastRow,
-              r.isMe && { backgroundColor: c.primaryLight, borderRadius: RADIUS.sm },
-            ]}
-            accessibilityLabel={`Place ${r.place}${r.decided ? '' : ', to be decided'}. ${r.name}${r.isMe ? ' (you)' : ''}. From ${r.from}. ${r.wins} and ${r.losses}`}
-          >
-            <View style={styles.place}>
-              {r.decided && Number.isFinite(n) ? (
-                <RankMedal place={n} />
-              ) : (
-                <Text style={[t.meta, { color: c.textMuted }]} maxFontSizeMultiplier={SMALL_TEXT_MAX_SCALE}>{r.place}</Text>
-              )}
-            </View>
-            <View style={styles.name}>
-              <Text style={[t.sub, { color: r.isMe ? c.primary : c.text }, r.isMe && styles.strong]} numberOfLines={2}>
-                {r.name}{r.isMe ? ' (you)' : ''}
-              </Text>
-              <Text style={[t.meta, { color: c.textSub }]} numberOfLines={1} maxFontSizeMultiplier={SMALL_TEXT_MAX_SCALE}>
-                {r.decided ? r.from : `${r.from}, to play`}
-              </Text>
-            </View>
-            <Text style={[t.sub, styles.wl, { color: c.text }]}>{r.wins}-{r.losses}</Text>
-          </View>
-        );
-      })}
+      {split ? heading('Playoff') : null}
+      {(split ? playoff : data.rows).map((r, i, all) => row(r, i === all.length - 1))}
+      {split ? heading(`Didn't reach the playoff, by ${rest.some(r => /^Pool /.test(r.detail)) ? 'pool' : 'round robin'} finish`) : null}
+      {split ? rest.map((r, i) => row(r, i === rest.length - 1)) : null}
     </SectionCard>
   );
 }
@@ -72,7 +72,7 @@ const styles = StyleSheet.create({
     minHeight: 48, flexDirection: 'row', alignItems: 'center', gap: SPACE.sm,
     paddingHorizontal: SPACE.xs, paddingVertical: SPACE.xxs, borderBottomWidth: HAIRLINE,
   },
-  headRow: { minHeight: 32 },
+  groupHead: { marginTop: SPACE.sm, marginBottom: SPACE.xxs },
   lastRow: { borderBottomWidth: 0 },
   place: { width: 32 },
   name: { flex: 1, minWidth: 0 },

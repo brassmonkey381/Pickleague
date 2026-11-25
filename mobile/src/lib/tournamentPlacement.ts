@@ -157,3 +157,68 @@ export function placementSourceLabel(s: PlacementSource): string {
     case 'group': return 'Round robin';
   }
 }
+
+// ── PKL-085 #8: two stages, never mixed (Brian 2026-11-25) ──────────────────
+
+/** Where an entrant finished in the group stage: its pool (null = one round robin), place in it, and record. */
+export type PoolFinish = { pool: string | null; place: number; wins: number; losses: number; diff: number };
+
+const ordinalOf = (n: number) => `${n}${n % 100 >= 11 && n % 100 <= 13 ? 'th' : ['th', 'st', 'nd', 'rd'][n % 10] ?? 'th'}`;
+
+/**
+ * Group-stage entrants in "pool finish" order: pool place first (every pool's 1st, then every 2nd, ...), then
+ * record (wins, fewer losses, point diff), then the given tiebreak (admin tie order, seed). Never one mixed W-L table.
+ */
+export function poolFinishOrder(finish: Map<string, PoolFinish>, tiebreak: (a: string, b: string) => number): string[] {
+  return [...finish.keys()].sort((a, b) => {
+    const x = finish.get(a)!, y = finish.get(b)!;
+    return (x.place - y.place) || (y.wins - x.wins) || (x.losses - y.losses) || (y.diff - x.diff) || tiebreak(a, b);
+  });
+}
+
+/** A playoff match's result for one entrant, for the placement line. `score` is "3-1" from that entrant's side. */
+export type PlayoffResult = { roundType: string; won: boolean | null; score: string | null };
+
+const ROUND_PHRASE: Record<string, string> = {
+  finals: 'the Final', grand_final: 'the Grand Final', third_place_match: 'the 3rd-place match',
+  semifinals: 'the Semifinals', quarterfinals: 'the Quarterfinals',
+};
+
+/** The line under a placement row: how the playoff placed it, or its pool finish. */
+export function placementDetail(section: 'playoff' | 'rest', last: PlayoffResult | null, finish: PoolFinish | undefined): string {
+  if (section === 'playoff' && last) {
+    const what = ROUND_PHRASE[last.roundType] ?? 'the playoff';
+    if (last.won == null) return `Plays ${what}`;
+    const medal = last.roundType === 'finals' || last.roundType === 'grand_final' || last.roundType === 'third_place_match';
+    if (last.won) return `Won ${what}${last.score ? ` ${last.score}` : ''}`;
+    return medal ? `Lost ${what}${last.score ? ` ${last.score}` : ''}` : `Out in ${what}${last.score ? `, ${last.score}` : ''}`;
+  }
+  if (!finish) return '';
+  const where = finish.pool ? `Pool ${finish.pool} ${ordinalOf(finish.place)}` : `Round robin ${ordinalOf(finish.place)}`;
+  return `${where}, ${finish.wins}-${finish.losses}, ${finish.diff > 0 ? '+' : ''}${finish.diff}`;
+}
+
+/** One playoff match by entrant keys, for lastPlayoffResults. */
+export type PlayoffMatchLite = {
+  side1: string; side2: string; roundType: string; roundNumber: number;
+  status: string; winner: 'team1' | 'team2' | null; score: [number, number] | null;
+};
+
+/** Each entrant's latest playoff match: its round, whether it won (null = still to play), and the score its way. */
+export function lastPlayoffResults(ms: PlayoffMatchLite[]): Map<string, PlayoffResult> {
+  const out = new Map<string, PlayoffResult & { n: number }>();
+  const rank = (m: PlayoffMatchLite) => m.roundNumber * 10 + (m.roundType === 'finals' || m.roundType === 'grand_final' ? 2 : m.roundType === 'third_place_match' ? 1 : 0);
+  for (const m of ms) {
+    const n = rank(m);
+    const done = m.status === 'completed' && !!m.winner;
+    for (const side of [1, 2] as const) {
+      const key = side === 1 ? m.side1 : m.side2;
+      const prev = out.get(key);
+      if (prev && prev.n > n) continue;
+      const won = done ? (m.winner === 'team1') === (side === 1) : null;
+      const score = done && m.score ? (side === 1 ? `${m.score[0]}-${m.score[1]}` : `${m.score[1]}-${m.score[0]}`) : null;
+      out.set(key, { roundType: m.roundType, won, score, n });
+    }
+  }
+  return out;
+}

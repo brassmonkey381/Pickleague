@@ -53,7 +53,7 @@ describe('PKL-091 why no match right now', () => {
     ];
     const w = waitReason({ format: 'mlp', isMlp: true, hasPlayoff: true, me: T.TSC, matches: ms, nameOf: teamName })!;
     expect(w.title).toBe('Your matchups are done');
-    expect(w.line).toBe('1 more matchup to finish before the playoff draw. Now: EE v LC, 1-1.');
+    expect(w.line).toBe('1 more matchup to finish. Now: EE v LC, 1-1.');
   });
 
   it('a match of mine is open: no wait reason (the next-match card shows)', () => {

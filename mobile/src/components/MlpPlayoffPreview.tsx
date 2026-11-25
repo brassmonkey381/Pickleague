@@ -407,8 +407,8 @@ export default function MlpPlayoffPreview({
         </View>
       )}
 
-      {/* Standings table — always shown when standings exist */}
-      {sortedRows.length > 0 && (
+      {/* PKL-085 (Brian 2026-11-25): no standings copy here; the Standings card is the one table. */}
+      {false && sortedRows.length > 0 && (
         <View style={S.standingsTable}>
           <Text style={S.standingsTitle}>Standings</Text>
           <View style={S.standingsHeader}>

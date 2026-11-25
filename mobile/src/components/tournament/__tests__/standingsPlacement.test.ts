@@ -69,10 +69,17 @@ describe('doubles round robin with a medal stage', () => {
       [...rr, m('f', F, teams[0], teams[1], 'team2'), m('t', T, teams[2], teams[3], 'team2')], 'completed', ranks);
     expect(data?.tables[0].rows[0].name).toBe('Me & Pat');
     expect(data?.placement?.settled).toBe(true);
-    expect(data?.placement?.rows.map(r => [r.name, r.place, r.from])).toEqual([
-      ['Bo & Bea', '1', 'Final'], ['Me & Pat', '2', 'Final'], ['Di & Dan', '3', '3rd place match'],
-      ['Cy & Cat', '4', '3rd place match'], ['Ed & Eve', '5', 'Round robin'],
+    // PKL-085 #8: playoff places say how the playoff placed them; the rest rank by round robin finish.
+    expect(data?.placement?.rows.map(r => [r.name, r.place, r.section])).toEqual([
+      ['Bo & Bea', '1', 'playoff'], ['Me & Pat', '2', 'playoff'], ['Di & Dan', '3', 'playoff'],
+      ['Cy & Cat', '4', 'playoff'], ['Ed & Eve', '5', 'rest'],
     ]);
+    const detail = data?.placement?.rows.map(r => r.detail) ?? [];
+    expect(detail[0]).toMatch(/^Won the Final/);
+    expect(detail[1]).toMatch(/^Lost the Final/);
+    expect(detail[2]).toMatch(/^Won the 3rd-place match/);
+    expect(detail[3]).toMatch(/^Lost the 3rd-place match/);
+    expect(detail[4]).toMatch(/^Round robin 5th, /);
   });
 
   it('medalStage: the Final and the 3rd place match together, whatever their order', () => {

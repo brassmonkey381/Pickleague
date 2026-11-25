@@ -50,7 +50,8 @@ export default function StandingsSection({ data, title, canOrderTies = false, on
 
   const renderRow = (r: StandingRow, position: number, last: boolean, tie?: string) => {
     const diff = (r.pf ?? 0) - (r.pa ?? 0);
-    const tieShown = showTies && !!tie;
+    // PKL-085 (Brian 2026-11-25): no tie text in the standings at all; the host's tie order is a host-only to-do.
+    const tieShown = false && !!tie;
     return (
       <View key={r.key}>
       <View
@@ -60,7 +61,7 @@ export default function StandingsSection({ data, title, canOrderTies = false, on
           (last || tieShown) && styles.lastRow,
           r.isMe && { backgroundColor: c.primaryLight, borderRadius: RADIUS.sm },
         ]}
-        accessibilityLabel={`${position}. ${r.name}${r.isMe ? ' (you)' : ''}, ${r.wins} and ${r.losses}, point diff ${diff}${r.waiting ? ', tie waiting for the admin' : ''}`}
+        accessibilityLabel={`${position}. ${r.name}${r.isMe ? ' (you)' : ''}, ${r.wins} and ${r.losses}, point diff ${diff}`}
       >
         {/* Places 1-3 as medal discs, 4+ as the plain number in the same box
             width (RankMedal), so the column lines up; the row label reads it. */}
@@ -69,9 +70,6 @@ export default function StandingsSection({ data, title, canOrderTies = false, on
         </View>
         <Text style={[t.sub, styles.name, { color: r.isMe ? c.primary : c.text }, r.isMe && styles.strong]} numberOfLines={2}>
           {r.name}{r.isMe ? ' (you)' : ''}
-          {r.waiting
-            ? <Text style={[t.meta, { color: c.danger }]}>{'  tie: admin to order'}</Text>
-            : tie && !showTies ? <Text style={[t.meta, { color: c.textMuted }]}>{'  tied'}</Text> : null}
         </Text>
         <Text style={[t.sub, styles.wl, { color: c.text }]}>{r.wins}-{r.losses}</Text>
         <Text style={[t.sub, styles.diff, { color: diff > 0 ? c.success : diff < 0 ? c.danger : c.textSub }]}>
@@ -95,19 +93,6 @@ export default function StandingsSection({ data, title, canOrderTies = false, on
       <Text style={[t.meta, styles.note]} numberOfLines={2} maxFontSizeMultiplier={SMALL_TEXT_MAX_SCALE}>
         {data.note}
       </Text>
-      {tieCount > 0 ? (
-        <TouchableOpacity
-          onPress={() => setShowTies(v => !v)}
-          style={styles.tieToggle}
-          accessibilityRole="button"
-          accessibilityState={{ expanded: showTies }}
-          accessibilityLabel={showTies ? 'Hide tiebreaks' : 'Show how ties were broken'}
-        >
-          <Text style={[t.meta, { color: c.primary }]} maxFontSizeMultiplier={SMALL_TEXT_MAX_SCALE}>
-            {showTies ? 'Hide tiebreaks' : `Show tiebreaks (${tieCount} tied)`}
-          </Text>
-        </TouchableOpacity>
-      ) : null}
       {adminCanOrder && data.waitingCount > 0 ? (
         <Button
           size="sm"
@@ -116,14 +101,6 @@ export default function StandingsSection({ data, title, canOrderTies = false, on
           style={styles.orderBtn}
           accessibilityLabel={`Set tie order, ${data.waitingCount} tie${data.waitingCount === 1 ? '' : 's'} waiting`}
         />
-      ) : adminCanOrder && showTies ? (
-        <TouchableOpacity
-          onPress={() => setOrderOpen(true)}
-          style={styles.tieToggle}
-          accessibilityRole="button"
-        >
-          <Text style={[t.meta, { color: c.primary }]} maxFontSizeMultiplier={SMALL_TEXT_MAX_SCALE}>Edit tie order</Text>
-        </TouchableOpacity>
       ) : null}
       {data.tables.map(tbl => {
         if (single && !showAll) {

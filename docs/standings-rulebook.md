@@ -26,8 +26,8 @@ Brian approved this layout in the Finished phone mock.
    seed.
 3. **Never head-to-head.** Beating someone does not put you above them (PKL-052).
 4. **± is points scored minus points allowed** in the matches that count.
-5. **Tie flag.** "Tie: admin to order" shows only when entrants are level on wins, losses **and** ±, at least one of
-   them has played, and the organizer hasn't ordered them. Nobody is flagged before play (PKL-089).
+5. **No tie labels.** The standings never show "tied" or "admin to order". When a tie needs the organizer's order
+   before a draw, only the organizer sees it, as a to-do (Brian, 2026-11-25).
 
 ### Example A: round robin, 4 players
 
@@ -43,11 +43,6 @@ Cal beat Dee 11-7.
 
 Ben is above Ana although Ana beat Ben, because head-to-head never counts (rule 3).
 
-### Example B: the tie flag
-
-After only 2 matches, Ana beat Ben 11-7 and Cal beat Dee 11-7. Ana and Cal are both 1-0, +4, so they are flagged.
-Ben and Dee are both 0-1, -4, so they are flagged too. Before any match, nobody is flagged.
-
 ## 2. Pools and a playoff
 
 1. **One table per pool**, each ranked on its own by section 1.
@@ -55,8 +50,9 @@ Ben and Dee are both 0-1, -4, so they are flagged too. Before any match, nobody 
    places, not the table.
 3. **Top 2 per pool with 2 pools: crossed.** Semifinal 1 is A1 v B2, and Semifinal 2 is B1 v A2.
 4. **Top 4 from one round robin:** 1 v 4 and 2 v 3. **Top 8:** 1 v 8, 2 v 7, 3 v 6, 4 v 5.
-5. **Final places:** the Final gives 1st and 2nd, the 3rd-place match gives 3rd and 4th, and everyone else follows
-   the round robin order.
+5. **Final places** follow section 0: the playoff places its entrants; everyone else ranks by pool finish.
+6. **During pool play there is one standings table.** The Playoff section shows only once the playoff is drawn,
+   with its matchups and results, never a copy of the standings (Brian, 2026-11-25).
 
 **Q:** Is the crossing in rule 3 what you want?
 
@@ -75,7 +71,6 @@ Ben and Dee are both 0-1, -4, so they are flagged too. Before any match, nobody 
 4. **The order:** most matchup wins, fewest matchup losses, ± over every game (Dreambreaker included), most games
    won, fewest games lost, the organizer's tie order, seed.
 5. **Pools rank separately**, one table per pool.
-6. **The Standings card and the Playoff section always show the same W-L and order.**
 
 ### Example C: one pool, 3 teams (Aces, Bolts, Comets)
 

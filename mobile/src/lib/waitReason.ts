@@ -158,7 +158,7 @@ export function waitReason(i: WaitInput): WaitReason | null {
   if (groupOpen.length) {
     const now = groupOpen.find(u => u.live);
     const n = groupOpen.length;
-    const line = `${n} more ${word}${n === 1 ? '' : team ? 's' : 'es'} to finish${i.hasPlayoff ? ' before the playoff draw' : ''}`
+    const line = `${n} more ${word}${n === 1 ? '' : team ? 's' : 'es'} to finish`
       + (now ? `. Now: ${now.label}, ${now.live}.` : '.');
     return { title: team ? 'Your matchups are done' : 'Your matches are done', line, matchId: (now ?? groupOpen[0]).firstMatchId };
   }
@@ -167,6 +167,5 @@ export function waitReason(i: WaitInput): WaitReason | null {
     const w = playoffOpen[0];
     return { title: `${you} didn't make the playoff`, line: w ? watch(w) : null, matchId: w?.firstMatchId ?? null };
   }
-  if (i.hasPlayoff) return { title: 'The playoff draw is next', line: 'It is drawn once every result is in.', matchId: null };
   return null;
 }

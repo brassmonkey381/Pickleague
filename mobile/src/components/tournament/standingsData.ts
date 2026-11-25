@@ -26,8 +26,8 @@ import {
   computeTeamStandings, computePlayerStandings, orderByFinalRanks, sortMlpTeamStandings,
   type FinalRankRow, type TieRanks,
 } from '../../lib/tournamentStandings';
-import { diffOf, entrantKey, levelGroups } from '../../lib/tournamentTiebreakers';
-import { computeFinalPlacement, placeLabel, placementSourceLabel } from '../../lib/tournamentPlacement';
+import { compareStandings, diffOf, entrantKey, levelGroups, teamKey } from '../../lib/tournamentTiebreakers';
+import { computeFinalPlacement, lastPlayoffResults, placeLabel, placementDetail, placementSourceLabel, poolFinishOrder, type PoolFinish } from '../../lib/tournamentPlacement';
 import { explainTies, signed, tieLine } from '../../lib/tournamentTieNotes';
 import { mlpPoolGroups, mlpTeamTieRank } from '../../lib/mlpStandings';
 import { hasBothStages, roundStage, visibleScheduleMatches, type MlpTeamSlots, type ScheduleMatch } from './tournamentModel';
@@ -84,6 +84,10 @@ export type PlacementRowView = {
   /** Record over every match, playoff included. */
   wins: number;
   losses: number;
+  /** PKL-085 #8: placed by the playoff, or ranked by group-stage finish (shown under its own heading). */
+  section: 'playoff' | 'rest';
+  /** "Won the Final 11-7", "Out in the Semifinals, 1-3", "Pool B 3rd, 0-2, -15". */
+  detail: string;
 };
 
 export type PlacementData = {
@@ -108,6 +112,8 @@ export type StandingsData = {
   settled: boolean;
   /** Group-stage matches only (a playoff exists). */
   groupStage?: boolean;
+  /** PKL-085 #8: the playoff has started, so the group-stage tables are final and locked. */
+  stageLocked?: boolean;
   /** PKL-037: the final placement, a separate table. Null when there is none yet. */
   placement?: PlacementData | null;
   /** PKL-052: level groups still waiting for the admin, across all tables. */
@@ -285,7 +291,7 @@ export function buildStandings(i: StandingsInput): StandingsData | null {
         rows: orderByFinalRanks(live, i.finalRanks).map(r => ({
           key: r.key, name: r.name, isMe: r.isMe,
           place: places.has(r.key) ? String(places.get(r.key)) : '-',
-          from: 'Standings', decided: true, wins: r.wins, losses: r.losses,
+          from: 'Standings', decided: true, wins: r.wins, losses: r.losses, section: 'rest' as const, detail: '',
         })),
       };
     } else if (allPlayed && live.some(r => r.wins + r.losses > 0)) {
@@ -294,7 +300,7 @@ export function buildStandings(i: StandingsInput): StandingsData | null {
         settled: false,
         rows: live.map((r, idx) => ({
           key: r.key, name: r.name, isMe: r.isMe, place: String(idx + 1),
-          from: 'Standings', decided: true, wins: r.wins, losses: r.losses,
+          from: 'Standings', decided: true, wins: r.wins, losses: r.losses, section: 'rest' as const, detail: '',
         })),
       };
     }
@@ -356,47 +362,57 @@ export function buildStandings(i: StandingsInput): StandingsData | null {
     : groupMatches.length > 0 ? [withTies('overall', null, groupMatches)] : [];
   if (tables.length === 0) return null;
 
-  // ── Final placement (PKL-037) ──
+  // ── Final placement (PKL-037; PKL-085 #8: two stages, never mixed) ──
+  // Playoff rows say how the playoff placed them; everyone else ranks by pool finish (pool place, then record).
   const groupOrder = computeTeamStandings(groupMatches as any, opts);
   const overall = computeTeamStandings(matches as any, opts);
   const byKey = new Map(overall.map(r => [r.key, r]));
+  const groupRow = new Map(groupOrder.map(r => [r.key, r]));
   const record = (key: string) => {
     const r = byKey.get(key);
     return { wins: r?.wins ?? 0, losses: r?.losses ?? 0 };
   };
-  const provisional = twoStage
-    ? computeFinalPlacement(groupOrder.map(r => r.key), playoffMatches.map(m => ({
-        ...m, round_type: m.round?.round_type, round_number: m.round?.round_number,
-      })))
-    : null;
-  const sourceOf = new Map((provisional ?? []).map(p => [p.key, p.source]));
-  const defaultFrom = t.format === 'round_robin' ? 'Round robin'
-    : t.format === 'pool_play' ? 'Pool play'
-    : 'Bracket';
+  const finish = new Map<string, PoolFinish>();
+  for (const tb of tables) tb.rows.forEach((r, idx) => finish.set(r.key, {
+    pool: tb.label ? tb.label.replace(/^Pool /, '') : null, place: idx + 1, wins: r.wins, losses: r.losses, diff: diffOf(r),
+  }));
+  const finishOrder = poolFinishOrder(finish, (x, y) => {
+    const rx = groupRow.get(x), ry = groupRow.get(y);
+    return rx && ry ? compareStandings(rx, ry) : 0;
+  });
+  const placementMatches = (twoStage ? playoffMatches : matches).map(m => ({
+    ...m, round_type: m.round?.round_type, round_number: m.round?.round_number,
+  }));
+  const provisional = twoStage ? computeFinalPlacement(finishOrder, placementMatches) : null;
+  const lastOf = lastPlayoffResults(placementMatches.filter(m => m.team1_player1 && m.team2_player1).map(m => ({
+    side1: teamKey(m.team1_player1!, m.team1_player2), side2: teamKey(m.team2_player1!, m.team2_player2),
+    roundType: m.round_type ?? '', roundNumber: m.round_number ?? 0, status: m.status, winner: m.winner_team,
+    score: m.team1_score != null && m.team2_score != null ? [m.team1_score, m.team2_score] as [number, number] : null,
+  })));
+  const sectionOf = (key: string): 'playoff' | 'rest' => (lastOf.has(key) ? 'playoff' : 'rest');
+  const detailOf = (key: string) => placementDetail(sectionOf(key), lastOf.get(key) ?? null, finish.get(key));
+  const noun = t.match_type === 'doubles' ? 'Teams' : 'Players';
+  const splitNote = `The playoff decides the top places. ${noun} who didn't reach it rank by their ${t.format === 'pool_play' ? 'pool' : 'round robin'} finish.`;
 
   let placement: PlacementData | null = null;
   if (settledNow) {
     const places = storedPlaces(overall, i.finalRanks);
     placement = {
-      note: SETTLED_NOTE,
+      note: twoStage ? splitNote : SETTLED_NOTE,
       settled: true,
       rows: orderByFinalRanks(overall, i.finalRanks).map(r => ({
         key: r.key, name: r.name, isMe: r.isMe,
         place: places.has(r.key) ? String(places.get(r.key)) : '-',
-        from: sourceOf.has(r.key) ? placementSourceLabel(sourceOf.get(r.key)!) : defaultFrom,
+        from: sectionOf(r.key) === 'playoff' ? 'Playoff' : t.format === 'pool_play' ? 'Pool play' : 'Round robin',
         decided: true,
+        section: twoStage ? sectionOf(r.key) : 'playoff',
+        detail: detailOf(r.key),
         ...record(r.key),
       })),
     };
   } else if (provisional) {
-    const hasThird = playoffMatches.some(m => m.round?.round_type === 'third_place_match');
-    const hasFinal = playoffMatches.some(m => m.round?.round_type === 'finals');
     placement = {
-      note: hasFinal && hasThird
-        ? '1-2 from the Final, 3-4 from the 3rd place match, the rest by round robin order.'
-        : hasFinal
-          ? '1-2 from the Final, the rest by round robin order.'
-          : 'Playoff results first, the rest by round robin order.',
+      note: splitNote,
       settled: false,
       rows: provisional.map(p => {
         const r = byKey.get(p.key);
@@ -407,6 +423,8 @@ export function buildStandings(i: StandingsInput): StandingsData | null {
           place: placeLabel(p),
           from: placementSourceLabel(p.source),
           decided: p.decided,
+          section: sectionOf(p.key),
+          detail: detailOf(p.key),
           ...record(p.key),
         };
       }),
@@ -421,6 +439,7 @@ export function buildStandings(i: StandingsInput): StandingsData | null {
       : twoStage ? `Round robin matches only. ${teamNote}` : teamNote,
     settled: settledNow,
     groupStage: twoStage,
+    stageLocked: twoStage,
     tables,
     placement,
     waitingCount: countWaiting(tables),

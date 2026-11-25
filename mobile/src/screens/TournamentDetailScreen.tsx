@@ -903,11 +903,12 @@ export default function TournamentDetailScreen({ navigation, route }: Props) {
   // (standingsData), so they get MLP's title too. That includes a completed
   // one without settled ranks: its table is still the group stage, not a final.
   // PKL-037: with a separate placement table, this one is the round robin's.
+  // PKL-085 #8: once the playoff exists the group stage is over: its tables are final and locked.
   const standingsTitle = standings?.groupStage
-    ? (tournament.format === 'pool_play' ? 'Pool standings' : 'Round robin standings')
+    ? (tournament.format === 'pool_play' ? 'Pool play, final' : 'Round robin, final')
     : standings?.placement ? 'Standings'
     : status === 'completed' ? 'Final standings'
-    : isMlp && mlpPlayoff && playoffExists ? 'Group stage' : 'Standings';
+    : isMlp && mlpPlayoff && playoffExists ? 'Pool play, final' : 'Standings';
 
   const teamsSummary = isMlp
     ? `${td.mlpTeams.length} team${td.mlpTeams.length === 1 ? '' : 's'} formed`
@@ -953,7 +954,8 @@ export default function TournamentDetailScreen({ navigation, route }: Props) {
     </View>
   ) : null;
 
-  const playoffSection = mlpPlayoff && status !== 'cancelled' ? (
+  // PKL-085 (Brian 2026-11-25): the Playoff section shows only once the playoff is drawn: its matchups and results.
+  const playoffSection = mlpPlayoff && playoffExists && status !== 'cancelled' ? (
     <CollapsibleSection
       compact
       title="Playoff"

@@ -71,7 +71,7 @@ function roundRobin(): GoldenMoment[] {
 function pools(): GoldenMoment[] {
   const ids = ['ana', 'ben', 'cal', 'dee', 'eve', 'fay'];
   const names = { ana: 'Ana', ben: 'Ben', cal: 'Cal', dee: 'Dee', eve: 'Eve', fay: 'Fay' };
-  const pa = R('pa', 'pool', 1, 'Pool A'), pb = R('pb', 'pool', 2, 'Pool B'), sf = R('sf', 'semifinals', 1000, 'Semifinals'), fin = R('fin', 'finals', 1001, 'Finals');
+  const pa = R('pa', 'pool', 1, 'Pool A'), pb = R('pb', 'pool', 2, 'Pool B'), sf = R('sf', 'semifinals', 1000, 'Semifinals'), fin = R('fin', 'finals', 1001, 'Finals'), third = R('tp', 'third_place_match', 1001, 'Third Place Match');
   const build = (stage: number) => {
     seq = 200;
     const done = stage >= 1;
@@ -83,7 +83,13 @@ function pools(): GoldenMoment[] {
     const rounds = [pa, pb];
     if (stage >= 1) {   // A1 v B2, B1 v A2
       rounds.push(sf);
-      ms.push(M(sf, ['ana'], ['fay'], stage >= 2 ? [11, 4] : undefined), M(sf, ['dee'], ['ben'], undefined, stage >= 2 ? { called_at: '2026-11-25T19:00:00Z', court: '1' } : {}));
+      // Pool B: Eve and Fay are both 1-1, -2; Eve is 2nd on seed. A1 v B2, B1 v A2.
+      ms.push(M(sf, ['ana'], ['eve'], stage >= 2 ? [11, 4] : undefined),
+        M(sf, ['dee'], ['ben'], stage >= 3 ? [9, 11] : undefined, stage === 2 ? { called_at: '2026-11-25T19:00:00Z', court: '1' } : {}));
+    }
+    if (stage >= 3) {
+      rounds.push(fin, third);
+      ms.push(M(fin, ['ana'], ['ben'], [11, 8]), M(third, ['eve'], ['dee'], [6, 11]));
     }
     return { ms, rounds };
   };
@@ -95,8 +101,9 @@ function pools(): GoldenMoment[] {
   };
   return [
     mk('pool-1', 'Ana done, pools still going', 'Pool A: Ana beat Ben 11-6 and Cal 11-8. Pool B: Dee beat Eve 11-5; Dee v Fay is on Court 2.', 0),
-    mk('pool-2', 'Pools done, semifinals drawn', 'Ben beat Cal 11-9. Fay beat Dee 11-9, Eve beat Fay 11-7. Semifinals: Ana v Fay (A1 v B2), Dee v Ben (B1 v A2).', 1),
-    mk('pool-3', 'Ana in the Final, waiting on the other semifinal', 'Ana beat Fay 11-4. Dee v Ben is on Court 1.', 2),
+    mk('pool-2', 'Pools done, semifinals drawn', 'Ben beat Cal 11-9. Fay beat Dee 11-9, Eve beat Fay 11-7. Semifinals: Ana v Eve (A1 v B2), Dee v Ben (B1 v A2).', 1),
+    mk('pool-3', 'Ana in the Final, waiting on the other semifinal', 'Ana beat Eve 11-4. Dee v Ben is on Court 1.', 2),
+    mk('pool-4', 'Playoff finished', 'Ben beat Dee 11-9. Final: Ana beat Ben 11-8. 3rd-place match: Dee beat Eve 11-6.', 3),
   ];
 }
 

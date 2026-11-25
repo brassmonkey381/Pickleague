@@ -9,6 +9,7 @@ import { useTheme } from '../lib/ThemeContext';
 import { textStyles } from '@just-messin-around/expo-foundation/typography';
 import { SPACE } from '@just-messin-around/expo-foundation/styles';
 import StandingsSection from '../components/tournament/StandingsSection';
+import PlacementSection from '../components/tournament/PlacementSection';
 import TournamentYouCard, { youCardView, type YouCardFacts } from '../components/tournament/TournamentYouCard';
 import { buildStandings, myStanding } from '../components/tournament/standingsData';
 import { mlpPoolGroups } from '../lib/mlpStandings';
@@ -41,28 +42,18 @@ function Moment({ m }: { m: GoldenMoment }) {
   const w = m.wait ? waitReason(m.wait) : null;
   const view = w ? youCardView('playing', facts(m)) : null;
   const isMlp = m.standings.tournament.format === 'mlp';
-  const block = isMlp && m.standings.mlpStandings?.length ? mlpPoolGroups(m.standings.mlpStandings as any) : null;
+  void isMlp; void mlpPoolGroups;
   return (
     <View testID={`golden-${m.id}`} style={[styles.frame, { backgroundColor: c.surface, borderColor: c.border }]}>
       <Text style={t.label}>{m.format}</Text>
       <Text style={t.title}>{m.title}</Text>
       <Text style={[t.sub, { marginBottom: SPACE.md }]}>{m.story}</Text>
       {view ? <TournamentYouCard view={view} /> : <Text style={t.sub}>{m.wait && m.wait.matches.some(x => x.status === 'pending' && [x.team1_player1, x.team1_player2, x.team2_player1, x.team2_player2].some(p => !!p && m.wait!.me.includes(p))) ? '(Your match is open: the Next match card shows.)' : '(Every match is in: the tournament closes and the Final results card shows.)'}</Text>}
-      {data ? <View style={{ marginTop: SPACE.md }}><StandingsSection data={data} title="Standings" /></View> : null}
-      {block ? (
-        <View style={[styles.block, { borderColor: c.border }]}>
-          <Text style={t.label}>Playoff section standings</Text>
-          {block.map(g => (
-            <View key={g.pool}>
-              {g.pool ? <Text style={t.sub}>Pool {g.pool}</Text> : null}
-              {g.rows.map((r: any, i: number) => (
-                <View key={r.team_id} style={styles.row}>
-                  <Text style={t.body}>{i + 1}  {r.team_name}</Text>
-                  <Text style={t.body}>{r.matchups_won}-{r.matchups_lost}</Text>
-                </View>
-              ))}
-            </View>
-          ))}
+      {data ? <View style={{ marginTop: SPACE.md }}><StandingsSection data={data} title={data.stageLocked ? (m.standings.tournament.format === 'pool_play' ? 'Pool play, final' : 'Round robin, final') : 'Standings'} /></View> : null}
+      {data?.placement && data.placement.rows.length > 0 ? (
+        <View style={{ marginTop: SPACE.md }}>
+          <PlacementSection data={data.placement} entrantLabel={data.entrantLabel}
+            title={data.placement.settled ? 'Final placement' : 'Final placement (so far)'} />
         </View>
       ) : null}
     </View>
