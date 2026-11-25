@@ -1277,7 +1277,8 @@ async function r6Form(st: State, approved: string[]) {
     for (const u of [...women, ...men]) {
       if (teamOf(u) || u === st.brian || captains.includes(u)) continue;
       if (reqs.some((r) => r.user_id === u && r.status === 'pending')) continue;
-      let target = teams.find((t) => (left.get(t.id) ?? 0) > 0);
+      // never back to a team that already declined this player: the re-ask would reuse the declined request row
+      let target = teams.find((t) => (left.get(t.id) ?? 0) > 0 && !reqs.some((r) => r.user_id === u && r.team_id === t.id && r.status === 'declined'));
       if (u === women[0] && !r6.declineAsked) { target = teams[teams.length - 1]; r6.declineAsked = true; }
       if (!target) break;
       left.set(target.id, (left.get(target.id) ?? 0) - 1);
