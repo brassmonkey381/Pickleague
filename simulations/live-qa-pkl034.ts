@@ -35,6 +35,8 @@ import { fileURLToPath } from 'node:url';
 import { seedPlayers, seedTeams, generateMLPSchedule, generateDoublesSingleElim, generateDoubleElim, generateRoundRobin, generateRotatingPartners, rotatingPartnersRounds, generateDoublesPoolPlay, validatePools, FORMAT_META, type MatchPairing } from '../mobile/src/lib/tournament';
 import * as PO from './qa/pools-oracle';
 import { buildStandingsComparator } from '../mobile/src/lib/tournamentTiebreakers';
+import { buildStandings } from '../mobile/src/components/tournament/standingsData';
+import { oracleFixedTable, oraclePlayerTable, type OracleMatch } from '../mobile/src/lib/standingsOracle';
 import { collectReplay } from './replay/collect';
 import { saveReplay } from './replay/render';
 
@@ -1611,6 +1613,56 @@ async function standingsOracle(tId: string) {
   }
 }
 
+/**
+ * PKL-090: after every bot score in the non-MLP rounds (R1/R3/R5/R7, pools), the app's own standings (buildStandings,
+ * what the Standings card shows) on the real rows must equal the oracle (mobile/src/lib/standingsOracle.ts).
+ */
+const oracle90 = { n: 0, bad: [] as string[] };
+async function fixedOracleCheck(tId: string) {
+  const [{ data: t }, { data: rs }, { data: ms }, { data: regs }, { data: ties }] = await Promise.all([
+    admin.from('tournaments').select('format, match_type, status').eq('id', tId).single(),
+    admin.from('tournament_rounds').select('id, label, round_type, round_number').eq('tournament_id', tId),
+    admin.from('tournament_matches').select('*').eq('tournament_id', tId),
+    admin.from('tournament_registrations').select('user_id, seed, status').eq('tournament_id', tId),
+    admin.from('tournament_tie_orders').select('entrant_key, tie_rank').eq('tournament_id', tId),
+  ]) as any[];
+  if (!t || ['mlp', 'mlp_random'].includes(t.format)) return;
+  const roundOf = new Map(((rs ?? []) as any[]).map((r) => [r.id, r]));
+  const saved = ((ms ?? []) as any[]).map((m) => ({ ...m, round: roundOf.get(m.round_id) ?? null }));
+  const tieRanks: Record<string, number> = {};
+  for (const r of (ties ?? []) as any[]) tieRanks[r.entrant_key] = r.tie_rank;
+  const d = buildStandings({ tournament: t, savedMatches: saved, savedRounds: (rs ?? []) as any, registrations: (regs ?? []) as any,
+    profileNames: {}, myUserId: null, mlpStandings: null, myMlpTeamId: null, finalRanks: [], tieRanks });
+  if (!d) return;
+  oracle90.n++;
+  const approved = ((regs ?? []) as any[]).filter((r) => r.status === 'approved');
+  const seedOfUser = new Map(approved.map((r) => [r.user_id, r.seed ?? 999]));
+  const ps = (a: string | null, b: string | null) => [a, b].filter(Boolean) as string[];
+  const key = (a: string | null, b: string | null) => ps(a, b).sort().join('|');
+  const ek = (k: string) => { const [a, b] = k.split('|'); return (b ?? a) >= a ? `${a}:${b ?? a}` : `${b}:${a}`; };
+  const om = (m: any, players: boolean): OracleMatch => ({ id: m.id,
+    side1: players ? ps(m.team1_player1, m.team1_player2) : [key(m.team1_player1, m.team1_player2)],
+    side2: players ? ps(m.team2_player1, m.team2_player2) : [key(m.team2_player1, m.team2_player2)],
+    status: m.status, winner: m.winner_team === 'team1' ? 1 : m.winner_team === 'team2' ? 2 : null, s1: m.team1_score, s2: m.team2_score,
+    games: Array.isArray(m.game_scores) && m.game_scores.length ? m.game_scores.map((g: any) => [Number(g.t1), Number(g.t2)]) : null });
+  const real = saved.filter((m) => !(m.is_dreambreaker && m.status === 'cancelled') && m.team1_player1 && m.team2_player1);
+  const isGroup = (m: any) => ['pool', 'winners'].includes(m.round?.round_type);
+  const twoStage = ['round_robin', 'pool_play'].includes(t.format) && real.some(isGroup) && saved.some((m) => m.round && !isGroup(m));
+  let want: any[][];
+  if (t.format === 'rotating_partners') {
+    want = [oraclePlayerTable(approved.map((r) => r.user_id), real.map((m) => om(m, true)), (u) => seedOfUser.get(u) ?? 999, (u) => tieRanks[`${u}:${u}`] ?? null)];
+  } else {
+    const seedOfKey = (k: string) => Math.min(...k.split('|').map((u) => seedOfUser.get(u) ?? 999));
+    const pools = ((rs ?? []) as any[]).filter((r) => r.round_type === 'pool').sort((a, b) => a.round_number - b.round_number);
+    const groups = t.format === 'pool_play' && pools.length ? pools.map((p) => real.filter((m) => m.round_id === p.id))
+      : [twoStage ? real.filter(isGroup) : real];
+    want = groups.map((g) => oracleFixedTable(g.map((m) => om(m, false)), seedOfKey, (k) => tieRanks[ek(k)] ?? null));
+  }
+  const got = d.tables.map((x) => x.rows.map((r) => `${r.key} ${r.wins}-${r.losses} ${(r.pf ?? 0) - (r.pa ?? 0)}`).join(', '));
+  const exp = want.map((x) => x.map((r: any) => `${r.key} ${r.wins}-${r.losses} ${r.pf - r.pa}`).join(', '));
+  if (JSON.stringify(got) !== JSON.stringify(exp)) oracle90.bad.push(`check ${oracle90.n}: app [${got.join(' / ')}] oracle [${exp.join(' / ')}]`);
+}
+
 /** R2 completion: auto-close, the champion, every meeting's dreambreaker, the final ranks, then the PKL-043 audit. */
 async function finishR2(st: State, nm: Map<string, string>) {
   const tId = st.tournament_id!; const N = (id: string) => nm.get(id) ?? id.slice(0, 8);
@@ -1989,7 +2041,8 @@ async function run() {
       }).eq('id', botMatch.id).select('id');
       const label = roundOf.get(botMatch.round_id)?.label ?? '?';
       if (error || !upd?.length) log(`SCORE ERROR ${label} #${botMatch.match_order}: ${error?.message ?? 'no row updated (RLS?)'}`);
-      else log(`SCORE ${label} #${botMatch.match_order}: ${side(botMatch.team1_player1, botMatch.team1_player2)} ${s1}-${s2} ${side(botMatch.team2_player1, botMatch.team2_player2)}  (entered by ${N(reporter)})  [${real.length - pending.length + 1}/${real.length} done]`);
+      else await fixedOracleCheck(st.tournament_id!);
+      if (!error && upd?.length) log(`SCORE ${label} #${botMatch.match_order}: ${side(botMatch.team1_player1, botMatch.team1_player2)} ${s1}-${s2} ${side(botMatch.team2_player1, botMatch.team2_player2)}  (entered by ${N(reporter)})  [${real.length - pending.length + 1}/${real.length} done]`);
       lastWaitMsg = '';
       await sleep(fast ? FAST_MS : intervalMs);
       continue;
@@ -2118,6 +2171,8 @@ async function run() {
     }
     await sleep(5000);
   }
+  if (oracle90.n) check(`PKL-090 standings after every bot score (${oracle90.n} checks): the app's table (buildStandings) = the standings oracle`,
+    oracle90.bad.length === 0, oracle90.bad.slice(0, 2).join(' ; '));
   log(`=== run ended; ${failures} check failure(s) ===`);
   process.exitCode = failures ? 1 : 0;
 }
