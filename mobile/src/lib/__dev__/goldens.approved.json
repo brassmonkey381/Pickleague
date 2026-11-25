@@ -1,0 +1,824 @@
+[
+ {
+  "id": "rr-0",
+  "format": "Round robin (singles)",
+  "title": "Before any match",
+  "story": "Nothing played yet.",
+  "card": null,
+  "record": "You 0-0, #1 of 4",
+  "tables": [
+   {
+    "label": null,
+    "rows": [
+     {
+      "pos": 1,
+      "name": "Ana",
+      "wl": "0-0",
+      "pm": 0
+     },
+     {
+      "pos": 2,
+      "name": "Ben",
+      "wl": "0-0",
+      "pm": 0
+     },
+     {
+      "pos": 3,
+      "name": "Cal",
+      "wl": "0-0",
+      "pm": 0
+     },
+     {
+      "pos": 4,
+      "name": "Dee",
+      "wl": "0-0",
+      "pm": 0
+     }
+    ]
+   }
+  ],
+  "placement": null
+ },
+ {
+  "id": "rr-2",
+  "format": "Round robin (singles)",
+  "title": "After 2 matches (tie flags)",
+  "story": "Ana beat Ben 11-7. Cal beat Dee 11-7.",
+  "card": null,
+  "record": "You 1-0, #1 of 4",
+  "tables": [
+   {
+    "label": null,
+    "rows": [
+     {
+      "pos": 1,
+      "name": "Ana",
+      "wl": "1-0",
+      "pm": 4
+     },
+     {
+      "pos": 2,
+      "name": "Cal",
+      "wl": "1-0",
+      "pm": 4
+     },
+     {
+      "pos": 3,
+      "name": "Ben",
+      "wl": "0-1",
+      "pm": -4
+     },
+     {
+      "pos": 4,
+      "name": "Dee",
+      "wl": "0-1",
+      "pm": -4
+     }
+    ]
+   }
+  ],
+  "placement": null
+ },
+ {
+  "id": "rr-4",
+  "format": "Round robin (singles)",
+  "title": "Ana's matches are done",
+  "story": "Also: Ana beat Cal 11-9, Dee beat Ana 11-4.",
+  "card": {
+   "title": "Your matches are done",
+   "line": "2 more matches to finish."
+  },
+  "record": "You 2-1, #1 of 4",
+  "tables": [
+   {
+    "label": null,
+    "rows": [
+     {
+      "pos": 1,
+      "name": "Ana",
+      "wl": "2-1",
+      "pm": -1
+     },
+     {
+      "pos": 2,
+      "name": "Dee",
+      "wl": "1-1",
+      "pm": 3
+     },
+     {
+      "pos": 3,
+      "name": "Cal",
+      "wl": "1-1",
+      "pm": 2
+     },
+     {
+      "pos": 4,
+      "name": "Ben",
+      "wl": "0-1",
+      "pm": -4
+     }
+    ]
+   }
+  ],
+  "placement": null
+ },
+ {
+  "id": "rr-6",
+  "format": "Round robin (singles)",
+  "title": "All played",
+  "story": "Also: Ben beat Cal 11-3, Ben beat Dee 11-8.",
+  "card": null,
+  "record": "You 2-1, #2 of 4",
+  "tables": [
+   {
+    "label": null,
+    "rows": [
+     {
+      "pos": 1,
+      "name": "Ben",
+      "wl": "2-1",
+      "pm": 7
+     },
+     {
+      "pos": 2,
+      "name": "Ana",
+      "wl": "2-1",
+      "pm": -1
+     },
+     {
+      "pos": 3,
+      "name": "Dee",
+      "wl": "1-2",
+      "pm": 0
+     },
+     {
+      "pos": 4,
+      "name": "Cal",
+      "wl": "1-2",
+      "pm": -6
+     }
+    ]
+   }
+  ],
+  "placement": null
+ },
+ {
+  "id": "pool-1",
+  "format": "Pool play + playoff (singles)",
+  "title": "Ana done, pools still going",
+  "story": "Pool A: Ana beat Ben 11-6 and Cal 11-8. Pool B: Dee beat Eve 11-5; Dee v Fay is on Court 2.",
+  "card": {
+   "title": "Your matches are done",
+   "line": "3 more matches to finish. Now: Dee v Fay, on Court 2."
+  },
+  "record": "You 2-0, #1 of 3 in Pool A",
+  "tables": [
+   {
+    "label": "Pool A",
+    "rows": [
+     {
+      "pos": 1,
+      "name": "Ana",
+      "wl": "2-0",
+      "pm": 8
+     },
+     {
+      "pos": 2,
+      "name": "Cal",
+      "wl": "0-1",
+      "pm": -3
+     },
+     {
+      "pos": 3,
+      "name": "Ben",
+      "wl": "0-1",
+      "pm": -5
+     }
+    ]
+   },
+   {
+    "label": "Pool B",
+    "rows": [
+     {
+      "pos": 1,
+      "name": "Dee",
+      "wl": "1-0",
+      "pm": 6
+     },
+     {
+      "pos": 2,
+      "name": "Fay",
+      "wl": "0-0",
+      "pm": 0
+     },
+     {
+      "pos": 3,
+      "name": "Eve",
+      "wl": "0-1",
+      "pm": -6
+     }
+    ]
+   }
+  ],
+  "placement": null
+ },
+ {
+  "id": "pool-2",
+  "format": "Pool play + playoff (singles)",
+  "title": "Pools done, semifinals drawn",
+  "story": "Ben beat Cal 11-9. Fay beat Dee 11-9, Eve beat Fay 11-7. Semifinals: Ana v Eve (A1 v B2), Dee v Ben (B1 v A2).",
+  "card": null,
+  "record": "You 2-0, #1 of 3 in Pool A",
+  "tables": [
+   {
+    "label": "Pool A",
+    "rows": [
+     {
+      "pos": 1,
+      "name": "Ana",
+      "wl": "2-0",
+      "pm": 8
+     },
+     {
+      "pos": 2,
+      "name": "Ben",
+      "wl": "1-1",
+      "pm": -3
+     },
+     {
+      "pos": 3,
+      "name": "Cal",
+      "wl": "0-2",
+      "pm": -5
+     }
+    ]
+   },
+   {
+    "label": "Pool B",
+    "rows": [
+     {
+      "pos": 1,
+      "name": "Dee",
+      "wl": "1-1",
+      "pm": 4
+     },
+     {
+      "pos": 2,
+      "name": "Eve",
+      "wl": "1-1",
+      "pm": -2
+     },
+     {
+      "pos": 3,
+      "name": "Fay",
+      "wl": "1-1",
+      "pm": -2
+     }
+    ]
+   }
+  ],
+  "placement": [
+   {
+    "place": "1-4",
+    "name": "Ana",
+    "section": "playoff",
+    "detail": "Plays the Semifinals"
+   },
+   {
+    "place": "1-4",
+    "name": "Dee",
+    "section": "playoff",
+    "detail": "Plays the Semifinals"
+   },
+   {
+    "place": "1-4",
+    "name": "Eve",
+    "section": "playoff",
+    "detail": "Plays the Semifinals"
+   },
+   {
+    "place": "1-4",
+    "name": "Ben",
+    "section": "playoff",
+    "detail": "Plays the Semifinals"
+   },
+   {
+    "place": "5",
+    "name": "Fay",
+    "section": "rest",
+    "detail": "Pool B 3rd, 1-1, -2"
+   },
+   {
+    "place": "6",
+    "name": "Cal",
+    "section": "rest",
+    "detail": "Pool A 3rd, 0-2, -5"
+   }
+  ]
+ },
+ {
+  "id": "pool-3",
+  "format": "Pool play + playoff (singles)",
+  "title": "Ana in the Final, waiting on the other semifinal",
+  "story": "Ana beat Eve 11-4. Dee v Ben is on Court 1.",
+  "card": {
+   "title": "You're in the Final",
+   "line": "It starts when Semifinal 2 ends: Dee v Ben, on Court 1."
+  },
+  "record": "You 2-0, #1 of 3 in Pool A",
+  "tables": [
+   {
+    "label": "Pool A",
+    "rows": [
+     {
+      "pos": 1,
+      "name": "Ana",
+      "wl": "2-0",
+      "pm": 8
+     },
+     {
+      "pos": 2,
+      "name": "Ben",
+      "wl": "1-1",
+      "pm": -3
+     },
+     {
+      "pos": 3,
+      "name": "Cal",
+      "wl": "0-2",
+      "pm": -5
+     }
+    ]
+   },
+   {
+    "label": "Pool B",
+    "rows": [
+     {
+      "pos": 1,
+      "name": "Dee",
+      "wl": "1-1",
+      "pm": 4
+     },
+     {
+      "pos": 2,
+      "name": "Eve",
+      "wl": "1-1",
+      "pm": -2
+     },
+     {
+      "pos": 3,
+      "name": "Fay",
+      "wl": "1-1",
+      "pm": -2
+     }
+    ]
+   }
+  ],
+  "placement": [
+   {
+    "place": "1-3",
+    "name": "Ana",
+    "section": "playoff",
+    "detail": "Won the Semifinals 11-4"
+   },
+   {
+    "place": "1-3",
+    "name": "Dee",
+    "section": "playoff",
+    "detail": "Plays the Semifinals"
+   },
+   {
+    "place": "1-3",
+    "name": "Ben",
+    "section": "playoff",
+    "detail": "Plays the Semifinals"
+   },
+   {
+    "place": "4",
+    "name": "Eve",
+    "section": "playoff",
+    "detail": "Out in the Semifinals, 4-11"
+   },
+   {
+    "place": "5",
+    "name": "Fay",
+    "section": "rest",
+    "detail": "Pool B 3rd, 1-1, -2"
+   },
+   {
+    "place": "6",
+    "name": "Cal",
+    "section": "rest",
+    "detail": "Pool A 3rd, 0-2, -5"
+   }
+  ]
+ },
+ {
+  "id": "pool-4",
+  "format": "Pool play + playoff (singles)",
+  "title": "Playoff finished",
+  "story": "Ben beat Dee 11-9. Final: Ana beat Ben 11-8. 3rd-place match: Dee beat Eve 11-6.",
+  "card": {
+   "title": "You won the Final",
+   "line": null
+  },
+  "record": "You 2-0, #1 of 3 in Pool A",
+  "tables": [
+   {
+    "label": "Pool A",
+    "rows": [
+     {
+      "pos": 1,
+      "name": "Ana",
+      "wl": "2-0",
+      "pm": 8
+     },
+     {
+      "pos": 2,
+      "name": "Ben",
+      "wl": "1-1",
+      "pm": -3
+     },
+     {
+      "pos": 3,
+      "name": "Cal",
+      "wl": "0-2",
+      "pm": -5
+     }
+    ]
+   },
+   {
+    "label": "Pool B",
+    "rows": [
+     {
+      "pos": 1,
+      "name": "Dee",
+      "wl": "1-1",
+      "pm": 4
+     },
+     {
+      "pos": 2,
+      "name": "Eve",
+      "wl": "1-1",
+      "pm": -2
+     },
+     {
+      "pos": 3,
+      "name": "Fay",
+      "wl": "1-1",
+      "pm": -2
+     }
+    ]
+   }
+  ],
+  "placement": [
+   {
+    "place": "1",
+    "name": "Ana",
+    "section": "playoff",
+    "detail": "Won the Final 11-8"
+   },
+   {
+    "place": "2",
+    "name": "Ben",
+    "section": "playoff",
+    "detail": "Lost the Final 8-11"
+   },
+   {
+    "place": "3",
+    "name": "Dee",
+    "section": "playoff",
+    "detail": "Won the 3rd-place match 11-6"
+   },
+   {
+    "place": "4",
+    "name": "Eve",
+    "section": "playoff",
+    "detail": "Lost the 3rd-place match 6-11"
+   },
+   {
+    "place": "5",
+    "name": "Fay",
+    "section": "rest",
+    "detail": "Pool B 3rd, 1-1, -2"
+   },
+   {
+    "place": "6",
+    "name": "Cal",
+    "section": "rest",
+    "detail": "Pool A 3rd, 0-2, -5"
+   }
+  ]
+ },
+ {
+  "id": "mlp-1",
+  "format": "MLP",
+  "title": "Aces lead Bolts 3-0, game 4 still to play",
+  "story": "Aces won games 1-3 (11-6, 11-8, 11-9).",
+  "card": null,
+  "record": "You 1-0, #1 of 3 in Pool A",
+  "tables": [
+   {
+    "label": "Pool A",
+    "rows": [
+     {
+      "pos": 1,
+      "name": "Aces",
+      "wl": "1-0",
+      "pm": 10
+     },
+     {
+      "pos": 2,
+      "name": "Comets",
+      "wl": "0-0",
+      "pm": 0
+     },
+     {
+      "pos": 3,
+      "name": "Bolts",
+      "wl": "0-1",
+      "pm": -10
+     }
+    ]
+   }
+  ],
+  "placement": null
+ },
+ {
+  "id": "mlp-2",
+  "format": "MLP",
+  "title": "Aces v Comets at 2-2, Dreambreaker next",
+  "story": "Bolts won game 4 (Aces 3-1). Aces v Comets: 11-4, 9-11, 11-7, 6-11.",
+  "card": null,
+  "record": "You 1-0, #1 of 3 in Pool A",
+  "tables": [
+   {
+    "label": "Pool A",
+    "rows": [
+     {
+      "pos": 1,
+      "name": "Aces",
+      "wl": "1-0",
+      "pm": 8
+     },
+     {
+      "pos": 2,
+      "name": "Comets",
+      "wl": "0-0",
+      "pm": -4
+     },
+     {
+      "pos": 3,
+      "name": "Bolts",
+      "wl": "0-1",
+      "pm": -4
+     }
+    ]
+   }
+  ],
+  "placement": null
+ },
+ {
+  "id": "mlp-3",
+  "format": "MLP",
+  "title": "Pool finished",
+  "story": "Comets won the Dreambreaker 21-18. Bolts beat Comets 3-1 (11-2, 11-5, 11-8, 9-11).",
+  "card": null,
+  "record": "You 1-1, #2 of 3 in Pool A",
+  "tables": [
+   {
+    "label": "Pool A",
+    "rows": [
+     {
+      "pos": 1,
+      "name": "Bolts",
+      "wl": "1-1",
+      "pm": 12
+     },
+     {
+      "pos": 2,
+      "name": "Aces",
+      "wl": "1-1",
+      "pm": 5
+     },
+     {
+      "pos": 3,
+      "name": "Comets",
+      "wl": "1-1",
+      "pm": -17
+     }
+    ]
+   }
+  ],
+  "placement": null
+ },
+ {
+  "id": "gn-1",
+  "format": "MLP, gender neutral",
+  "title": "Aces lead Bolts 3-0, game 4 still to play",
+  "story": "Aces won games 1-3 (11-6, 11-8, 11-9).",
+  "card": null,
+  "record": "You 1-0, #1 of 3 in Pool A",
+  "tables": [
+   {
+    "label": "Pool A",
+    "rows": [
+     {
+      "pos": 1,
+      "name": "Aces",
+      "wl": "1-0",
+      "pm": 10
+     },
+     {
+      "pos": 2,
+      "name": "Comets",
+      "wl": "0-0",
+      "pm": 0
+     },
+     {
+      "pos": 3,
+      "name": "Bolts",
+      "wl": "0-1",
+      "pm": -10
+     }
+    ]
+   }
+  ],
+  "placement": null
+ },
+ {
+  "id": "gn-2",
+  "format": "MLP, gender neutral",
+  "title": "Aces v Comets at 2-2, Dreambreaker next",
+  "story": "Bolts won game 4 (Aces 3-1). Aces v Comets: 11-4, 9-11, 11-7, 6-11.",
+  "card": null,
+  "record": "You 1-0, #1 of 3 in Pool A",
+  "tables": [
+   {
+    "label": "Pool A",
+    "rows": [
+     {
+      "pos": 1,
+      "name": "Aces",
+      "wl": "1-0",
+      "pm": 8
+     },
+     {
+      "pos": 2,
+      "name": "Comets",
+      "wl": "0-0",
+      "pm": -4
+     },
+     {
+      "pos": 3,
+      "name": "Bolts",
+      "wl": "0-1",
+      "pm": -4
+     }
+    ]
+   }
+  ],
+  "placement": null
+ },
+ {
+  "id": "gn-3",
+  "format": "MLP, gender neutral",
+  "title": "Pool finished",
+  "story": "Comets won the Dreambreaker 21-18. Bolts beat Comets 3-1 (11-2, 11-5, 11-8, 9-11).",
+  "card": null,
+  "record": "You 1-1, #2 of 3 in Pool A",
+  "tables": [
+   {
+    "label": "Pool A",
+    "rows": [
+     {
+      "pos": 1,
+      "name": "Bolts",
+      "wl": "1-1",
+      "pm": 12
+     },
+     {
+      "pos": 2,
+      "name": "Aces",
+      "wl": "1-1",
+      "pm": 5
+     },
+     {
+      "pos": 3,
+      "name": "Comets",
+      "wl": "1-1",
+      "pm": -17
+     }
+    ]
+   }
+  ],
+  "placement": null
+ },
+ {
+  "id": "mlp-semis",
+  "format": "MLP playoff",
+  "title": "Your team won its semifinal; the other is 2-2",
+  "story": "Third Shot Club beat Lob City 3-0. Kitchen Kings v Erne Express is 2-2, Dreambreaker on Court 1.",
+  "card": {
+   "title": "Your team is in the Final",
+   "line": "It starts when Semifinal 2 ends: Kitchen Kings v Erne Express, 2-2, Dreambreaker on Court 1."
+  },
+  "record": null,
+  "tables": [],
+  "placement": null
+ },
+ {
+  "id": "mlp-final",
+  "format": "MLP playoff",
+  "title": "Finished (option A)",
+  "story": "Pools, then semifinals TSC v LC and KK v EE, the Final TSC v KK 3-2 (Dreambreaker 21-19), and the 3rd-place match EE v LC 3-1.",
+  "card": null,
+  "record": "You 2-0, #1 of 3 in Pool A",
+  "tables": [
+   {
+    "label": "Pool A",
+    "rows": [
+     {
+      "pos": 1,
+      "name": "Third Shot Club",
+      "wl": "2-0",
+      "pm": 36
+     },
+     {
+      "pos": 2,
+      "name": "Erne Express",
+      "wl": "1-1",
+      "pm": -5
+     },
+     {
+      "pos": 3,
+      "name": "Dink Dynasty",
+      "wl": "0-2",
+      "pm": -17
+     }
+    ]
+   },
+   {
+    "label": "Pool B",
+    "rows": [
+     {
+      "pos": 1,
+      "name": "Kitchen Kings",
+      "wl": "2-0",
+      "pm": 16
+     },
+     {
+      "pos": 2,
+      "name": "Lob City",
+      "wl": "1-1",
+      "pm": -12
+     },
+     {
+      "pos": 3,
+      "name": "Paddle Battle",
+      "wl": "0-2",
+      "pm": -18
+     }
+    ]
+   }
+  ],
+  "placement": [
+   {
+    "place": "1",
+    "name": "Third Shot Club",
+    "section": "playoff",
+    "detail": ""
+   },
+   {
+    "place": "2",
+    "name": "Kitchen Kings",
+    "section": "playoff",
+    "detail": ""
+   },
+   {
+    "place": "3",
+    "name": "Erne Express",
+    "section": "playoff",
+    "detail": ""
+   },
+   {
+    "place": "4",
+    "name": "Lob City",
+    "section": "playoff",
+    "detail": ""
+   },
+   {
+    "place": "5",
+    "name": "Dink Dynasty",
+    "section": "rest",
+    "detail": "Pool A 3rd, 0-2, -17"
+   },
+   {
+    "place": "6",
+    "name": "Paddle Battle",
+    "section": "rest",
+    "detail": "Pool B 3rd, 0-2, -18"
+   }
+  ]
+ }
+]
