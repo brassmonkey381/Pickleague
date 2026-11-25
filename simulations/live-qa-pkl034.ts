@@ -906,7 +906,7 @@ async function finishR3(st: State, nm: Map<string, string>, completeAsked: boole
 }
 
 /** R5 state across loop passes. */
-const r5 = { cancelled: null as string | null, wagers: false, edited: null as string | null, semis: false, finals: false, reinstated: false, qf: false };
+const r5 = { cancelled: null as string | null, cancelledAt: null as number | null, wagers: false, edited: null as string | null, semis: false, finals: false, reinstated: false, qf: false };
 /**
  * R5, during the run: (1) right after lock-in the host cancels one round-robin match that is not on a court;
  * (2) QA Bots 2 and 3 each put 10 on a different player to win (place_wager, tournament_rank 1); (3) after a third of
@@ -921,7 +921,7 @@ async function r5Extras(st: State, real: any[], rounds: any[]) {
     const m = group.filter((x) => x.status !== 'completed' && !x.called_at).sort((a, b) => b.match_order - a.match_order)[0];
     if (m) {
       const { error } = await hc.from('tournament_matches').update({ status: 'cancelled' }).eq('id', m.id);
-      r5.cancelled = m.id;
+      r5.cancelled = m.id; if (!error) r5.cancelledAt = Date.now();
       log(error ? `CANCEL MATCH ERROR: ${error.message}` : `host cancelled round-robin match #${m.match_order}`);
       check('R5: the host can cancel a round-robin match that is not on a court', !error, error?.message);
     }
@@ -2256,7 +2256,11 @@ async function auditDoubles(st: State, tId: string, players: string[]) {
   const extraRows = ((R2 ? ms0 ?? [] : []) as any[]).filter((m) => m.team1_player1 && m.team2_player1 && m.status !== 'completed'
     && (m.status === 'pending' || (m.status === 'cancelled' && m.is_dreambreaker))
     && !(m.is_dreambreaker && m.db_order_team1)); // PKL-086: a rotating Dreambreaker is no one's personal match
-  for (const x of extraRows.filter((m) => m.status === 'cancelled')) {
+  // PKL-075 run e5c851: the R5 host-cancelled round-robin match counted in every alert sent before the cancel
+  // ("1 of 9"), so it joins the list until the cancel time.
+  const hostCancelled = (ms0 ?? []).find((m: any) => m.id === r5.cancelled && m.status === 'cancelled' && !m.is_dreambreaker) as any;
+  if (hostCancelled && r5.cancelledAt) { extraRows.push(hostCancelled); goneAt.set(hostCancelled.id, r5.cancelledAt); }
+  for (const x of extraRows.filter((m) => m.status === 'cancelled' && m.is_dreambreaker)) {
     const subs = ms.filter((m) => m.round_id === x.round_id && !m.is_dreambreaker).sort((a, b) => String(a.completed_at).localeCompare(String(b.completed_at)));
     let a = 0, b = 0;
     for (const m of subs) { if (m.winner_team === 'team1') a++; else b++; if (a >= 3 || b >= 3) { goneAt.set(x.id, Date.parse(m.completed_at)); break; } }
