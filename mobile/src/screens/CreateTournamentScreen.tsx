@@ -140,6 +140,8 @@ export default function CreateTournamentScreen({ navigation, route }: Props) {
   // Whether Top 4 / Top 8 brackets get a Third Place Match between losing semifinalists.
   // (Top 2 always pairs standings #3 vs #4 — that's not toggleable.)
   const [playoffThirdPlace, setPlayoffThirdPlace] = useState(false);
+  // PKL-088: gender neutral (any format).
+  const [genderNeutral, setGenderNeutral] = useState(false);
 
   // PKL-039: courts. Off = no courts reserved (players find an open court).
   const [reserveCourts, setReserveCourts] = useState(false);
@@ -388,6 +390,8 @@ export default function CreateTournamentScreen({ navigation, route }: Props) {
       }
       // PKL-039: null = no courts reserved.
       insertPayload.courts = reserveCourts ? parseCourts(courtNames) : null;
+      // PKL-088: sent only when on, so creating a tournament keeps working before the column exists.
+      if (genderNeutral) insertPayload.gender_neutral = true;
 
       // Not retried: nothing dedupes tournaments, so a retry after a lost reply
       // would leave two and immediately trip the one-active limit.
@@ -654,6 +658,16 @@ export default function CreateTournamentScreen({ navigation, route }: Props) {
         <View style={S.closedNote}>
           <Icon name="lock" size={14} color={colors.textMuted} />
           <Text style={S.closedNoteText}>All tournaments are closed — players must be approved to participate.</Text>
+        </View>
+
+        <View style={S.toggleRow}>
+          <View style={{ flex: 1 }}>
+            <Text style={S.label}>Gender neutral</Text>
+            <Text style={S.hint}>{genderNeutral
+              ? 'Any players make a team (MLP: any 4). Only the overall PLUPR changes, never the gender or mixed ratings.'
+              : 'MLP teams are 2 men and 2 women; doubles games also count toward the gender and mixed PLUPRs.'}</Text>
+          </View>
+          <ThemedSwitch value={genderNeutral} onValueChange={setGenderNeutral} />
         </View>
 
         <View style={S.toggleRow}>

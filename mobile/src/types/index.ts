@@ -333,6 +333,8 @@ export type Tournament = {
   // creates a third place match between the losing semifinalists once both
   // semifinals complete. (Top 2 always has a 3PM between standings #3/#4.)
   playoff_third_place: boolean;
+  /** PKL-088: teams are any players (MLP: any 4), and only the overall PLUPR moves. Absent before the migration. */
+  gender_neutral?: boolean | null;
   // PKL-039: court names in call order. Null or [] = no courts reserved
   // (players find an open court). With courts, the server calls matches to
   // them (tournament_matches.court / called_at) and only called matches can

@@ -127,7 +127,7 @@ type MlpRow = {
 };
 
 export type StandingsInput = {
-  tournament: Pick<Tournament, 'format' | 'match_type' | 'status'>;
+  tournament: Pick<Tournament, 'format' | 'match_type' | 'status'> & { gender_neutral?: boolean | null };
   savedMatches: ScheduleMatch[];
   savedRounds: { id: string; round_type: string; round_number: number; label?: string | null }[];
   registrations: TournamentRegistration[];
@@ -253,7 +253,9 @@ export function buildStandings(i: StandingsInput): StandingsData | null {
       kind: 'mlp',
       entrantLabel: 'Team',
       recordLabel: 'W-L',
-      note: "A matchup is 4 games (men's, women's, 2 mixed) and a Dreambreaker at 2-2; winning it is 1 win. Ties: point diff, then games won, then the admin's order.",
+      note: t.gender_neutral
+        ? "A matchup is 4 games (Doubles 1-4) and a Dreambreaker at 2-2; winning it is 1 win. Ties: point diff, then games won, then the admin's order."
+        : "A matchup is 4 games (men's, women's, 2 mixed) and a Dreambreaker at 2-2; winning it is 1 win. Ties: point diff, then games won, then the admin's order.",
       settled: false,
       tables,
       waitingCount: countWaiting(tables),

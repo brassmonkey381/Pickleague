@@ -32,7 +32,7 @@ function M(round: Round, a: string[], b: string[], res?: [number, number], o: Pa
 const regs = (ids: string[]) => ids.map((u, i) => ({ id: `r${u}`, user_id: u, status: 'approved', seed: i + 1 })) as any[];
 const base = (format: string, matchType: string, ids: string[], names: Record<string, string>, me: string,
   matches: any[], rounds: Round[], extra: Partial<StandingsInput> = {}): StandingsInput => ({
-  tournament: { format, match_type: matchType, status: 'active' } as any,
+  tournament: { format: format === 'mlp-gn' ? 'mlp' : format, match_type: matchType, status: 'active', gender_neutral: format === 'mlp-gn' } as any,
   savedMatches: matches, savedRounds: rounds, registrations: regs(ids), profileNames: names, myUserId: me,
   mlpStandings: null, myMlpTeamId: null, finalRanks: [], ...extra,
 });
@@ -141,7 +141,7 @@ function mlp(neutral: boolean): GoldenMoment[] {
     const rows = mlpRows(teams, ms);
     return {
       id: `${neutral ? 'gn' : 'mlp'}-${s.id.slice(2)}`, format: fmt, title: s.title, story: s.story,
-      standings: base('mlp', 'doubles', [], names, 'aces0', ms, [rAB, rAC, rBC], {
+      standings: base(neutral ? 'mlp-gn' : 'mlp', 'doubles', [], names, 'aces0', ms, [rAB, rAC, rBC], {
         mlpStandings: rows, myMlpTeamId: 'Aces', mlpTeams: teams,
       }),
       wait: { format: 'mlp', isMlp: true, hasPlayoff: true, me: members('Aces'), matches: ms,

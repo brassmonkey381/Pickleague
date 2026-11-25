@@ -31,6 +31,8 @@ type Props = {
   approvedRegistrations: TournamentRegistration[];
   bracketAlreadyGenerated: boolean;
   onTeamsChanged?: () => void;
+  /** PKL-088: a team is any 4 players (no men's/women's slots); the games are Doubles 1-4. */
+  genderNeutral?: boolean;
   /**
    * Drop the title row (the subtitle stays: it explains the format), for a
    * host that already names the section (TournamentDetail's "Teams"
@@ -52,8 +54,10 @@ const SLOT_ORDER: MlpTeamSlot[] = ['male_1', 'male_2', 'female_1', 'female_2'];
 
 export default function MlpTeamSection({
   tournamentId, format, mlpPlayFormat = 'round_robin', tournamentStatus, isPriv, currentUserId,
-  approvedRegistrations, bracketAlreadyGenerated, onTeamsChanged, bare = false,
+  approvedRegistrations, bracketAlreadyGenerated, onTeamsChanged, bare = false, genderNeutral = false,
 }: Props) {
+  // PKL-088: gender neutral, the four slots are just Player 1-4.
+  const slotName = (slot: MlpTeamSlot) => (genderNeutral ? `Player ${SLOT_ORDER.indexOf(slot) + 1}` : SLOT_LABEL[slot]);
   const { colors: c } = useTheme();
   const S = makeStyles(c);
 
@@ -354,13 +358,15 @@ export default function MlpTeamSection({
     if (!currentUserId) return;
     const me = profileMap[currentUserId];
     const gender = me?.gender;
-    if (!gender || gender === 'prefer-not-to-say') {
+    if (!genderNeutral && (!gender || gender === 'prefer-not-to-say')) {
       adminStatus.error('Open your profile and set your gender (male/female/other) before joining a team slot.');
       return;
     }
 
     let slot: MlpTeamSlot | null = null;
-    if (gender === 'female') {
+    if (genderNeutral) {
+      slot = SLOT_ORDER.find(k => team[`${k}_id` as keyof MlpTeam] == null) ?? null;   // PKL-088: the first open slot
+    } else if (gender === 'female') {
       if (team.female_1_id == null) slot = 'female_1';
       else if (team.female_2_id == null) slot = 'female_2';
     } else {
@@ -368,7 +374,7 @@ export default function MlpTeamSection({
       else if (team.male_2_id == null) slot = 'male_2';
     }
     if (!slot) {
-      adminStatus.error(`Both ${gender === 'female' ? 'female' : 'male'} slots are filled. Clear one first.`);
+      adminStatus.error(genderNeutral ? 'All 4 slots are filled. Clear one first.' : `Both ${gender === 'female' ? 'female' : 'male'} slots are filled. Clear one first.`);
       return;
     }
 
@@ -561,7 +567,9 @@ export default function MlpTeamSection({
         </View>
       )}
       <Text style={S.subtitle}>
-        Teams of 4 (2 men + 2 women). Each team-vs-team matchup is 4 doubles matches: men's, women's, and two mixed.
+        {genderNeutral
+          ? 'Teams of any 4 players. Each team-vs-team matchup is 4 doubles games (Doubles 1-4), then a Dreambreaker at 2-2.'
+          : "Teams of 4 (2 men + 2 women). Each team-vs-team matchup is 4 doubles matches: men's, women's, and two mixed."}
       </Text>
       <StatusBanner status={adminStatus.value} />
 
@@ -594,7 +602,7 @@ export default function MlpTeamSection({
         // proceed (function will create best-effort teams).
         const shortMale   = Math.max(0, teamsPossible * 2 - males);
         const shortFemale = Math.max(0, teamsPossible * 2 - females);
-        const balanced = (shortMale + shortFemale) <= wildcards;
+        const balanced = genderNeutral || (shortMale + shortFemale) <= wildcards;
         return (
           <View>
             <View style={[S.preFlight, ok ? S.preFlightOk : S.preFlightWarn]}>
@@ -704,7 +712,7 @@ export default function MlpTeamSection({
                 const member = teamSlotMember(t, slot);
                 return (
                   <View key={slot} style={S.slotRow}>
-                    <Text style={S.slotLabel}>{SLOT_LABEL[slot]}</Text>
+                    <Text style={S.slotLabel}>{slotName(slot)}</Text>
                     <Text style={S.slotName} numberOfLines={2}>
                       {member ? member.full_name : <Text style={S.slotEmpty}>— empty —</Text>}
                     </Text>
@@ -736,7 +744,7 @@ export default function MlpTeamSection({
                     const selected = !!pid && t.dreambreaker_player_id === pid;
                     const disabled = !pid || busy;
                     const member = pid ? profileMap[pid] : null;
-                    const label = member?.full_name ?? SLOT_LABEL[slot];
+                    const label = member?.full_name ?? slotName(slot);
                     return (
                       <TouchableOpacity
                         key={slot}
@@ -901,6 +909,7 @@ export default function MlpTeamSection({
         const maleOpenings   = cap ? (cap.male_1_id   == null ? 1 : 0) + (cap.male_2_id   == null ? 1 : 0) : 0;
         const femaleOpenings = cap ? (cap.female_1_id == null ? 1 : 0) + (cap.female_2_id == null ? 1 : 0) : 0;
         const canCaptainInvite = !!cap && cap.status === 'forming';
+        const anyOpenings = maleOpenings + femaleOpenings;
 
         return (
           <View style={S.unteamedBox}>
@@ -908,7 +917,10 @@ export default function MlpTeamSection({
               <Text style={S.unteamedTitle}>
                 {playersWithoutTeam.length} approved player{playersWithoutTeam.length === 1 ? '' : 's'} not yet on a team
               </Text>
-              {canCaptainInvite && (
+              {canCaptainInvite && genderNeutral && (
+                <Text style={S.unteamedSlots}>Your team: {anyOpenings} open</Text>
+              )}
+              {canCaptainInvite && !genderNeutral && (
                 <View
                   style={S.glyphRow}
                   accessible
@@ -927,7 +939,7 @@ export default function MlpTeamSection({
                 const prof = profileMap[r.user_id];
                 const gender = prof?.gender;
                 const isFemale = gender === 'female';
-                const genderHasOpening = canCaptainInvite && (isFemale ? femaleOpenings > 0 : maleOpenings > 0);
+                const genderHasOpening = canCaptainInvite && (genderNeutral ? anyOpenings > 0 : isFemale ? femaleOpenings > 0 : maleOpenings > 0);
                 const existingFromCap = canCaptainInvite
                   ? requests.find(rq => rq.team_id === cap!.id && rq.user_id === r.user_id)
                   : null;
@@ -940,8 +952,8 @@ export default function MlpTeamSection({
                       {prof?.full_name ?? r.profile?.full_name ?? '?'}
                     </Text>
                     {/* Gender chip: male info, female rare purple, other the
-                        brand; the glyph carries the meaning, so it is labelled. */}
-                    <View
+                        brand; the glyph carries the meaning, so it is labelled. None when gender neutral. */}
+                    {!genderNeutral && <View
                       style={[
                         S.unteamedGender,
                         isFemale ? S.unteamedGenderF : gender === 'male' ? S.unteamedGenderM : S.unteamedGenderO,
@@ -964,7 +976,7 @@ export default function MlpTeamSection({
                       ) : (
                         <Text style={S.unteamedGenderText}>?</Text>
                       )}
-                    </View>
+                    </View>}
                     {canCaptainInvite && (
                       alreadyInvited ? (
                         <View style={S.glyphRow}>

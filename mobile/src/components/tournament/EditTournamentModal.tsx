@@ -5,6 +5,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { RADIUS, SPACE, webInputFontFloor } from '@just-messin-around/expo-foundation/styles';
 import { FONT } from '@just-messin-around/expo-foundation/typography';
 import { Icon } from '@just-messin-around/expo-foundation/icons';
+import { ThemedSwitch } from '@just-messin-around/expo-foundation/ui';
 import { useAsyncPress } from '@just-messin-around/expo-foundation/hooks';
 import AppDateTimePicker from '../AppDateTimePicker';
 import { useTournamentDetailStyles } from './styles';
@@ -18,7 +19,10 @@ type Props = Pick<TournamentDetailState,
   | 'editStartTime' | 'setEditStartTime' | 'editLengthHours' | 'setEditLengthHours'
   | 'editAnte' | 'setEditAnte' | 'editPayout' | 'setEditPayout'
   | 'editSeeding' | 'setEditSeeding' | 'showStartPicker' | 'setShowStartPicker'
-  | 'editCourts' | 'setEditCourts'>;
+  | 'editCourts' | 'setEditCourts' | 'editGenderNeutral' | 'setEditGenderNeutral'> & {
+  /** PKL-088: the toggle shows only before the draw. */
+  canChangeGenderNeutral?: boolean;
+};
 
 /**
  * Edit Tournament page sheet (admin). Form state lives in
@@ -34,7 +38,7 @@ export default function EditTournamentModal({
   editStartTime, setEditStartTime, editLengthHours, setEditLengthHours,
   editAnte, setEditAnte, editPayout, setEditPayout,
   editSeeding, setEditSeeding, showStartPicker, setShowStartPicker,
-  editCourts, setEditCourts,
+  editCourts, setEditCourts, editGenderNeutral, setEditGenderNeutral, canChangeGenderNeutral = false,
 }: Props) {
   const save = useAsyncPress(saveTournamentEdits);
   const { S, c } = useTournamentDetailStyles();
@@ -197,6 +201,18 @@ export default function EditTournamentModal({
             ? 'Matches are called to these courts in order; players get a push when theirs is called.'
             : 'No courts reserved: players find an open court and play their next match.'}
         </Text>
+
+        {canChangeGenderNeutral ? (
+          <View style={{ flexDirection: 'row', alignItems: 'center', gap: SPACE.sm, marginTop: SPACE.md }}>
+            <View style={{ flex: 1 }}>
+              <Text style={S.editFieldLabel}>Gender neutral</Text>
+              <Text style={S.note}>{editGenderNeutral
+                ? 'Any players make a team (MLP: any 4). Only the overall PLUPR changes.'
+                : 'MLP teams are 2 men and 2 women. Can change until the draw.'}</Text>
+            </View>
+            <ThemedSwitch value={editGenderNeutral} onValueChange={setEditGenderNeutral} />
+          </View>
+        ) : null}
 
         {editError && (
           <Text style={S.editErrorText}>{editError}</Text>

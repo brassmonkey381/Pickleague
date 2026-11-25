@@ -145,6 +145,8 @@ export function useTournamentDetail({ navigation, tournamentId }: {
   const [editPayout, setEditPayout]           = useState('');
   const [editSeeding, setEditSeeding]         = useState<'random' | 'elo'>('random');
   const [editCourts, setEditCourts]           = useState('');
+  // PKL-088: gender neutral, editable until the draw (the server refuses a change after it).
+  const [editGenderNeutral, setEditGenderNeutral] = useState(false);
   const [showStartPicker, setShowStartPicker] = useState(false);
   const [savingEdit, setSavingEdit]           = useState(false);
 
@@ -575,6 +577,7 @@ export function useTournamentDetail({ navigation, tournamentId }: {
     setEditPayout(Array.isArray(tournament.payout_structure) ? tournament.payout_structure.join(',') : '60,25,15');
     setEditSeeding((tournament.seeding === 'elo' ? 'elo' : 'random'));
     setEditCourts(courtsText(tournament.courts));
+    setEditGenderNeutral(!!tournament.gender_neutral);
     setEditError(null);
     setShowEditModal(true);
   }
@@ -635,6 +638,8 @@ export function useTournamentDetail({ navigation, tournamentId }: {
       // calls matches to any new court right away (server trigger).
       courts:                parseCourts(editCourts).length ? parseCourts(editCourts) : null,
     };
+    // PKL-088: sent only when it changed, so editing keeps working before the column exists.
+    if (editGenderNeutral !== !!tournament.gender_neutral) updatePayload.gender_neutral = editGenderNeutral;
     // The prize pool is server-owned (migration_pickle_economy_guards.sql):
     // it only grows from antes and contributions.
 
@@ -1260,7 +1265,7 @@ export function useTournamentDetail({ navigation, tournamentId }: {
     editStartTime, setEditStartTime, editLengthHours, setEditLengthHours,
     editAnte, setEditAnte, editPayout, setEditPayout,
     editSeeding, setEditSeeding, showStartPicker, setShowStartPicker,
-    editCourts, setEditCourts,
+    editCourts, setEditCourts, editGenderNeutral, setEditGenderNeutral,
     // Wagers
     wagerSubject, setWagerSubject, wagerOpen, setWagerOpen,
     wagerMatchPick, setWagerMatchPick, actionSheetOpen, setActionSheetOpen,

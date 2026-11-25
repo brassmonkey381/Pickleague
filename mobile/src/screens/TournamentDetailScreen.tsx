@@ -941,6 +941,7 @@ export default function TournamentDetailScreen({ navigation, route }: Props) {
         ) : (
           <MlpTeamSection
             bare
+            genderNeutral={!!tournament.gender_neutral}
             tournamentId={tournamentId}
             format={tournament.format as 'mlp' | 'mlp_random'}
             mlpPlayFormat={tournament.mlp_play_format}
@@ -1376,6 +1377,8 @@ export default function TournamentDetailScreen({ navigation, route }: Props) {
         editSeeding={td.editSeeding} setEditSeeding={td.setEditSeeding}
         showStartPicker={td.showStartPicker} setShowStartPicker={td.setShowStartPicker}
         editCourts={td.editCourts} setEditCourts={td.setEditCourts}
+        editGenderNeutral={td.editGenderNeutral} setEditGenderNeutral={td.setEditGenderNeutral}
+        canChangeGenderNeutral={status === 'registration' && !scheduleExists}
       />
 
       <ConfirmModal
