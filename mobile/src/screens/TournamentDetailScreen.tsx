@@ -956,6 +956,7 @@ export default function TournamentDetailScreen({ navigation, route }: Props) {
         isAdmin={isPriv}
         standings={td.mlpStandings}
         resultsKey={td.resultsKey}
+        tieRanks={td.tieRanks}
       />
     </CollapsibleSection>
   ) : null;

@@ -29,6 +29,7 @@ import {
 import { diffOf, entrantKey, levelGroups } from '../../lib/tournamentTiebreakers';
 import { computeFinalPlacement, placeLabel, placementSourceLabel } from '../../lib/tournamentPlacement';
 import { explainTies, signed, tieLine } from '../../lib/tournamentTieNotes';
+import { mlpPoolGroups, mlpTeamTieRank } from '../../lib/mlpStandings';
 import { hasBothStages, roundStage, visibleScheduleMatches, type MlpTeamSlots, type ScheduleMatch } from './tournamentModel';
 
 export type StandingRow = {
@@ -116,7 +117,7 @@ export type StandingsData = {
 type MlpRow = {
   team_id: string; team_name: string; seed: number | null;
   pool_letter: string | null; sub_matches_won: number; sub_matches_lost: number;
-  matchups_won?: number; matchups_lost?: number;
+  matchups_won?: number; matchups_lost?: number; point_diff?: number;
 };
 
 export type StandingsInput = {
@@ -218,17 +219,16 @@ export function buildStandings(i: StandingsInput): StandingsData | null {
       }
       pts.set(teamId, p);
     }
-    const ranks = i.tieRanks ?? {};
+    // PKL-090: ordered and grouped by lib/mlpStandings (the same function the Playoff block uses).
     const withPts = i.mlpStandings.map(r => {
       const ids = members.get(r.team_id) ?? [];
-      const own = ids.map(id => ranks[entrantKey(id)]).filter((x): x is number => x != null);
       return {
         ...r, ...(pts.get(r.team_id) ?? { pf: 0, pa: 0 }),
-        tieRank: own.length > 0 ? Math.min(...own) : null,
+        tieRank: mlpTeamTieRank(ids, i.tieRanks),
         tieKeys: ids.map(id => entrantKey(id)),
       };
     });
-    const rows: Rankish[] = sortMlpTeamStandings(withPts).map(r => ({
+    const toRow = (r: typeof withPts[number]): Rankish => ({
       key: r.team_id,
       name: r.team_name,
       isMe: !!i.myMlpTeamId && r.team_id === i.myMlpTeamId,
@@ -237,13 +237,12 @@ export function buildStandings(i: StandingsInput): StandingsData | null {
       pf: r.pf, pa: r.pa,
       tieRank: r.tieRank,
       tieKeys: r.tieKeys,
-    }));
+    });
     // PKL-089: one table per pool (Pool A, Pool B, ...), each ranked on its own; one table when there are no pools.
-    const poolOf = new Map(i.mlpStandings.map(r => [r.team_id, r.pool_letter ?? '']));
-    const pools = [...new Set(rows.map(r => poolOf.get(r.key) ?? ''))].sort();
-    const tables = pools.some(p => p !== '')
-      ? pools.map(p => withTieInfo(`mlp:${p}`, p ? `Pool ${p}` : null, rows.filter(r => (poolOf.get(r.key) ?? '') === p)))
-      : [withTieInfo('mlp', null, rows)];
+    const groups = mlpPoolGroups(withPts);
+    const tables = groups.some(g => g.pool !== '')
+      ? groups.map(g => withTieInfo(`mlp:${g.pool}`, g.pool ? `Pool ${g.pool}` : null, g.rows.map(toRow)))
+      : [withTieInfo('mlp', null, (groups[0]?.rows ?? []).map(toRow))];
     return {
       kind: 'mlp',
       entrantLabel: 'Team',

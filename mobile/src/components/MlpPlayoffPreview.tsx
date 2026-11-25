@@ -13,6 +13,8 @@ import { useAsyncPress } from '@just-messin-around/expo-foundation/hooks';
 import { Icon } from '@just-messin-around/expo-foundation/icons';
 import { HAIRLINE, RADIUS, SPACE } from '@just-messin-around/expo-foundation/styles';
 import { shortName } from '../lib/finishShare';
+import { compareMlpTeams, mlpPoolGroups, mlpTeamTieRank } from '../lib/mlpStandings';
+import type { TieRanks } from '../lib/tournamentStandings';
 import { FONT, textStyles } from '@just-messin-around/expo-foundation/typography';
 
 /**
@@ -45,6 +47,8 @@ type Props = {
   standings?: StandingsRow[] | null;
   /** PKL-089: changes on every score (matchResultsKey); the playoff part reloads on it. */
   resultsKey?: string;
+  /** PKL-090: the admin's tie orders (per player); a team takes its best player's, as on the Standings card. */
+  tieRanks?: TieRanks;
 };
 
 type StandingsRow = {
@@ -59,11 +63,8 @@ type StandingsRow = {
   point_diff?: number;
 };
 
-/** PKL-084: the server's order (mlp_team_standings): matchups W-L, point diff, games W-L, seed. */
-const mlpOrder = (a: StandingsRow, b: StandingsRow) =>
-  ((b.matchups_won ?? 0) - (a.matchups_won ?? 0)) || ((a.matchups_lost ?? 0) - (b.matchups_lost ?? 0))
-  || ((b.point_diff ?? 0) - (a.point_diff ?? 0))
-  || (b.sub_matches_won - a.sub_matches_won) || (a.sub_matches_lost - b.sub_matches_lost) || ((a.seed ?? 0) - (b.seed ?? 0));
+/** PKL-090: ordered by lib/mlpStandings, the same function as the Standings card (PKL-084 rule + admin tie order). */
+const mlpOrder = compareMlpTeams;
 
 type MlpTeam = {
   id: string;
@@ -106,7 +107,7 @@ const ROTATION_LABELS = ["Men's Doubles", "Women's Doubles", 'Mixed 1', 'Mixed 2
 
 export default function MlpPlayoffPreview({
   tournamentId, tournamentName, leagueId,
-  mlpPlayFormat, poolCount, playoffTeams, isAdmin, bare = false, standings, resultsKey,
+  mlpPlayFormat, poolCount, playoffTeams, isAdmin, bare = false, standings, resultsKey, tieRanks,
 }: Props) {
   const { colors: c } = useTheme();
   const S = makeStyles(c);
@@ -114,8 +115,12 @@ export default function MlpPlayoffPreview({
   const genStatus = useStatusMessage();
 
   const [fetchedRows, setRows]        = useState<StandingsRow[]>([]);
-  const rows = standings ?? fetchedRows;
   const [teams, setTeams]             = useState<MlpTeam[]>([]);
+  // PKL-090: each row carries its team's admin tie order, so this block orders exactly like the Standings card.
+  const rows = (standings ?? fetchedRows).map(r => {
+    const t = teams.find(x => x.id === r.team_id);
+    return { ...r, tieRank: t ? mlpTeamTieRank([t.male_1_id, t.male_2_id, t.female_1_id, t.female_2_id], tieRanks) : null };
+  });
   const [profileNames, setProfileNames] = useState<Record<string, string>>({});
   const [playoffRounds, setPlayoffRounds] = useState<PlayoffRound[]>([]);
   const [loading, setLoading]         = useState(true);
@@ -234,15 +239,7 @@ export default function MlpPlayoffPreview({
 
     if (mlpPlayFormat === 'pool_play_playoff') {
       const topPerPool = Math.max(1, Math.floor(playoffTeams / poolCount));
-      const byPool = new Map<string, StandingsRow[]>();
-      for (const r of rows) {
-        if (!r.pool_letter) continue;
-        if (!byPool.has(r.pool_letter)) byPool.set(r.pool_letter, []);
-        byPool.get(r.pool_letter)!.push(r);
-      }
-      const pools = [...byPool.entries()]
-        .sort(([a], [b]) => a.localeCompare(b))
-        .map(([letter, list]) => ({ letter, list }));
+      const pools = mlpPoolGroups(rows).filter(g => g.pool !== '').map(g => ({ letter: g.pool, list: g.rows }));
 
       for (let rank = 1; rank <= topPerPool; rank++) {
         for (const { letter, list } of pools) {
