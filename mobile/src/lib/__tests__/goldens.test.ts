@@ -42,7 +42,7 @@ function render() {
 }
 
 /** New moments on a review page, not yet approved by Brian. Move them into the approved file only after he does. */
-const PENDING_REVIEW: string[] = [];
+const PENDING_REVIEW: string[] = ['pool-6', 'mlp-final-shared3'];
 
 describe('PKL-090 approved goldens', () => {
   const now = render();

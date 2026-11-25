@@ -79,7 +79,7 @@ function pools(): GoldenMoment[] {
   const ids = ['ana', 'ben', 'cal', 'dee', 'eve', 'fay'];
   const names = { ana: 'Ana', ben: 'Ben', cal: 'Cal', dee: 'Dee', eve: 'Eve', fay: 'Fay' };
   const pa = R('pa', 'pool', 1, 'Pool A'), pb = R('pb', 'pool', 2, 'Pool B'), sf = R('sf', 'semifinals', 1000, 'Semifinals'), fin = R('fin', 'finals', 1001, 'Finals'), third = R('tp', 'third_place_match', 1001, 'Third Place Match');
-  const build = (stage: number) => {
+  const build = (stage: number, noThird = false) => {
     seq = 200;
     const done = stage >= 1;
     const ms: any[] = [
@@ -95,13 +95,13 @@ function pools(): GoldenMoment[] {
         M(sf, ['dee'], ['ben'], stage >= 3 ? [9, 11] : undefined, stage === 2 ? { called_at: '2026-11-25T19:00:00Z', court: '1' } : {}));
     }
     if (stage >= 3) {
-      rounds.push(fin, third);
-      ms.push(M(fin, ['ana'], ['ben'], [11, 8]), M(third, ['eve'], ['dee'], [6, 11]));
+      if (noThird) { rounds.push(fin); ms.push(M(fin, ['ana'], ['ben'], [11, 8])); }
+      else { rounds.push(fin, third); ms.push(M(fin, ['ana'], ['ben'], [11, 8]), M(third, ['eve'], ['dee'], [6, 11])); }
     }
     return { ms, rounds };
   };
-  const mk = (id: string, title: string, story: string, stage: number): GoldenMoment => {
-    const { ms, rounds } = build(stage);
+  const mk = (id: string, title: string, story: string, stage: number, noThird = false): GoldenMoment => {
+    const { ms, rounds } = build(stage, noThird);
     return { id, format: 'Pool play + playoff (singles)', title, story,
       standings: base('pool_play', 'singles', ids, names, 'ana', ms, rounds),
       wait: { format: 'pool_play', isMlp: false, hasPlayoff: true, me: ['ana'], matches: ms, nameOf: nameOfPlayers(names) } };
@@ -113,6 +113,9 @@ function pools(): GoldenMoment[] {
     mk('pool-4', 'Playoff finished', 'Ben beat Dee 11-9. Final: Ana beat Ben 11-8. 3rd-place match: Dee beat Eve 11-6.', 3),
     closed(mk('pool-5', 'Tournament closed', 'Same results as pool-4; the tournament has closed and stored its final places.', 3),
       [['ana', 1], ['ben', 2], ['dee', 3], ['eve', 4], ['fay', 5], ['cal', 6]]),
+    // Brian 2026-11-25 ("shared 3rd"): no 3rd-place match, so both semifinal losers are 3rd and the next is 5th
+    closed(mk('pool-6', 'Tournament closed, no 3rd-place match', 'Same pools and semifinals; Final: Ana beat Ben 11-8. No 3rd-place match: Dee and Eve share 3rd.', 3, true),
+      [['ana', 1], ['ben', 2], ['dee', 3], ['eve', 3], ['fay', 5], ['cal', 6]]),
   ];
 }
 
@@ -207,7 +210,7 @@ function r6Semis(): GoldenMoment {
 }
 
 // ── 5. MLP finished, option A (Brian 2026-11-25): 6 teams, 2 pools, semis, Final, 3rd-place. Viewer on Third Shot Club. ──
-function mlpFinished(): GoldenMoment {
+function mlpFinished(third = true): GoldenMoment {
   seq = 600;
   const names = ['Third Shot Club', 'Kitchen Kings', 'Lob City', 'Erne Express', 'Dink Dynasty', 'Paddle Battle'];
   const ids = ['TSC', 'KK', 'LC', 'EE', 'DD', 'PB'];
@@ -232,13 +235,14 @@ function mlpFinished(): GoldenMoment {
     ...meet(r('sf1', 'semifinals', 1001), 'TSC', 'LC', [[11, 5], [11, 9], [8, 11], [11, 7]]),
     ...meet(r('sf2', 'semifinals', 1001), 'KK', 'EE', [[11, 6], [9, 11], [11, 8], [7, 11]], [21, 17]),
     ...meet(r('fin', 'finals', 1002), 'TSC', 'KK', [[11, 8], [9, 11], [11, 6], [7, 11]], [21, 19]),
-    ...meet(r('tp', 'third_place_match', 1002), 'EE', 'LC', [[11, 4], [11, 9], [6, 11], [11, 8]]),
+    ...(third ? meet(r('tp', 'third_place_match', 1002), 'EE', 'LC', [[11, 4], [11, 9], [6, 11], [11, 8]]) : []),
   ];
   const poolMs = ms.filter(m => (m.round as Round).round_type === 'pool');
   const rows = mlpRows(teams, poolMs).map(x => ({ ...x, pool_letter: pool[x.team_id] }));
   return {
-    id: 'mlp-final', format: 'MLP playoff', title: 'Finished (option A)',
-    story: 'Pools, then semifinals TSC v LC and KK v EE, the Final TSC v KK 3-2 (Dreambreaker 21-19), and the 3rd-place match EE v LC 3-1.',
+    id: third ? 'mlp-final' : 'mlp-final-shared3', format: 'MLP playoff', title: third ? 'Finished (option A)' : 'Finished, no 3rd-place match (shared 3rd)',
+    story: third ? 'Pools, then semifinals TSC v LC and KK v EE, the Final TSC v KK 3-2 (Dreambreaker 21-19), and the 3rd-place match EE v LC 3-1.'
+      : 'Same as mlp-final without the 3rd-place match (a 4-team MLP playoff never draws one): Lob City and Erne Express share 3rd.',
     standings: { ...base('mlp', 'doubles', [], {}, 'tsc1', poolMs, rs.filter(x => x.round_type === 'pool')), mlpStandings: rows, myMlpTeamId: 'TSC', mlpTeams: teams,
       // the playoff map reads every round and match
       savedRounds: rs, savedMatches: ms } as any,
@@ -247,5 +251,5 @@ function mlpFinished(): GoldenMoment {
 }
 
 export function goldenMoments(): GoldenMoment[] {
-  return [...roundRobin(), ...pools(), ...mlp(false), ...mlp(true), r6Semis(), mlpFinished()];
+  return [...roundRobin(), ...pools(), ...mlp(false), ...mlp(true), r6Semis(), mlpFinished(), mlpFinished(false)];
 }

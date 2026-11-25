@@ -385,7 +385,7 @@ export function buildStandings(i: StandingsInput): StandingsData | null {
   const placementMatches = (twoStage ? playoffMatches : matches).map(m => ({
     ...m, round_type: m.round?.round_type, round_number: m.round?.round_number,
   }));
-  const provisional = twoStage ? computeFinalPlacement(finishOrder, placementMatches) : null;
+  const provisional = twoStage ? computeFinalPlacement(finishOrder, placementMatches, { thirdPlaceMatch: !!(t as { playoff_third_place?: boolean }).playoff_third_place }) : null;
   const lastOf = lastPlayoffResults(placementMatches.filter(m => m.team1_player1 && m.team2_player1).map(m => ({
     side1: teamKey(m.team1_player1!, m.team1_player2), side2: teamKey(m.team2_player1!, m.team2_player2),
     roundType: m.round_type ?? '', roundNumber: m.round_number ?? 0, status: m.status, winner: m.winner_team,

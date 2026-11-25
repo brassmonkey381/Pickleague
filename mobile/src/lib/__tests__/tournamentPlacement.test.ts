@@ -33,12 +33,27 @@ describe('computeFinalPlacement (PKL-037, Brian 2026-11-18)', () => {
     const rows = computeFinalPlacement(['p1', 'p2', 'p3'], [pm('finals', 1000, 'p1', 'p2', 'team2')]);
     expect(flat(rows)).toEqual(['p2:1:final', 'p1:2:final', 'p3:3:group']);
   });
-  it('top 4 without a 3rd place match: semifinal losers 3-4 by RR order', () => {
+  it('top 4 without a 3rd place match: the semifinal losers share 3rd, the next is 5th (Brian 2026-11-25)', () => {
     const rows = computeFinalPlacement(rr8, [
       pm('semifinals', 900, 'p1', 'p4', 'team2'), pm('semifinals', 900, 'p2', 'p3', 'team1'),
       pm('finals', 1000, 'p4', 'p2', 'team1'),
     ]);
-    expect(flat(rows).slice(0, 5)).toEqual(['p4:1:final', 'p2:2:final', 'p1:3:playoff', 'p3:4:playoff', 'p5:5:group']);
+    expect(flat(rows).slice(0, 5)).toEqual(['p4:1:final', 'p2:2:final', 'p1:3:playoff', 'p3:3:playoff', 'p5:5:group']);
+    expect(rows.slice(2, 4).map(placeLabel)).toEqual(['3', '3']);
+  });
+  it('quarterfinal losers share 5th the same way', () => {
+    const rows = computeFinalPlacement(rr8, [
+      pm('quarterfinals', 800, 'p1', 'p8', 'team1'), pm('quarterfinals', 800, 'p2', 'p7', 'team1'),
+      pm('quarterfinals', 800, 'p3', 'p6', 'team1'), pm('quarterfinals', 800, 'p4', 'p5', 'team1'),
+      pm('semifinals', 900, 'p1', 'p4', 'team1'), pm('semifinals', 900, 'p2', 'p3', 'team1'),
+      pm('finals', 1000, 'p1', 'p2', 'team1'),
+    ]);
+    expect(rows.map(r => r.place)).toEqual([1, 2, 3, 3, 5, 5, 5, 5]);
+  });
+  it('a 3rd-place match still to be drawn: the semifinal losers are 3-4 until it is played', () => {
+    const semis = [pm('semifinals', 900, 'p1', 'p4', 'team2'), pm('semifinals', 900, 'p2', 'p3', 'team1')];
+    expect(computeFinalPlacement(rr8, semis, { thirdPlaceMatch: true }).filter(r => ['p1', 'p3'].includes(r.key)).map(placeLabel)).toEqual(['3-4', '3-4']);
+    expect(computeFinalPlacement(rr8, semis).filter(r => ['p1', 'p3'].includes(r.key)).map(placeLabel)).toEqual(['3', '3']);
   });
   it('doubles keys: pairs are placed as one entrant', () => {
     const d = (rt: string, a: [string, string], b: [string, string], w: 'team1' | 'team2'): PlacementMatch => ({

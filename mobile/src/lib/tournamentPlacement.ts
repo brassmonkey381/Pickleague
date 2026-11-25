@@ -62,6 +62,9 @@ const isDone = (m: TiebreakerMatch) =>
 export function computeFinalPlacement(
   groupOrder: string[],
   playoffMatches: PlacementMatch[],
+  /** A 3rd-place match will be drawn after the semifinals (playoff_third_place): until it exists the semifinal
+   *  losers are 3-4, not a shared 3rd. */
+  opts: { thirdPlaceMatch?: boolean } = {},
 ): PlacementRow[] {
   const groupIndex = new Map<string, number>();
   groupOrder.forEach((k, i) => { if (!groupIndex.has(k)) groupIndex.set(k, i); });
@@ -81,6 +84,15 @@ export function computeFinalPlacement(
         ? { key: k, place: first + i, placeTo: first + i, source, decided: true }
         : { key: k, place: first, placeTo: last, source, decided: false });
     });
+  };
+
+  // Brian 2026-11-25 ("shared 3rd"): entrants out in the same playoff round, with no placement match between them,
+  // share the place: both semifinal losers are 3rd, the next entrant 5th.
+  const pushShared = (keys: string[]) => {
+    const fresh = keys.filter(k => !placed.has(k));
+    if (fresh.length === 0) return;
+    const first = out.length + 1;
+    fresh.forEach(k => { placed.add(k); out.push({ key: k, place: first, placeTo: first, source: 'playoff', decided: true }); });
   };
 
   /** A medal match: winner then loser once played, else both share the range. */
@@ -134,7 +146,9 @@ export function computeFinalPlacement(
       }
     }
     push([...winners, ...pending].filter(k => !placed.has(k)).sort(byGroup), 'playoff', false);
-    push(losers.sort(byGroup), 'playoff', true);
+    const awaitingThird = !!opts.thirdPlaceMatch && !third && ms.some(m => m.round_type === 'semifinals');
+    if (awaitingThird) push(losers.sort(byGroup), 'playoff', false);
+    else pushShared(losers.sort(byGroup));
   }
 
   // Everyone else by the round robin.
