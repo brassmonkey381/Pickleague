@@ -74,6 +74,8 @@ const R3 = has('--r3');
 // PKL-060 R6: MLP fixed teams (format mlp), pool play + top 4 playoff. Captains make teams, players ask to join, captains
 // accept (one decline on purpose) and lock; then the same MLP loop as R2 (matchup standings, rotating Dreambreaker).
 const R6 = has('--r6');
+// PKL-088: R6 as a gender-neutral tournament (any 4 players make a team; only the overall PLUPR moves).
+const NEUTRAL = R6 && has('--neutral');
 const R2 = has('--r2') || R6;
 const R2_SEMIS = val('--semis', 'dreambreaker');
 const POOL_COUNT = Number(val('--pool-count', '2'));
@@ -496,6 +498,7 @@ async function setup() {
     location_name: 'QA test (online)', location_lat: null, location_lng: null,
     pickle_ante: 0, payout_structure: [60, 25, 15], status: 'registration',
     mlp_play_format: R6 ? 'pool_play_playoff' : 'round_robin_playoff', mlp_pool_count: 2, mlp_playoff_teams: 4, courts: null,
+    ...(NEUTRAL ? { gender_neutral: true } : {}),
   } : R3 ? {
     league_id: lg!.id, name: T_NAME,
     description: `QA test (${ITEM}). Private, invite only. ${N_BOTS} QA bots post scores automatically; this is not a real event.`,
@@ -1266,6 +1269,23 @@ async function r6Form(st: State, approved: string[]) {
   const open = (t: MT, sex: string) => t.status === 'forming' && (sex === 'male' ? [t.male_1_id, t.male_2_id] : [t.female_1_id, t.female_2_id]).some((x) => !x);
   const youOn = !st.brian || !!teamOf(st.brian);
   let asked = 0;
+  if (NEUTRAL) {
+    // free slots minus asks already waiting, so a pass never sends more asks than a team can take
+    const left = new Map(teams.map((t) => [t.id, t.status !== 'forming' ? 0
+      : [t.male_1_id, t.male_2_id, t.female_1_id, t.female_2_id].filter((x) => !x).length
+        - reqs.filter((r) => r.team_id === t.id && r.status === 'pending').length]));
+    for (const u of [...women, ...men]) {
+      if (teamOf(u) || u === st.brian || captains.includes(u)) continue;
+      if (reqs.some((r) => r.user_id === u && r.status === 'pending')) continue;
+      let target = teams.find((t) => (left.get(t.id) ?? 0) > 0);
+      if (u === women[0] && !r6.declineAsked) { target = teams[teams.length - 1]; r6.declineAsked = true; }
+      if (!target) break;
+      left.set(target.id, (left.get(target.id) ?? 0) - 1);
+      const { error } = await (await asBot(st, u)).rpc('mlp_request_join', { p_team_id: target.id, p_message: null });
+      log(error ? `JOIN ERROR ${N(u)} -> "${target.name}": ${error.message}` : `${N(u)} asked to join "${target.name}" (any open slot)`); asked++;
+    }
+  }
+  if (!NEUTRAL) {
   for (const [i, w] of women.entries()) {
     if (teamOf(w) || w === st.brian) continue;
     let target = teams[i % nTeams];
@@ -1282,6 +1302,7 @@ async function r6Form(st: State, approved: string[]) {
     askedMale.add(target.id);
     const { error } = await (await asBot(st, m)).rpc('mlp_request_join', { p_team_id: target.id, p_message: null });
     log(error ? `JOIN ERROR ${N(m)} -> "${target.name}": ${error.message}` : `${N(m)} asked to join "${target.name}"`); asked++;
+  }
   }
   if (asked) return;
   if (!youOn) {
@@ -1305,12 +1326,16 @@ async function r6Form(st: State, approved: string[]) {
     if (teams.length !== nTeams) bad.push(`${teams.length} teams, want ${nTeams}`);
     const all = teams.flatMap(members);
     if (!sameSet(all, approved)) bad.push(`${all.length} slotted / ${new Set(all).size} distinct, ${approved.length} approved`);
+    const notTwoTwo = teams.filter((t) => members(t).filter((u) => g.get(u) === 'female').length !== 2).length;
     for (const t of teams) {
       if (!members(t).includes(t.captain_id!)) bad.push(`${t.name}: captain not on the team`);
+      if (NEUTRAL) { if (members(t).length !== 4) bad.push(`${t.name}: ${members(t).length} players`); continue; }
       for (const u of [t.male_1_id, t.male_2_id]) if (g.get(u!) !== 'male') bad.push(`${t.name}: ${N(u)} in a men's slot is ${g.get(u!)}`);
       for (const u of [t.female_1_id, t.female_2_id]) if (g.get(u!) !== 'female') bad.push(`${t.name}: ${N(u)} in a women's slot is ${g.get(u!)}`);
     }
-    check(`R6 teams: ${nTeams} captains made teams, everyone else joined by request, each team is locked with 2 men and 2 women, everyone on exactly one`, bad.length === 0, bad.slice(0, 4).join(' ; '));
+    if (NEUTRAL) check(`PKL-088 gender neutral: ${nTeams} teams of any 4 players locked (${notTwoTwo} not 2 men + 2 women), no slot-full refusals, everyone on exactly one`,
+      bad.length === 0 && notTwoTwo > 0, bad.slice(0, 4).join(' ; ') || (notTwoTwo ? '' : 'every team came out 2 men + 2 women, so nothing was proved'));
+    else check(`R6 teams: ${nTeams} captains made teams, everyone else joined by request, each team is locked with 2 men and 2 women, everyone on exactly one`, bad.length === 0, bad.slice(0, 4).join(' ; '));
     const acc = reqs.filter((r) => r.status === 'accepted').length, dec = reqs.filter((r) => r.status === 'declined').length;
     check('R6 join requests: the captain answers; a declined ask leaves the player free to ask another team', dec >= 1 && acc === approved.length - nTeams && !!teamOf(women[0]),
       `${acc} accepted (want ${approved.length - nTeams}), ${dec} declined; QA Bot 2 on ${teamOf(women[0])?.name ?? 'no team'}`);
@@ -1677,6 +1702,13 @@ async function finishR2(st: State, nm: Map<string, string>) {
   const teamOf = (u: string) => teams.find((t) => mlpMembers(t).includes(u));
   log('COMPLETED. Final ranks:\n' + (ranks ?? []).map((r: any) => `    ${String(r.final_rank).padStart(2)}. ${N(r.user_id).padEnd(12)} ${teamOf(r.user_id)?.name.padEnd(22) ?? ''} ${r.wins}-${r.losses}`).join('\n'));
   check('R2 tournament auto-completed after the Final (no "Complete tournament")', !r2.completeAsked);
+  if (NEUTRAL) {
+    const scored = ms.filter((m: any) => m.status === 'completed' && !(m.is_dreambreaker && m.db_order_team1));
+    const notOverall = scored.filter((m: any) => m.plupr_applied_at && m.plupr_category !== 'overall');
+    const unapplied = scored.filter((m: any) => !m.plupr_applied_at);
+    check(`PKL-088 gender neutral: every scored game moved only the overall PLUPR (${scored.length} games, category "overall"; doubles and mixed ratings untouched)`,
+      notOverall.length === 0 && unapplied.length === 0, `${notOverall.length} with another category, ${unapplied.length} with no PLUPR applied`);
+  }
   check(`PKL-089 standings after every score (${oracle89.n} checks): each matchup counts as soon as a team has 3 game wins, the same W-L the Standings card and the Playoff section show`,
     oracle89.n > 0 && oracle89.bad.length === 0, oracle89.bad.slice(0, 4).join(' ; '));
   const fin = rounds.filter((r) => r.round_type === 'finals');
