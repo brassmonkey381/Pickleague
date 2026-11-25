@@ -47,6 +47,7 @@ import { startOfflineWrites } from '../lib/offlineWrites';
 
 import LoginScreen from '../screens/LoginScreen';
 import GoldensScreen from '../screens/GoldensScreen';
+import DevShareCardsScreen from '../screens/DevShareCardsScreen';
 import RegisterScreen from '../screens/RegisterScreen';
 import CheckEmailScreen from '../screens/CheckEmailScreen';
 import HomeScreen from '../screens/HomeScreen';
@@ -581,6 +582,7 @@ export default function AppNavigator() {
               <>
                 <Stack.Screen name="Login" component={LoginScreen} options={{ headerShown: false }} />
                 {__DEV__ && <Stack.Screen name="Goldens" component={GoldensScreen} options={{ title: 'Golden screens (dev)' }} />}
+                {__DEV__ && <Stack.Screen name="DevShareCards" component={DevShareCardsScreen} options={{ title: 'Share cards (dev)' }} />}
                 <Stack.Screen name="Register" component={RegisterScreen} options={registerOptions} />
                 <Stack.Screen name="CheckEmail" component={CheckEmailScreen} options={{ headerShown: false }} />
                 <Stack.Screen name="GuestJoin" component={GuestJoinScreen} options={{ title: 'Join the vote' }} />

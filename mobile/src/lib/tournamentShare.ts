@@ -215,7 +215,7 @@ export function buildTournamentStory(i: StoryInput): TournamentStory | null {
     bracketHeadline: champion ? 'Champions.' : `${placeText.charAt(0).toUpperCase()}${placeText.slice(1)}.`,
     bracketSub: `${me.name}, through the bracket`,
     columns,
-    bracketFoot: finalLine ?? `${all.w}-${all.l}`,
+    bracketFoot: finalLine ?? `${all.w}-${all.l} on the day`,
     posterKicker: champion ? `${i.title}, Final` : i.title,
     posterTop: champion ? 'CHAMPS' : null,
     posterBig: champion && final?.score ? final.score : place != null ? ordinal(place) : `${all.w}-${all.l}`,

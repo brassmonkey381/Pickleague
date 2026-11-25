@@ -53,7 +53,7 @@ export default function TournamentStoryArt({ story, template, look, width, heigh
   );
   const Foot = ({ c = muted, right = story.dateLabel ?? '' }: { c?: string; right?: string }) => (
     <View style={[s.row, { justifyContent: 'space-between', marginTop: 'auto', gap: 8 * u }]}>
-      <Text style={[s.title, { color: c, fontSize: (logo === 'small' ? 15 : 12) * u }]}>{logo === 'small' ? '🥒' : '🥒 Pickleague'}</Text>
+      <Text style={[s.title, { color: c, fontSize: (logo === 'small' ? 15 : 12) * u, flexShrink: 0 }]} numberOfLines={1}>{logo === 'small' ? '🥒' : '🥒 Pickleague'}</Text>
       <Text style={[s.kick, { color: c, fontSize: 10 * u, flexShrink: 1, textAlign: 'right' }]} numberOfLines={1}>{right}</Text>
     </View>
   );
