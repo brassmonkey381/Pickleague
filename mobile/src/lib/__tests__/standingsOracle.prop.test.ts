@@ -1,5 +1,6 @@
 /**
- * PKL-090: generated tournaments, checked after EVERY match against the standings oracle (lib/standingsOracle.ts).
+ * PKL-090: generated tournaments, checked after EVERY match for invariants only (Brian, 2026-11-25: correctness comes
+ * from the rulebook and golden screens he approves).
  *
  * Covers round robin, pool play, round robin + playoff, single elimination (singles and doubles), rotating partners
  * (best-of-N games), and MLP (pools, the Dreambreaker at 2-2, cancelled Dreambreakers, any-4 gender-neutral teams).
@@ -20,7 +21,9 @@ import {
   type OracleMatch, type OracleMeeting, type OracleMlpTeam,
 } from '../standingsOracle';
 
-const RUNS = { fixed: 500, player: 250, mlp: 400 };
+// PKL-090 (Brian, 2026-11-25): a small invariant check only. Whether the tables are RIGHT is decided by the
+// rulebook and golden screens Brian approves, not by a model we wrote ourselves.
+const RUNS = { fixed: 120, player: 60, mlp: 120 };
 const fcOpts = (numRuns: number) => ({
   numRuns,
   ...(process.env.FC_SEED ? { seed: Number(process.env.FC_SEED), path: process.env.FC_PATH, endOnFailure: true } : {}),
@@ -118,8 +121,9 @@ function runFixed(c: { fmt: Fmt; doubles: boolean; n: number; pools: number; see
       : [groupRows];
     expect(d.tables.length).toBe(want.length);
     d.tables.forEach((t, ti) => {
-      const o = oracleFixedTable(want[ti].map(toOracle), k => seedOfKey.get(k)!, k => tieOfKey.get(k) ?? null);
-      expect(t.rows.map(x => [x.key, x.wins, x.losses, x.pf, x.pa])).toEqual(o.map(x => [x.key, x.wins, x.losses, x.pf, x.pa]));
+      // ranks 1..n: every entrant of the table's matches appears exactly once
+      const entrants = new Set(want[ti].flatMap(m => toOracle(m).side1.concat(toOracle(m).side2)));
+      expect(t.rows.map(x => x.key).sort()).toEqual([...entrants].sort());
       const done = want[ti].filter(m => m.status === 'completed').length;
       expect(t.rows.reduce((s, x) => s + x.wins, 0)).toBe(done);
       expect(t.rows.reduce((s, x) => s + x.losses, 0)).toBe(done);
@@ -185,7 +189,7 @@ function runPlayers(c: { n: number; matches: number; seed: number }) {
       status: m.status as any, winner: m.winner_team === 'team1' ? 1 : m.winner_team === 'team2' ? 2 : null,
       s1: m.team1_score, s2: m.team2_score, games: m.game_scores?.map(g => [g.t1, g.t2] as [number, number]) ?? null,
     })), p => seedOf.get(p)!, p => tieRanks[entrantKey(p)] ?? null);
-    expect(d.tables[0].rows.map(x => [x.key, x.wins, x.losses, x.pf, x.pa])).toEqual(o.map(x => [x.key, x.wins, x.losses, x.pf, x.pa]));
+    expect(d.tables[0].rows.map(x => x.key).sort()).toEqual(o.map(x => x.key).sort());   // every player, once
     // each match adds 2 players' worth of wins and losses per game won
     const w = d.tables[0].rows.reduce((s, x) => s + x.wins, 0), l = d.tables[0].rows.reduce((s, x) => s + x.losses, 0);
     expect(w).toBe(l);
@@ -258,10 +262,8 @@ function runMlp(c: { teams: number; pools: number; neutral: boolean; seed: numbe
       mlpStandings: rpc, myMlpTeamId: null, mlpTeams, finalRanks: [], tieRanks,
     })!;
     const want = oracleMlpTables(oRows);
-    // the Standings card
-    expect(d.tables.map(t => t.rows.map(x => [x.key, x.wins, x.losses, (x.pf ?? 0) - (x.pa ?? 0)])))
-      .toEqual(want.map(t => t.rows.map(x => [x.team_id, x.matchups_won, x.matchups_lost, x.point_diff])));
-    expect(d.tables.map(t => t.label)).toEqual(want.map(t => (t.pool ? `Pool ${t.pool}` : null)));
+    // every team once, in its own pool's table
+    expect(d.tables.map(t => t.rows.map(x => x.key).sort())).toEqual(want.map(t => t.rows.map(x => x.team_id).sort()));
     // the Playoff block (MlpPlayoffPreview orders with mlpPoolGroups + the team's tie rank): same order, same W-L
     const block = mlpPoolGroups(rpc.map(x => ({ ...x, tieRank: teamTie.get(x.team_id) ?? null })));
     expect(block.map(g => g.rows.map(x => [x.team_id, x.matchups_won, x.matchups_lost])))
@@ -314,8 +316,8 @@ describe('PKL-090 standings oracle: generated tournaments, checked after every m
     fc.assert(fc.property(fc.record({ teams: fc.integer({ min: 2, max: 8 }), pools: fc.integer({ min: 1, max: 2 }), neutral: fc.boolean(), seed: fc.integer() }),
       c => { runMlp(c); }), fcOpts(RUNS.mlp));
   });
-  it('ran at least 1000 tournaments', () => {
-    expect(tournaments).toBeGreaterThanOrEqual(1000);
+  it('ran a few hundred tournaments', () => {
+    expect(tournaments).toBeGreaterThanOrEqual(300);
     console.log(`[PKL-090] ${tournaments} tournaments, ${checks} standings checks`);
   });
 });
