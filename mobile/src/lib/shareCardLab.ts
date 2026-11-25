@@ -15,6 +15,7 @@ import {
   type ShareCardModel,
 } from './shareCards';
 import { labTournaments } from './tournamentSlidesLab';
+import { labStories } from './tournamentShareLab';
 
 const pat = { name: 'Pat D.', initials: 'PD' };
 const sam = { name: 'Sam L.', initials: 'SL' };
@@ -158,6 +159,11 @@ export function labSamples(): LabSample[] {
     ...labTournaments().map((t) => ({
       id: `slides-${t.id}`, group: 'Slides', label: t.label, title: 'Share my bracket',
       model: bracketCardModel({ title: t.input.title, rank: t.rank, of: t.of, wins: t.wins, losses: t.losses, steps: [], slides: t.slides }),
+    })),
+    // PKL-092: the four tournament layouts (Scorecard, Bracket, Poster, Team photo) after pool play and at the finish
+    ...labStories().map((x) => ({
+      id: x.id, group: 'Tournament story', label: x.label, title: 'Share my bracket',
+      model: bracketCardModel({ title: x.story.title, rank: null, of: null, wins: 0, losses: 0, steps: [], story: x.story }),
     })),
   ];
 }

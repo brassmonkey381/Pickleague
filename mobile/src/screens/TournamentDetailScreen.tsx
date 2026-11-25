@@ -16,6 +16,7 @@ import ShareCallout from '../components/share/ShareCallout';
 import { bracketCardModel, bracketOverview, bracketSteps, type BracketMatchIn, type OverviewMatchIn, type OverviewRoundIn, type ShareCardModel } from '../lib/shareCards';
 import { ANONYMOUS_PLAYER, cardPlayer, cardPodium, ordinal, shortName, shortNamer, type FinishShareData } from '../lib/finishShare';
 import { buildTournamentSlides, type SlideMatchIn, type SlideRoundIn } from '../lib/tournamentSlides';
+import { buildTournamentStory, storyInputFrom, type StoryMatchIn, type StoryRoundIn, type StoryTeamIn } from '../lib/tournamentShare';
 import { useBlockedIds } from '../lib/moderation';
 import { SPACE, SMALL_TEXT_MAX_SCALE } from '@just-messin-around/expo-foundation/styles';
 import { textStyles } from '@just-messin-around/expo-foundation/typography';
@@ -618,11 +619,36 @@ export default function TournamentDetailScreen({ navigation, route }: Props) {
       expected,
     });
     const inTheDraw = ids.has(myUserId);
+    // PKL-092: the four approved layouts, after pool play and at the finish (two stages, never mixed)
+    const isMlpFmt = tournament.format === 'mlp' || tournament.format === 'mlp_random';
+    const story = inTheDraw ? buildTournamentStory(storyInputFrom({
+      title: tournament.name,
+      dateLabel: tournament.start_time
+        ? new Date(tournament.start_time).toLocaleDateString(undefined, { weekday: 'short', month: 'short', day: 'numeric' }).replace(/,/g, '')
+        : null,
+      format: tournament.format,
+      hasPlayoff: isMlpFmt
+        ? tournament.mlp_play_format === 'round_robin_playoff' || tournament.mlp_play_format === 'pool_play_playoff'
+        : !!tournament.playoff_format && tournament.playoff_format !== 'none',
+      completed: status === 'completed',
+      myUserId,
+      rounds: td.savedRounds as StoryRoundIn[],
+      matches: td.savedMatches as StoryMatchIn[],
+      mlpTeams: td.mlpTeams as StoryTeamIn[],
+      player: (id) => {
+        const prof = registrations.find(r => r.user_id === id)?.profile;
+        return cardPlayer({ id, fullName: prof?.full_name ?? td.profileNames[id] ?? null, deleted: !!prof?.deleted_at }, blocked);
+      },
+      poolLabel: mine?.table ?? null,
+      poolPlace: mine?.position ?? null,
+      finalRanks: td.finalRanks,
+    })) : null;
     // PKL-065: shareable from the draw on (the overview has something to show), not only after a first score.
     if (steps.length > 0 || (overview && overview.here >= 0) || inTheDraw) {
       bracketModel = bracketCardModel({
         overview,
         slides: inTheDraw ? slides : null,
+        story,
         title: tournament.name,
         rank: status === 'completed' ? myRank : null,
         of: status === 'completed' ? (new Set(td.finalRanks.map(r => r.final_rank)).size || null) : null,

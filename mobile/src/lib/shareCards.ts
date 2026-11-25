@@ -19,6 +19,7 @@ import {
   type FinishShareData,
 } from './finishShare';
 import { SLIDE_PAGE_NAME, slideIndexOf, type TournamentSlides } from './tournamentSlides';
+import type { TournamentStory } from './tournamentShare';
 
 export const MAX_SHARE_PHOTOS = 4;
 
@@ -64,7 +65,12 @@ export type ShareTemplateId =
   // PKL-070: the whole tournament as 1-3 slides (lib/tournamentSlides)
   | 'slide-1'
   | 'slide-2'
-  | 'slide-3';
+  | 'slide-3'
+  // PKL-092: the tournament story cards (lib/tournamentShare), after pool play and the finish
+  | 'tour-scorecard'
+  | 'tour-bracket'
+  | 'tour-poster'
+  | 'tour-photo';
 export const SHARE_TEMPLATE_LABEL: Record<ShareTemplateId, string> = {
   grind: 'Put in the work',
   overview: 'Bracket',
@@ -80,7 +86,13 @@ export const SHARE_TEMPLATE_LABEL: Record<ShareTemplateId, string> = {
   'slide-1': 'Slide 1',
   'slide-2': 'Slide 2',
   'slide-3': 'Slide 3',
+  'tour-scorecard': 'Scorecard',
+  'tour-bracket': 'Bracket',
+  'tour-poster': 'Poster',
+  'tour-photo': 'Team photo',
 };
+/** PKL-092: the four approved tournament layouts, first in the swipe whenever a story is on the card. */
+export const STORY_TEMPLATES: ShareTemplateId[] = ['tour-scorecard', 'tour-bracket', 'tour-poster', 'tour-photo'];
 export const SLIDE_TEMPLATES: ShareTemplateId[] = ['slide-1', 'slide-2', 'slide-3'];
 /** A drill leads with its own photo-less layout: the hours, the weeks, the work. */
 export function shareTemplatesFor(n: number, kind?: ShareKind): ShareTemplateId[] {
@@ -92,12 +104,13 @@ export function shareTemplatesFor(n: number, kind?: ShareKind): ShareTemplateId[
 
 /** The layouts a card offers: shareTemplatesFor, less the Bracket layout with nothing to show, plus one layout
  *  per tournament slide (PKL-070) right after the poster. */
-export function shareTemplatesForModel(n: number, m: Pick<ShareCardModel, 'kind' | 'overview' | 'slides'>): ShareTemplateId[] {
+export function shareTemplatesForModel(n: number, m: Pick<ShareCardModel, 'kind' | 'overview' | 'slides' | 'story'>): ShareTemplateId[] {
   const base = shareTemplatesFor(n, m.kind).filter((id) => id !== 'overview' || !!m.overview?.stages.length);
   const pages = n <= 0 ? m.slides?.pages.length ?? 0 : 0;
-  if (!pages) return base;
   const at = base[0] === 'poster' ? 1 : 0;
-  return [...base.slice(0, at), ...SLIDE_TEMPLATES.slice(0, pages), ...base.slice(at)];
+  const withSlides = pages ? [...base.slice(0, at), ...SLIDE_TEMPLATES.slice(0, pages), ...base.slice(at)] : base;
+  // PKL-092: the four tournament layouts lead, with or without photos (Team photo falls back to the look's pattern)
+  return m.story ? [...STORY_TEMPLATES, ...withSlides] : withSlides;
 }
 
 /** A layout's name in the studio: "Slide 2 of 3: Results" for a tournament slide. */
@@ -212,6 +225,8 @@ export type ShareCardModel = {
   overview?: BracketOverview | null;
   /** PKL-070: the whole tournament as 1-3 slides, for the 'slide-N' layouts (bracket cards only). */
   slides?: TournamentSlides | null;
+  /** PKL-092: the tournament after pool play or at the finish, for the 'tour-*' layouts (bracket cards only). */
+  story?: TournamentStory | null;
   /** The SHOW toggles that start off. */
   offByDefault: string[];
   /** The look a card opens on. */
@@ -709,6 +724,8 @@ export type BracketShareData = {
   overview?: BracketOverview | null;
   /** PKL-070: the whole tournament as 1-3 slides. */
   slides?: TournamentSlides | null;
+  /** PKL-092: the after-pool-play / finish story. */
+  story?: TournamentStory | null;
 };
 
 /** The tournament matches a bracket card reads (tournament_matches + its round). */
@@ -906,6 +923,7 @@ export function bracketCardModel(d: BracketShareData): ShareCardModel {
     kind: 'bracket',
     overview: d.overview ?? null,
     slides: d.slides ?? null,
+    story: d.story ?? null,
     eyebrow: 'MY BRACKET',
     title: d.title,
     over: null,
@@ -932,7 +950,7 @@ export function bracketCardModel(d: BracketShareData): ShareCardModel {
     offByDefault: [],
     defaultLook: d.rank === 1 ? 'night' : 'court',
     showsScores: true,
-    message: d.rank === 1
+    message: d.story ? d.story.message : d.rank === 1
       ? `I won ${d.title} on Pickleague 🥒`
       : `My run in ${d.title} (${record}) on Pickleague 🥒`,
   };

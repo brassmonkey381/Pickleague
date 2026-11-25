@@ -14,6 +14,7 @@ import { PhotoCollage, ScaleToFit, layoutFor, type CollageLayoutId, type Collage
 import { fitFontSize } from '@just-messin-around/expo-foundation/typography';
 import type { ShareStudioState } from '@just-messin-around/expo-foundation/share';
 import TournamentSlideArt from './TournamentSlideArt';
+import TournamentStoryArt from './TournamentStoryArt';
 import { SLIDE_PAGE_NAME, slideIndexOf } from '../../lib/tournamentSlides';
 import {
   SHARE_LOOKS,
@@ -57,6 +58,16 @@ export default function ShareCardArt({ s, model }: Props) {
   );
 
   switch (s.template) {
+    // PKL-092: the four tournament layouts (after pool play, the finish)
+    case 'tour-scorecard':
+    case 'tour-bracket':
+    case 'tour-poster':
+    case 'tour-photo':
+      if (model.story) {
+        return <TournamentStoryArt story={model.story} template={s.template} look={look} width={s.width} height={s.height}
+          story916={story} photo={photos[0] ?? null} logo={s.logo} />;
+      }
+      return frame(<Body model={model} s={s} c={lookInk} u={u * k} align="center" width={lineW} />);
     case 'grind': {
       // "PUT IN THE WORK" over the hero, unless the hero already says it.
       const label = model.hero.big.toLowerCase() === 'put in the work' ? null : 'PUT IN THE WORK';
