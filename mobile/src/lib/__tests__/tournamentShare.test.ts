@@ -71,6 +71,8 @@ describe('PKL-092 the finish (mock ShareFinal)', () => {
   it('lost in the semis: 3rd place from the playoff, not the pool record', () => {
     const t = buildTournamentStory({ ...done, me: 'LC', poolPlace: 2, finalPlace: 3 })!;
     expect([t.headline, t.posterBig, t.posterLine, t.banner]).toEqual(['3rd place.', '3rd', 'Out in the semifinals.', '3RD PLACE']);
+    expect(t.bracketSub).toBe('Lob City, semifinals');
+    expect(s.bracketSub).toBe('Third Shot Club, through the bracket');
   });
   it('runner-up and a non-qualifier', () => {
     expect(buildTournamentStory({ ...done, me: 'KK', finalPlace: 2 })!.posterLine).toBe('Lost the Final 2-3.');

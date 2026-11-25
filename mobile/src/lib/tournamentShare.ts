@@ -213,7 +213,10 @@ export function buildTournamentStory(i: StoryInput): TournamentStory | null {
     rows: played.slice(-6).map((v) => row(v, true)),
     note: final?.db ? `Final decided in the Dreambreaker, ${final.db[0]}-${final.db[1]}` : null,
     bracketHeadline: champion ? 'Champions.' : `${placeText.charAt(0).toUpperCase()}${placeText.slice(1)}.`,
-    bracketSub: `${me.name}, through the bracket`,
+    // "through the bracket" is the champion's; anyone knocked out names the round they went out in
+    bracketSub: champion ? `${me.name}, through the bracket`
+      : last ? `${me.name}, ${last.m.stage === 'finals' ? 'Final' : STAGE_COLUMN[last.m.stage].toLowerCase()}`
+      : `${me.name}, pool play`,
     columns,
     bracketFoot: finalLine ?? `${all.w}-${all.l} on the day`,
     posterKicker: champion ? `${i.title}, Final` : i.title,
