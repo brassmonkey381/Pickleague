@@ -163,6 +163,47 @@
   "placement": null
  },
  {
+  "id": "rr-7",
+  "format": "Round robin (singles)",
+  "title": "Tournament closed (no playoff)",
+  "story": "All 6 played; the round robin is the final standings.",
+  "card": null,
+  "record": "You 2-1, #2 of 4",
+  "stamp": "Final",
+  "tables": [
+   {
+    "label": null,
+    "rows": [
+     {
+      "pos": 1,
+      "name": "Ben",
+      "wl": "2-1",
+      "pm": 7
+     },
+     {
+      "pos": 2,
+      "name": "Ana",
+      "wl": "2-1",
+      "pm": -1
+     },
+     {
+      "pos": 3,
+      "name": "Dee",
+      "wl": "1-2",
+      "pm": 0
+     },
+     {
+      "pos": 4,
+      "name": "Cal",
+      "wl": "1-2",
+      "pm": -6
+     }
+    ]
+   }
+  ],
+  "placement": null
+ },
+ {
   "id": "pool-1",
   "format": "Pool play + playoff (singles)",
   "title": "Ana done, pools still going",
@@ -422,6 +463,100 @@
    "title": "You won the Final",
    "line": null
   },
+  "record": "You 2-0, #1 of 3 in Pool A",
+  "tables": [
+   {
+    "label": "Pool A",
+    "rows": [
+     {
+      "pos": 1,
+      "name": "Ana",
+      "wl": "2-0",
+      "pm": 8
+     },
+     {
+      "pos": 2,
+      "name": "Ben",
+      "wl": "1-1",
+      "pm": -3
+     },
+     {
+      "pos": 3,
+      "name": "Cal",
+      "wl": "0-2",
+      "pm": -5
+     }
+    ]
+   },
+   {
+    "label": "Pool B",
+    "rows": [
+     {
+      "pos": 1,
+      "name": "Dee",
+      "wl": "1-1",
+      "pm": 4
+     },
+     {
+      "pos": 2,
+      "name": "Eve",
+      "wl": "1-1",
+      "pm": -2
+     },
+     {
+      "pos": 3,
+      "name": "Fay",
+      "wl": "1-1",
+      "pm": -2
+     }
+    ]
+   }
+  ],
+  "placement": [
+   {
+    "place": "1",
+    "name": "Ana",
+    "section": "playoff",
+    "detail": "Won the Final 11-8"
+   },
+   {
+    "place": "2",
+    "name": "Ben",
+    "section": "playoff",
+    "detail": "Lost the Final 8-11"
+   },
+   {
+    "place": "3",
+    "name": "Dee",
+    "section": "playoff",
+    "detail": "Won the 3rd-place match 11-6"
+   },
+   {
+    "place": "4",
+    "name": "Eve",
+    "section": "playoff",
+    "detail": "Lost the 3rd-place match 6-11"
+   },
+   {
+    "place": "5",
+    "name": "Fay",
+    "section": "rest",
+    "detail": "Pool B 3rd, 1-1, -2"
+   },
+   {
+    "place": "6",
+    "name": "Cal",
+    "section": "rest",
+    "detail": "Pool A 3rd, 0-2, -5"
+   }
+  ]
+ },
+ {
+  "id": "pool-5",
+  "format": "Pool play + playoff (singles)",
+  "title": "Tournament closed",
+  "story": "Same results as pool-4; the tournament has closed and stored its final places.",
+  "card": null,
   "record": "You 2-0, #1 of 3 in Pool A",
   "tables": [
    {

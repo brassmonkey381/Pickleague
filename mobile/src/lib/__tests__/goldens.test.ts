@@ -1,6 +1,6 @@
 /**
  * PKL-090 #4: the app must match the golden screens Brian approved (review page v3, 2026-11-25: "approve all for
- * standings"). For every sample moment, what the Standings card, the You card's wait reason, the final placement
+ * standings"; rr-7 and pool-5 on review v5: "approve rr-7 pool-5"). For every sample moment, what the Standings card, the You card's wait reason, the final placement
  * and the MLP playoff map say is compared with lib/__dev__/goldens.approved.json.
  *
  * A failure means the app now shows something Brian hasn't approved. Either fix the app, or, if the change is
@@ -42,7 +42,7 @@ function render() {
 }
 
 /** New moments on a review page, not yet approved by Brian. Move them into the approved file only after he does. */
-const PENDING_REVIEW = ['rr-7', 'pool-5'];
+const PENDING_REVIEW: string[] = [];
 
 describe('PKL-090 approved goldens', () => {
   const now = render();
