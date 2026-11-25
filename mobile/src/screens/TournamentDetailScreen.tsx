@@ -31,6 +31,8 @@ import PicklePotCard from '../components/PicklePotCard';
 import DoublesPairSection from '../components/DoublesPairSection';
 import MlpTeamSection from '../components/MlpTeamSection';
 import MlpPlayoffPreview from '../components/MlpPlayoffPreview';
+import MlpPlayoffMap from '../components/tournament/MlpPlayoffMap';
+import { buildMlpPlayoffView } from '../lib/mlpPlayoffView';
 import TournamentFlowOverview from '../components/TournamentFlowOverview';
 import PayoutPreviewModal from '../components/PayoutPreviewModal';
 import ConfirmModal from '../components/ConfirmModal';
@@ -954,31 +956,20 @@ export default function TournamentDetailScreen({ navigation, route }: Props) {
     </View>
   ) : null;
 
-  // PKL-085 (Brian 2026-11-25): the Playoff section shows only once the playoff is drawn: its matchups and results.
-  const playoffSection = mlpPlayoff && playoffExists && status !== 'cancelled' ? (
-    <CollapsibleSection
-      compact
-      title="Playoff"
-      open={playoffOpen}
-      onToggle={() => toggle('playoff', !playoffOpen, setPlayoffOpenChoice)}
-      collapsedContent={`Top ${tournament.mlp_playoff_teams ?? 4} teams advance`}
-    >
-      {/* `bare`: the "Playoff" header replaces its own title row. */}
-      <MlpPlayoffPreview
-        bare
-        tournamentId={tournamentId}
-        tournamentName={tournament.name}
-        leagueId={tournament.league_id ?? ''}
-        mlpPlayFormat={tournament.mlp_play_format as 'round_robin_playoff' | 'pool_play_playoff'}
-        poolCount={tournament.mlp_pool_count ?? 2}
-        playoffTeams={tournament.mlp_playoff_teams ?? 4}
-        isAdmin={isPriv}
-        standings={td.mlpStandings}
-        resultsKey={td.resultsKey}
-        tieRanks={td.tieRanks}
-      />
-    </CollapsibleSection>
+  // PKL-085 option A (Brian 2026-11-25): once the playoff is drawn, the MLP Playoff section is the map: champion,
+  // podium, the Final / 3rd-place / earlier matchups as tiles with per-game chips, then non-qualifiers by pool finish.
+  const mlpMap = isMlp && playoffExists && status !== 'cancelled'
+    ? buildMlpPlayoffView({
+        rounds: td.savedRounds as any, matches: td.savedMatches as any, teams: td.mlpTeams as any,
+        rows: (td.mlpStandings ?? []) as any, genderNeutral: !!(tournament as any).gender_neutral,
+      })
+    : null;
+  const playoffSection = mlpMap ? (
+    <View style={styles.block}>
+      <MlpPlayoffMap view={mlpMap} myTeamId={mlpTeamOf(td.mlpTeams, myUserId)?.id ?? null} />
+    </View>
   ) : null;
+  void MlpPlayoffPreview;
 
   const playersSection = (
     <PlayersSection

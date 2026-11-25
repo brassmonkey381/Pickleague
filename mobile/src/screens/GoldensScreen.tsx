@@ -10,6 +10,8 @@ import { textStyles } from '@just-messin-around/expo-foundation/typography';
 import { SPACE } from '@just-messin-around/expo-foundation/styles';
 import StandingsSection from '../components/tournament/StandingsSection';
 import PlacementSection from '../components/tournament/PlacementSection';
+import MlpPlayoffMap from '../components/tournament/MlpPlayoffMap';
+import { buildMlpPlayoffView } from '../lib/mlpPlayoffView';
 import TournamentYouCard, { youCardView, type YouCardFacts } from '../components/tournament/TournamentYouCard';
 import { buildStandings, myStanding } from '../components/tournament/standingsData';
 import { mlpPoolGroups } from '../lib/mlpStandings';
@@ -42,22 +44,26 @@ function Moment({ m }: { m: GoldenMoment }) {
   const w = m.wait ? waitReason(m.wait) : null;
   const view = w ? youCardView('playing', facts(m)) : null;
   const isMlp = m.standings.tournament.format === 'mlp';
-  void isMlp; void mlpPoolGroups;
+  void mlpPoolGroups;
+  // PKL-085 option A: the MLP playoff map, above the locked pool tables
+  const map = isMlp ? buildMlpPlayoffView({ rounds: m.standings.savedRounds as any, matches: m.standings.savedMatches as any,
+    teams: (m.standings.mlpTeams ?? []) as any, rows: (m.standings.mlpStandings ?? []) as any }) : null;
   return (
     <View testID={`golden-${m.id}`} style={[styles.frame, { backgroundColor: c.surface, borderColor: c.border }]}>
       <Text style={t.label}>{m.format}</Text>
       <Text style={t.title}>{m.title}</Text>
       <Text style={[t.sub, { marginBottom: SPACE.md }]}>{m.story}</Text>
       {view ? <TournamentYouCard view={view} /> : <Text style={t.sub}>{m.wait && m.wait.matches.some(x => x.status === 'pending' && [x.team1_player1, x.team1_player2, x.team2_player1, x.team2_player2].some(p => !!p && m.wait!.me.includes(p))) ? '(Your match is open: the Next match card shows.)' : '(Every match is in: the tournament closes and the Final results card shows.)'}</Text>}
+      {map ? <View style={{ marginTop: SPACE.md }}><MlpPlayoffMap view={map} myTeamId={m.standings.myMlpTeamId} /></View> : null}
       {/* PKL-085: once the playoff is drawn it comes first, the locked group stage below */}
-      {data?.stageLocked ? null : (data ? <View style={{ marginTop: SPACE.md }}><StandingsSection data={data} title={data.stageLocked ? (m.standings.tournament.format === 'pool_play' ? 'Pool play, final' : 'Round robin, final') : 'Standings'} /></View> : null)}
+      {data?.stageLocked ? null : (data ? <View style={{ marginTop: SPACE.md }}><StandingsSection data={data} title={map ? 'Pool play, final' : data.stageLocked ? (m.standings.tournament.format === 'pool_play' ? 'Pool play, final' : 'Round robin, final') : 'Standings'} /></View> : null)}
       {data?.placement && data.placement.rows.length > 0 ? (
         <View style={{ marginTop: SPACE.md }}>
           <PlacementSection data={data.placement} entrantLabel={data.entrantLabel}
             title={data.placement.settled ? 'Final placement' : 'Final placement (so far)'} />
         </View>
       ) : null}
-      {data?.stageLocked ? (data ? <View style={{ marginTop: SPACE.md }}><StandingsSection data={data} title={data.stageLocked ? (m.standings.tournament.format === 'pool_play' ? 'Pool play, final' : 'Round robin, final') : 'Standings'} /></View> : null) : null}
+      {data?.stageLocked ? (data ? <View style={{ marginTop: SPACE.md }}><StandingsSection data={data} title={map ? 'Pool play, final' : data.stageLocked ? (m.standings.tournament.format === 'pool_play' ? 'Pool play, final' : 'Round robin, final') : 'Standings'} /></View> : null) : null}
     </View>
   );
 }

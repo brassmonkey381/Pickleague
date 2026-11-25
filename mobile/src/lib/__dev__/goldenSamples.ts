@@ -197,6 +197,46 @@ function r6Semis(): GoldenMoment {
   };
 }
 
+// ── 5. MLP finished, option A (Brian 2026-11-25): 6 teams, 2 pools, semis, Final, 3rd-place. Viewer on Third Shot Club. ──
+function mlpFinished(): GoldenMoment {
+  seq = 600;
+  const names = ['Third Shot Club', 'Kitchen Kings', 'Lob City', 'Erne Express', 'Dink Dynasty', 'Paddle Battle'];
+  const ids = ['TSC', 'KK', 'LC', 'EE', 'DD', 'PB'];
+  const pool: Record<string, string> = { TSC: 'A', EE: 'A', DD: 'A', KK: 'B', LC: 'B', PB: 'B' };
+  const mem = (t: string) => [1, 2, 3, 4].map(k => `${t.toLowerCase()}${k}`);
+  const teams = ids.map((id, i) => { const p = mem(id); return { id, name: names[i], seed: i + 1, male_1_id: p[0], male_2_id: p[1], female_1_id: p[2], female_2_id: p[3] }; });
+  const slots: [number, number][] = [[0, 1], [2, 3], [0, 2], [1, 3]];
+  const meet = (r: Round, a: string, b: string, g: [number, number][], db?: [number, number]) => {
+    const A = mem(a), B = mem(b);
+    return [...g.map((x, k) => M(r, [A[slots[k][0]], A[slots[k][1]]], [B[slots[k][0]], B[slots[k][1]]], x)),
+      M(r, [A[0]], [B[0]], db, { is_dreambreaker: true, ...(db ? {} : { status: 'cancelled' }) })];
+  };
+  const rs: Round[] = [];
+  const r = (id: string, type: string, n: number) => { const x = R(id, type, n, null); rs.push(x); return x; };
+  const ms = [
+    ...meet(r('p1', 'pool', 1), 'TSC', 'EE', [[11, 6], [11, 8], [9, 11], [11, 5]]),
+    ...meet(r('p2', 'pool', 2), 'TSC', 'DD', [[11, 3], [11, 7], [11, 9], [8, 11]]),
+    ...meet(r('p3', 'pool', 3), 'EE', 'DD', [[11, 9], [7, 11], [11, 6], [11, 8]]),
+    ...meet(r('p4', 'pool', 4), 'KK', 'LC', [[11, 8], [9, 11], [11, 7], [6, 11]], [21, 18]),
+    ...meet(r('p5', 'pool', 5), 'KK', 'PB', [[11, 4], [11, 9], [8, 11], [11, 6]]),
+    ...meet(r('p6', 'pool', 6), 'LC', 'PB', [[11, 7], [11, 9], [9, 11], [11, 8]]),
+    ...meet(r('sf1', 'semifinals', 1001), 'TSC', 'LC', [[11, 5], [11, 9], [8, 11], [11, 7]]),
+    ...meet(r('sf2', 'semifinals', 1001), 'KK', 'EE', [[11, 6], [9, 11], [11, 8], [7, 11]], [21, 17]),
+    ...meet(r('fin', 'finals', 1002), 'TSC', 'KK', [[11, 8], [9, 11], [11, 6], [7, 11]], [21, 19]),
+    ...meet(r('tp', 'third_place_match', 1002), 'EE', 'LC', [[11, 4], [11, 9], [6, 11], [11, 8]]),
+  ];
+  const poolMs = ms.filter(m => (m.round as Round).round_type === 'pool');
+  const rows = mlpRows(teams, poolMs).map(x => ({ ...x, pool_letter: pool[x.team_id] }));
+  return {
+    id: 'mlp-final', format: 'MLP playoff', title: 'Finished (option A)',
+    story: 'Pools, then semifinals TSC v LC and KK v EE, the Final TSC v KK 3-2 (Dreambreaker 21-19), and the 3rd-place match EE v LC 3-1.',
+    standings: { ...base('mlp', 'doubles', [], {}, 'tsc1', poolMs, rs.filter(x => x.round_type === 'pool')), mlpStandings: rows, myMlpTeamId: 'TSC', mlpTeams: teams,
+      // the playoff map reads every round and match
+      savedRounds: rs, savedMatches: ms } as any,
+    wait: null,
+  };
+}
+
 export function goldenMoments(): GoldenMoment[] {
-  return [...roundRobin(), ...pools(), ...mlp(false), ...mlp(true), r6Semis()];
+  return [...roundRobin(), ...pools(), ...mlp(false), ...mlp(true), r6Semis(), mlpFinished()];
 }
